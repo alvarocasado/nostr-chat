@@ -1,4 +1,4 @@
-import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap } from 'lucide-react'
+import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { formatDistanceToNowStrict } from 'date-fns'
@@ -12,24 +12,25 @@ function formatTime(ts?: number) {
   }
 }
 
-function ChannelItem({ channel, isActive }: { channel: Channel; isActive: boolean }) {
+function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActive: boolean; onSelect: () => void }) {
   const { setActiveChat, joinChannel } = useNostrStore()
 
   const handleClick = () => {
     joinChannel(channel.id)
     setActiveChat(channel.id, 'channel')
+    onSelect()
   }
 
   return (
     <button
       onClick={handleClick}
-      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
+      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
         isActive
           ? 'bg-purple-600/20 border border-purple-500/30 text-white'
           : 'hover:bg-white/5 text-gray-300 hover:text-white'
       }`}
     >
-      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
         isActive ? 'bg-purple-600' : 'bg-gray-800'
       }`}>
         <Hash size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
@@ -52,27 +53,22 @@ function ChannelItem({ channel, isActive }: { channel: Channel; isActive: boolea
   )
 }
 
-function ContactItem({ contact, isActive }: { contact: Contact; isActive: boolean }) {
+function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActive: boolean; onSelect: () => void }) {
   const { setActiveChat, profiles } = useNostrStore()
   const profile = contact.profile || profiles[contact.pubkey]
   const name = profile?.display_name || profile?.name || contact.pubkey.slice(0, 10) + '...'
 
   return (
     <button
-      onClick={() => setActiveChat(contact.pubkey, 'dm')}
-      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
+      onClick={() => { setActiveChat(contact.pubkey, 'dm'); onSelect() }}
+      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
         isActive
           ? 'bg-purple-600/20 border border-purple-500/30 text-white'
           : 'hover:bg-white/5 text-gray-300 hover:text-white'
       }`}
     >
       <div className="relative">
-        <Avatar
-          picture={profile?.picture}
-          name={name}
-          pubkey={contact.pubkey}
-          size="sm"
-        />
+        <Avatar picture={profile?.picture} name={name} pubkey={contact.pubkey} size="sm" />
         <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
       </div>
       <div className="flex-1 min-w-0">
@@ -93,7 +89,12 @@ function ContactItem({ contact, isActive }: { contact: Contact; isActive: boolea
   )
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const {
     publicKey, profile, channels, joinedChannelIds, contacts,
     activeChatId, activeChatType, sidebarTab,
@@ -105,8 +106,8 @@ export function Sidebar() {
   const myName = myProfile?.display_name || myProfile?.name || (publicKey ? publicKey.slice(0, 8) + '...' : 'You')
   const joinedChannels = channels.filter(c => joinedChannelIds.includes(c.id))
 
-  return (
-    <div className="w-72 flex-shrink-0 flex flex-col bg-gray-900 border-r border-gray-800 h-full">
+  const sidebarContent = (
+    <div className="flex flex-col h-full bg-gray-900">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800">
         <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -115,10 +116,18 @@ export function Sidebar() {
         <span className="font-bold text-white text-lg flex-1">NostrChat</span>
         <button
           onClick={() => setShowSettings(true)}
-          className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
           title="Settings"
         >
           <Settings size={18} />
+        </button>
+        {/* Close button — mobile only */}
+        <button
+          onClick={onClose}
+          className="md:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+          aria-label="Close menu"
+        >
+          <X size={18} />
         </button>
       </div>
 
@@ -126,7 +135,7 @@ export function Sidebar() {
       <div className="flex px-3 pt-3 gap-1">
         <button
           onClick={() => setSidebarTab('channels')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
             sidebarTab === 'channels' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
           }`}
         >
@@ -135,7 +144,7 @@ export function Sidebar() {
         </button>
         <button
           onClick={() => setSidebarTab('dms')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
             sidebarTab === 'dms' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
           }`}
         >
@@ -144,7 +153,7 @@ export function Sidebar() {
         </button>
         <button
           onClick={() => setSidebarTab('contacts')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
             sidebarTab === 'contacts' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
           }`}
         >
@@ -158,8 +167,8 @@ export function Sidebar() {
         {sidebarTab === 'channels' && (
           <>
             <button
-              onClick={() => setShowAddChannel(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
+              onClick={() => { setShowAddChannel(true); onClose() }}
+              className="w-full flex items-center gap-2 px-3 py-3 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
             >
               <Plus size={16} />
               <span>Add / Discover Channels</span>
@@ -174,6 +183,7 @@ export function Sidebar() {
                 key={ch.id}
                 channel={ch}
                 isActive={activeChatId === ch.id && activeChatType === 'channel'}
+                onSelect={onClose}
               />
             ))}
           </>
@@ -182,15 +192,15 @@ export function Sidebar() {
         {sidebarTab === 'dms' && (
           <>
             <button
-              onClick={() => setShowAddContact(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
+              onClick={() => { setShowAddContact(true); onClose() }}
+              className="w-full flex items-center gap-2 px-3 py-3 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
             >
               <Plus size={16} />
               <span>New Message</span>
             </button>
             {contacts.length === 0 && (
               <p className="text-gray-500 text-xs text-center px-4 py-6">
-                No conversations yet. Start a new message.
+                No conversations yet.
               </p>
             )}
             {contacts.map(c => (
@@ -198,6 +208,7 @@ export function Sidebar() {
                 key={c.pubkey}
                 contact={c}
                 isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
+                onSelect={onClose}
               />
             ))}
           </>
@@ -206,8 +217,8 @@ export function Sidebar() {
         {sidebarTab === 'contacts' && (
           <>
             <button
-              onClick={() => setShowAddContact(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
+              onClick={() => { setShowAddContact(true); onClose() }}
+              className="w-full flex items-center gap-2 px-3 py-3 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
             >
               <Plus size={16} />
               <span>Add Contact</span>
@@ -222,6 +233,7 @@ export function Sidebar() {
                 key={c.pubkey}
                 contact={c}
                 isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
+                onSelect={onClose}
               />
             ))}
           </>
@@ -229,14 +241,9 @@ export function Sidebar() {
       </div>
 
       {/* Profile footer */}
-      <div className="px-3 py-3 border-t border-gray-800">
-        <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors cursor-pointer">
-          <Avatar
-            picture={myProfile?.picture}
-            name={myName}
-            pubkey={publicKey || ''}
-            size="sm"
-          />
+      <div className="px-3 py-3 border-t border-gray-800" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
+          <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white truncate">{myName}</p>
             <p className="text-xs text-gray-500 truncate">{publicKey?.slice(0, 16)}...</p>
@@ -244,12 +251,38 @@ export function Sidebar() {
           <button
             onClick={logout}
             title="Logout"
-            className="p-1.5 text-gray-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
+            className="p-2 text-gray-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
           >
             <LogOut size={16} />
           </button>
         </div>
       </div>
     </div>
+  )
+
+  return (
+    <>
+      {/* Desktop: static sidebar */}
+      <div className="hidden md:flex md:w-72 md:flex-shrink-0 border-r border-gray-800 h-full">
+        {sidebarContent}
+      </div>
+
+      {/* Mobile: slide-over drawer */}
+      {/* Backdrop */}
+      <div
+        className={`md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
+          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onClose}
+      />
+      {/* Drawer */}
+      <div
+        className={`md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {sidebarContent}
+      </div>
+    </>
   )
 }
