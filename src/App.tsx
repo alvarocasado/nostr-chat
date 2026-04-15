@@ -8,6 +8,8 @@ import { AddChannelModal } from './components/Chat/AddChannelModal'
 import { AddContactModal } from './components/Chat/AddContactModal'
 
 function App() {
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
   const {
     publicKey,
     showSettings, setShowSettings,
@@ -15,21 +17,14 @@ function App() {
     showAddContact, setShowAddContact,
   } = useNostrStore()
 
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-
   if (!publicKey) {
     return <LoginScreen />
   }
 
   return (
     <div className="flex h-full w-full bg-gray-950 overflow-hidden">
-      <Sidebar
-        isOpen={mobileSidebarOpen}
-        onClose={() => setMobileSidebarOpen(false)}
-      />
-      <MessageThread
-        onOpenSidebar={() => setMobileSidebarOpen(true)}
-      />
+      <Sidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
+      <MessageThread onOpenSidebar={() => setMobileSidebarOpen(true)} />
 
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
