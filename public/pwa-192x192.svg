@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="40" fill="#7c3aed"/>
+  <polygon points="96,40 120,80 148,80 124,106 134,148 96,124 58,148 68,106 44,80 72,80" fill="#fbbf24" stroke="none"/>
+  <text x="96" y="165" text-anchor="middle" font-family="system-ui" font-size="20" font-weight="bold" fill="white">NOSTR</text>
+</svg>
