@@ -1,0 +1,204 @@
+import { useEffect } from 'react'
+import {
+  subscribeEvents,
+  publishEvent,
+  parseProfile,
+  decryptDM,
+  buildChannelCreateEvent,
+  buildChannelMessageEvent,
+  buildDMEvent,
+  buildProfileEvent,
+  fetchEvent,
+  type NostrProfile,
+} from '../lib/nostr'
+import { useNostrStore, type Channel, type Message } from '../store/nostrStore'
+
+// Hook to load profiles for a list of pubkeys
+export function useProfileLoader(pubkeys: string[]) {
+  const { relays, setProfile, profiles } = useNostrStore()
+
+  useEffect(() => {
+    if (!pubkeys.length) return
+    const missing = pubkeys.filter(pk => !profiles[pk])
+    if (!missing.length) return
+
+    const sub = subscribeEvents(
+      relays,
+      { kinds: [0], authors: missing },
+      (event) => {
+        const profile = parseProfile(event)
+        setProfile(event.pubkey, profile)
+      }
+    )
+    return () => sub.close()
+  }, [pubkeys.join(','), relays.join(',')])
+}
+
+// Hook to subscribe to public channel messages
+export function useChannelMessages(channelId: string | null) {
+  const { relays, addMessage, updateChannelLastMessage, setProfile, profiles } = useNostrStore()
+
+  useEffect(() => {
+    if (!channelId) return
+
+    const sub = subscribeEvents(
+      relays,
+      { kinds: [42], '#e': [channelId], limit: 200 },
+      (event) => {
+        const msg: Message = {
+          id: event.id,
+          pubkey: event.pubkey,
+          content: event.content,
+          createdAt: event.created_at,
+          tags: event.tags,
+          kind: event.kind,
+          channelId,
+        }
+        addMessage(channelId, msg)
+        updateChannelLastMessage(channelId, event.content, event.created_at)
+
+        if (!profiles[event.pubkey]) {
+          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] }).then(profileEvent => {
+            if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent))
+          })
+        }
+      }
+    )
+    return () => sub.close()
+  }, [channelId, relays.join(',')])
+}
+
+// Hook to subscribe to DMs (two separate subscriptions: sent + received)
+export function useDMMessages(myPubkey: string | null, theirPubkey: string | null) {
+  const { relays, getPrivateKey, addMessage, updateContactLastMessage, setProfile, profiles } = useNostrStore()
+
+  useEffect(() => {
+    if (!myPubkey || !theirPubkey) return
+    const sk = getPrivateKey()
+    if (!sk) return
+
+    const chatId = theirPubkey
+
+    const handleEvent = async (event: { id: string; pubkey: string; content: string; created_at: number; tags: string[][]; kind: number }) => {
+      try {
+        const peerPubkey = event.pubkey === myPubkey ? theirPubkey : event.pubkey
+        const decrypted = await decryptDM(sk, peerPubkey, event.content)
+        const msg: Message = {
+          id: event.id,
+          pubkey: event.pubkey,
+          content: decrypted,
+          createdAt: event.created_at,
+          tags: event.tags,
+          kind: event.kind,
+          recipientPubkey: theirPubkey,
+          decrypted: true,
+        }
+        addMessage(chatId, msg)
+        if (event.pubkey !== myPubkey) {
+          updateContactLastMessage(theirPubkey, decrypted, event.created_at)
+        }
+
+        if (!profiles[event.pubkey]) {
+          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] }).then(profileEvent => {
+            if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent))
+          })
+        }
+      } catch {
+        // Decryption failed - skip
+      }
+    }
+
+    // Messages I sent to them
+    const sub1 = subscribeEvents(
+      relays,
+      { kinds: [4], authors: [myPubkey], '#p': [theirPubkey], limit: 200 },
+      handleEvent,
+    )
+    // Messages they sent to me
+    const sub2 = subscribeEvents(
+      relays,
+      { kinds: [4], authors: [theirPubkey], '#p': [myPubkey], limit: 200 },
+      handleEvent,
+    )
+    return () => {
+      sub1.close()
+      sub2.close()
+    }
+  }, [myPubkey, theirPubkey, relays.join(',')])
+}
+
+// Hook to discover public channels
+export function useChannelDiscovery() {
+  const { relays, addChannel } = useNostrStore()
+
+  useEffect(() => {
+    const sub = subscribeEvents(
+      relays,
+      { kinds: [40], limit: 50 },
+      (event) => {
+        try {
+          const meta = JSON.parse(event.content)
+          const channel: Channel = {
+            id: event.id,
+            name: meta.name || 'Unnamed Channel',
+            about: meta.about,
+            picture: meta.picture,
+            creatorPubkey: event.pubkey,
+            relayUrl: relays[0],
+          }
+          addChannel(channel)
+        } catch {
+          // ignore malformed
+        }
+      }
+    )
+    return () => sub.close()
+  }, [relays.join(',')])
+}
+
+// Send a channel message
+export async function sendChannelMessage(
+  sk: Uint8Array,
+  content: string,
+  channelId: string,
+  relays: string[]
+) {
+  const event = buildChannelMessageEvent(sk, content, channelId, relays[0])
+  await publishEvent(relays, event)
+  return event
+}
+
+// Send a DM
+export async function sendDM(
+  sk: Uint8Array,
+  content: string,
+  recipientPubkey: string,
+  relays: string[]
+) {
+  const event = await buildDMEvent(sk, recipientPubkey, content)
+  await publishEvent(relays, event)
+  return event
+}
+
+// Create a new channel
+export async function createChannel(
+  sk: Uint8Array,
+  name: string,
+  about: string,
+  relays: string[]
+) {
+  const event = buildChannelCreateEvent(sk, name, about)
+  await publishEvent(relays, event)
+  return event
+}
+
+// Publish profile
+export async function publishProfile(
+  sk: Uint8Array,
+  profile: Partial<NostrProfile>,
+  relays: string[]
+) {
+  const event = buildProfileEvent(sk, profile)
+  await publishEvent(relays, event)
+  return event
+}
