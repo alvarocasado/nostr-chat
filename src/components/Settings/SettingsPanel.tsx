@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { X, Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2 } from 'lucide-react'
+import { X, Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { Avatar } from '../Chat/Avatar'
+import { QRCodeDisplay } from './QRCodeDisplay'
 
 interface SettingsPanelProps {
   onClose: () => void
@@ -20,6 +21,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [copied, setCopied] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [showQR, setShowQR] = useState(false)
 
   // Profile form state
   const [displayName, setDisplayName] = useState(profile?.display_name || profile?.name || '')
@@ -51,13 +53,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     const sk = getPrivateKey()
     if (!sk) { setSaving(false); return }
     try {
-      updateProfile({
-        display_name: displayName,
-        name: displayName,
-        about,
-        picture,
-        nip05,
-      })
+      updateProfile({ display_name: displayName, name: displayName, about, picture, nip05 })
       await publishProfile(sk, { display_name: displayName, name: displayName, about, picture, nip05 }, relays)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -69,8 +65,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4">
+      <div className="bg-gray-900 border-t sm:border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg shadow-2xl max-h-[92dvh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 flex-shrink-0">
           <h2 className="text-lg font-semibold text-white">Settings</h2>
@@ -182,10 +178,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
               <div className="space-y-2">
                 {relays.map(relay => (
-                  <div
-                    key={relay}
-                    className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3"
-                  >
+                  <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
                     <Wifi size={16} className="text-green-400 flex-shrink-0" />
                     <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
                     <button
@@ -207,6 +200,34 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 <p className="text-yellow-300 text-sm">
                   <strong>Never share your private key (nsec).</strong> Anyone with it has full control of your account.
                 </p>
+              </div>
+
+              {/* QR Code share section */}
+              <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setShowQR(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                    <QrCode size={16} className="text-purple-400" />
+                    Share Public Key via QR Code
+                  </div>
+                  {showQR
+                    ? <ChevronUp size={16} className="text-gray-400" />
+                    : <ChevronDown size={16} className="text-gray-400" />}
+                </button>
+
+                {showQR && npub && (
+                  <div className="px-4 pb-5 pt-1 border-t border-gray-700">
+                    <p className="text-gray-400 text-xs mb-4 text-center">
+                      Anyone can scan this to find and message you on Nostr.
+                    </p>
+                    <QRCodeDisplay
+                      value={`nostr:${npub}`}
+                      label={`nostr:${npub.slice(0, 16)}...${npub.slice(-8)}`}
+                    />
+                  </div>
+                )}
               </div>
 
               <KeyRow

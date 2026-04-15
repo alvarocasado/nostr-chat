@@ -107,7 +107,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const joinedChannels = channels.filter(c => joinedChannelIds.includes(c.id))
 
   const sidebarContent = (
-    <div className="flex flex-col h-full w-full bg-gray-900">
+    <div className="flex flex-col h-full bg-gray-900">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800">
         <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">

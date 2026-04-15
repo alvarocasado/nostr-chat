@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNostrStore } from './store/nostrStore'
 import { LoginScreen } from './components/Auth/LoginScreen'
 import { Sidebar } from './components/Chat/Sidebar'
@@ -14,14 +15,21 @@ function App() {
     showAddContact, setShowAddContact,
   } = useNostrStore()
 
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+
   if (!publicKey) {
     return <LoginScreen />
   }
 
   return (
     <div className="flex h-full w-full bg-gray-950 overflow-hidden">
-      <Sidebar />
-      <MessageThread />
+      <Sidebar
+        isOpen={mobileSidebarOpen}
+        onClose={() => setMobileSidebarOpen(false)}
+      />
+      <MessageThread
+        onOpenSidebar={() => setMobileSidebarOpen(true)}
+      />
 
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
