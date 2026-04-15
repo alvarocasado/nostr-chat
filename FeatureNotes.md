@@ -1,5 +1,22 @@
 # Feature Notes
 
+## feature/mobile-responsive-layout
+
+**Mobile rendering compatibility**
+
+- **Viewport height**: replaced `100vh` with `100dvh` so the app container shrinks correctly when the virtual keyboard opens on iOS/Android
+- **iOS safe areas**: message input bar and sidebar footer respect `env(safe-area-inset-bottom)` for notch/home-indicator devices
+- **Sidebar drawer**: on mobile (`< md`) the sidebar is hidden by default and slides in from the left as a full-height overlay with a dark backdrop; tap outside or the ✕ button to dismiss
+- **Desktop unchanged**: sidebar remains a fixed `w-72` column at `md` and above
+- **Back navigation**: chat headers gain an `←` back button on mobile that clears the active chat and shows the empty state with an "Open Menu" button
+- **Mobile top bar**: when no chat is selected on mobile, a minimal top bar with a hamburger menu button is shown
+- **Bottom-sheet modals**: Add Channel, Add Contact, and Settings modals slide up from the bottom on mobile (rounded top corners, full width) and remain centered cards on desktop; content areas scroll independently
+- **Touch targets**: increased tap area on list items (py-3 vs py-2.5) and all icon buttons (p-2 minimum)
+- **Hint text hidden on mobile**: "Enter to send · Shift+Enter for new line" hint hidden on small screens
+- All 40 existing tests continue to pass
+
+---
+
 ## feature/testing-setup
 
 **Automated testing with Vitest + React Testing Library**

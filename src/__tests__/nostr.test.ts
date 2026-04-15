@@ -5,7 +5,6 @@ import {
   encodePubkey,
   parseProfile,
   shortPubkey,
-  type NostrProfile,
 } from '../lib/nostr'
 import type { Event } from 'nostr-tools'
 

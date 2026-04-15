@@ -55,8 +55,8 @@ export function AddChannelModal({ onClose }: AddChannelModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4">
+      <div className="bg-gray-900 border-t sm:border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg shadow-2xl max-h-[92dvh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-white">Channels</h2>
@@ -85,7 +85,7 @@ export function AddChannelModal({ onClose }: AddChannelModalProps) {
           </button>
         </div>
 
-        <div className="p-6 pt-4 space-y-4">
+        <div className="p-6 pt-4 space-y-4 overflow-y-auto scrollbar-thin">
           {tab === 'discover' && (
             <>
               <div className="relative">
