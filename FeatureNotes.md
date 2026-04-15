@@ -1,5 +1,23 @@
 # Feature Notes
 
+## feature/testing-setup
+
+**Automated testing with Vitest + React Testing Library**
+
+- Vitest configured in `vite.config.ts` with `jsdom` environment and global test APIs
+- `@testing-library/react` and `@testing-library/user-event` for component tests
+- `@vitest/coverage-v8` for code coverage reports (`npm run test:coverage`)
+- Global mocks in `src/test/setup.ts` for clipboard, camera, Web Share API, and Nostr relay pool
+- **40 tests** across 4 suites:
+  - `nostr.test.ts` — key generation, bech32 encoding, `parseProfile`, `shortPubkey`
+  - `store.test.ts` — login/logout, relay management, contacts, channels, message deduplication and sorting
+  - `extractPubkey.test.ts` — QR payload parsing for all Nostr URI formats
+  - `LoginScreen.test.tsx` — welcome screen rendering, account creation flow, nsec import, error handling
+- CI workflow updated: tests run on every push to `main`, `develop`, and `feature/**` branches; build and deploy only proceed if tests pass
+- `npm test` — single run | `npm run test:watch` — interactive | `npm run test:coverage` — with coverage
+
+---
+
 ## feature/settings-share-pubkey-qr
 
 **Share public key via QR code (Settings → Keys)**
