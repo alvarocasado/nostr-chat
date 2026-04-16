@@ -1,6 +1,7 @@
 import { format } from 'date-fns'
 import { Download, FileText, Film, Music, File } from 'lucide-react'
 import { Avatar } from './Avatar'
+import { AudioMessage } from './AudioMessage'
 import type { Message } from '../../store/nostrStore'
 import type { NostrProfile } from '../../lib/nostr'
 import { parseMessageContent, formatBytes, type AttachmentData } from '../../lib/fileUtils'
@@ -36,6 +37,10 @@ function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isO
         style={{ maxHeight: 300 }}
       />
     )
+  }
+
+  if (attachment.type.startsWith('audio/')) {
+    return <AudioMessage src={attachment.data} isOwn={isOwn} />
   }
 
   return (
