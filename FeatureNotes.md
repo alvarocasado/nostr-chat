@@ -11,6 +11,17 @@
 - `Cache-Control: no-cache` meta tags added to `index.html` to prevent browsers from serving a stale HTML shell from their own cache, independent of the service worker
 - `vite-plugin-pwa/client` types added to `tsconfig.app.json` for the `virtual:pwa-register/react` virtual module
 
+### Voice Messages
+- Microphone button in the message input (visible when the text field is empty and no attachment is pending)
+- Tap to start recording — browser prompts for microphone permission on first use
+- Live recording indicator with elapsed / max time (0:00 / 1:00) and a pulsing red dot
+- Stop button ends the recording; Cancel discards it entirely
+- Recording is capped at 60 seconds; the resulting audio blob is encoded as a base64 data URL and checked against a 200 KB relay-safe limit before attaching
+- Preview shows an inline audio player before sending so the user can review the message
+- Voice messages render as a compact audio player in the chat (play/pause, scrub bar, elapsed/total time) for both sender and receiver
+- Supports `audio/webm;codecs=opus` (Chrome/Firefox/Edge) and `audio/mp4` (Safari) via auto-detected MIME type
+- Microphone permission errors shown as inline error banners
+
 ### File Attachments
 - Paperclip button in the message input to attach files, photos, documents, audio, and video
 - Images are compressed client-side (canvas → JPEG, max 1280px, progressive quality reduction) to stay within the 150 KB relay-safe limit; an error is shown if the image cannot be compressed enough

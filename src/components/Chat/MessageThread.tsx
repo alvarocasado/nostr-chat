@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM } from '../../hooks/useNostrSubscriptions'
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
   compressImage, encodeFile, serializeMessage, formatBytes,
-  MAX_ATTACHMENT_BYTES, MAX_RAW_FILE_BYTES, type AttachmentData,
+  MAX_ATTACHMENT_BYTES, MAX_RAW_FILE_BYTES, MAX_AUDIO_BYTES, type AttachmentData,
 } from '../../lib/fileUtils'
+import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
+import { AudioMessage, formatDuration } from './AudioMessage'
 
 interface MessageThreadProps {
   onOpenSidebar: () => void
@@ -82,6 +84,8 @@ function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const recorder = useAudioRecorder()
+
   const canSend = (text.trim().length > 0 || attachment !== null) && !sending
 
   const handleSend = async () => {
@@ -112,7 +116,6 @@ function MessageInput({
     e.target.value = ''
     if (!file) return
     setAttachError(null)
-
     try {
       let data: string
       if (file.type.startsWith('image/')) {
@@ -134,6 +137,34 @@ function MessageInput({
     }
   }
 
+  // When recording stops, encode the blob and set as attachment
+  const handleStopRecording = async () => {
+    recorder.stop()
+  }
+
+  useEffect(() => {
+    if (recorder.state !== 'stopped' || !recorder.audioBlob) return
+    const blob = recorder.audioBlob
+    const mime = blob.type || recorder.mimeType || 'audio/webm'
+    const ext = mime.split(';')[0].split('/')[1] ?? 'webm'
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = reader.result as string
+      if (data.length > MAX_AUDIO_BYTES) {
+        setAttachError(`Voice message too large (${Math.round(data.length / 1024)} KB). Try a shorter recording.`)
+        recorder.reset()
+        return
+      }
+      setAttachment({ name: `voice-message.${ext}`, type: mime, size: blob.size, data })
+      recorder.reset()
+    }
+    reader.readAsDataURL(blob)
+  }, [recorder.state, recorder.audioBlob]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (recorder.error) setAttachError(recorder.error)
+  }, [recorder.error])
+
   useEffect(() => {
     const el = textareaRef.current
     if (el) {
@@ -142,25 +173,33 @@ function MessageInput({
     }
   }, [text])
 
+  const isRecording = recorder.state === 'recording' || recorder.state === 'requesting'
+
   return (
     <div
       className="px-3 py-3 border-t border-gray-800 bg-gray-900"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
       {/* Attachment preview */}
-      {attachment && (
+      {attachment && !isRecording && (
         <div className="mb-2 flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2">
           {attachment.type.startsWith('image/') ? (
             <img src={attachment.data} alt={attachment.name} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+          ) : attachment.type.startsWith('audio/') ? (
+            <div className="flex-1 min-w-0 py-1">
+              <AudioMessage src={attachment.data} isOwn />
+            </div>
           ) : (
             <div className="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
               <Paperclip size={18} className="text-gray-400" />
             </div>
           )}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-white truncate">{attachment.name}</p>
-            <p className="text-xs text-gray-500">{formatBytes(attachment.size)}</p>
-          </div>
+          {!attachment.type.startsWith('audio/') && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-white truncate">{attachment.name}</p>
+              <p className="text-xs text-gray-500">{formatBytes(attachment.size)}</p>
+            </div>
+          )}
           <button
             onClick={() => setAttachment(null)}
             className="p-1 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
@@ -181,41 +220,78 @@ function MessageInput({
         </div>
       )}
 
-      {/* Input row */}
-      <div className="flex items-end gap-2 bg-gray-800 rounded-2xl px-3 py-2.5">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="text-gray-500 hover:text-purple-400 transition-colors flex-shrink-0 mb-0.5"
-          title="Attach file"
-          type="button"
-        >
-          <Paperclip size={18} />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,application/pdf,text/*,audio/*,video/*"
-          className="hidden"
-          onChange={handleFileChange}
-        />
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={e => setText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          rows={1}
-          className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none outline-none text-sm leading-relaxed max-h-32 scrollbar-thin"
-          style={{ overflow: 'hidden' }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={!canSend}
-          className="w-10 h-10 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
-        >
-          <Send size={16} className="text-white" />
-        </button>
-      </div>
+      {/* Recording row */}
+      {isRecording ? (
+        <div className="flex items-center gap-3 bg-gray-800 rounded-2xl px-4 py-3">
+          <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+          <span className="text-sm text-white flex-1 tabular-nums">
+            {recorder.state === 'requesting' ? 'Waiting for mic…' : `Recording  ${formatDuration(recorder.elapsed)} / ${formatDuration(MAX_RECORDING_SECONDS)}`}
+          </span>
+          <button
+            onClick={handleStopRecording}
+            disabled={recorder.state === 'requesting'}
+            className="w-9 h-9 bg-red-600 hover:bg-red-500 disabled:opacity-40 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+            title="Stop recording"
+          >
+            <Square size={14} className="text-white fill-white" />
+          </button>
+          <button
+            onClick={recorder.reset}
+            className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors"
+            title="Cancel"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      ) : (
+        /* Normal input row */
+        <div className="flex items-end gap-2 bg-gray-800 rounded-2xl px-3 py-2.5">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-gray-500 hover:text-purple-400 transition-colors flex-shrink-0 mb-0.5"
+            title="Attach file"
+            type="button"
+          >
+            <Paperclip size={18} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf,text/*,audio/*,video/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            rows={1}
+            className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none outline-none text-sm leading-relaxed max-h-32 scrollbar-thin"
+            style={{ overflow: 'hidden' }}
+          />
+          {/* Mic button — shown when no text typed and no attachment */}
+          {!text.trim() && !attachment ? (
+            <button
+              onClick={() => { void recorder.start() }}
+              className="w-10 h-10 text-gray-500 hover:text-purple-400 transition-colors flex items-center justify-center flex-shrink-0"
+              title="Record voice message"
+              type="button"
+            >
+              <Mic size={20} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!canSend}
+              className="w-10 h-10 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+            >
+              <Send size={16} className="text-white" />
+            </button>
+          )}
+        </div>
+      )}
       <p className="text-gray-600 text-xs mt-1.5 text-center hidden sm:block">
         Enter to send · Shift+Enter for new line
       </p>
