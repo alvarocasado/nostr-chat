@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { Avatar } from '../Chat/Avatar'
@@ -22,6 +22,10 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [showQR, setShowQR] = useState(false)
+
+  const contactLink = npub
+    ? `${window.location.origin}${import.meta.env.BASE_URL}?contact=${npub}`
+    : ''
 
   // Profile form state
   const [displayName, setDisplayName] = useState(profile?.display_name || profile?.name || '')
@@ -227,6 +231,66 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                       label={`nostr:${npub.slice(0, 16)}...${npub.slice(-8)}`}
                     />
                   </div>
+                )}
+              </div>
+
+              {/* Share contact link */}
+              <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Link size={16} className="text-purple-400 flex-shrink-0" />
+                  <span className="text-sm font-semibold text-white">Share Contact Link</span>
+                </div>
+                <p className="text-gray-400 text-xs">
+                  Anyone who opens this link will be prompted to add you as a contact on NostrChat.
+                </p>
+
+                {/* Web link */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Web Link</p>
+                  <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
+                    <span className="flex-1 text-xs font-mono text-gray-300 truncate">{contactLink}</span>
+                    <button
+                      onClick={() => copy(contactLink, 'contactLink')}
+                      className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0"
+                      title="Copy link"
+                    >
+                      {copied === 'contactLink' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Nostr URI */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Nostr URI</p>
+                  <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
+                    <span className="flex-1 text-xs font-mono text-gray-300 truncate">nostr:{npub}</span>
+                    <button
+                      onClick={() => copy(`nostr:${npub}`, 'nostrUri')}
+                      className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0"
+                      title="Copy Nostr URI"
+                    >
+                      {copied === 'nostrUri' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Web Share API */}
+                {typeof navigator !== 'undefined' && !!navigator.share && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await navigator.share({
+                          title: 'Add me on NostrChat',
+                          text: `Add me on NostrChat (nostr:${npub})`,
+                          url: contactLink,
+                        })
+                      } catch { /* user cancelled */ }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-sm font-semibold rounded-xl transition-colors"
+                  >
+                    <Share2 size={15} />
+                    Share via…
+                  </button>
                 )}
               </div>
 
