@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Cache Busting / Update Prompt
+- Service worker changed from `autoUpdate` to `prompt` mode — new versions install silently in the background and wait for user confirmation before activating
+- "New version available" toast banner appears at the bottom of the screen (on login and chat screens) with an **Update** button and a dismiss option
+- Clicking **Update** activates the new service worker immediately and reloads the page
+- `clientsClaim: true` — new SW claims all open tabs immediately on activation so no tab is left on the old version
+- `cleanupOutdatedCaches: true` — old Workbox caches are removed automatically on each update
+- `Cache-Control: no-cache` meta tags added to `index.html` to prevent browsers from serving a stale HTML shell from their own cache, independent of the service worker
+- `vite-plugin-pwa/client` types added to `tsconfig.app.json` for the `virtual:pwa-register/react` virtual module
+
 ### File Attachments
 - Paperclip button in the message input to attach files, photos, documents, audio, and video
 - Images are compressed client-side (canvas → JPEG, max 1280px, progressive quality reduction) to stay within the 150 KB relay-safe limit; an error is shown if the image cannot be compressed enough
