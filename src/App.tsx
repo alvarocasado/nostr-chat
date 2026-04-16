@@ -6,6 +6,7 @@ import { MessageThread } from './components/Chat/MessageThread'
 import { SettingsPanel } from './components/Settings/SettingsPanel'
 import { AddChannelModal } from './components/Chat/AddChannelModal'
 import { AddContactModal } from './components/Chat/AddContactModal'
+import { UpdatePrompt } from './components/UpdatePrompt'
 
 function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
@@ -18,7 +19,12 @@ function App() {
   } = useNostrStore()
 
   if (!publicKey) {
-    return <LoginScreen />
+    return (
+      <>
+        <LoginScreen />
+        <UpdatePrompt />
+      </>
+    )
   }
 
   return (
@@ -35,6 +41,7 @@ function App() {
       {showAddContact && (
         <AddContactModal onClose={() => setShowAddContact(false)} />
       )}
+      <UpdatePrompt />
     </div>
   )
 }
