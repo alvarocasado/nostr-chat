@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM } from '../../hooks/useNostrSubscriptions'
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
+import {
+  compressImage, encodeFile, serializeMessage, formatBytes,
+  MAX_ATTACHMENT_BYTES, MAX_RAW_FILE_BYTES, type AttachmentData,
+} from '../../lib/fileUtils'
 
 interface MessageThreadProps {
   onOpenSidebar: () => void
@@ -73,17 +77,23 @@ function MessageInput({
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [attachment, setAttachment] = useState<AttachmentData | null>(null)
+  const [attachError, setAttachError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const canSend = (text.trim().length > 0 || attachment !== null) && !sending
 
   const handleSend = async () => {
-    const content = text.trim()
-    if (!content || sending) return
+    if (!canSend) return
+    const content = serializeMessage(text.trim(), attachment)
     setSending(true)
     setText('')
+    setAttachment(null)
     try {
       await onSend(content)
     } catch {
-      setText(content)
+      setText(text)
     } finally {
       setSending(false)
       textareaRef.current?.focus()
@@ -94,6 +104,33 @@ function MessageInput({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setAttachError(null)
+
+    try {
+      let data: string
+      if (file.type.startsWith('image/')) {
+        data = await compressImage(file)
+      } else {
+        if (file.size > MAX_RAW_FILE_BYTES) {
+          setAttachError(`File too large. Max ${MAX_RAW_FILE_BYTES / 1024} KB for non-image files.`)
+          return
+        }
+        data = await encodeFile(file)
+        if (data.length > MAX_ATTACHMENT_BYTES) {
+          setAttachError(`Encoded file exceeds relay limit (${Math.round(data.length / 1024)} KB > ${MAX_ATTACHMENT_BYTES / 1024} KB).`)
+          return
+        }
+      }
+      setAttachment({ name: file.name, type: file.type, size: file.size, data })
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Failed to attach file.')
     }
   }
 
@@ -110,7 +147,57 @@ function MessageInput({
       className="px-3 py-3 border-t border-gray-800 bg-gray-900"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
-      <div className="flex items-end gap-2 bg-gray-800 rounded-2xl px-4 py-2.5">
+      {/* Attachment preview */}
+      {attachment && (
+        <div className="mb-2 flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2">
+          {attachment.type.startsWith('image/') ? (
+            <img src={attachment.data} alt={attachment.name} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-12 h-12 bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0">
+              <Paperclip size={18} className="text-gray-400" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-white truncate">{attachment.name}</p>
+            <p className="text-xs text-gray-500">{formatBytes(attachment.size)}</p>
+          </div>
+          <button
+            onClick={() => setAttachment(null)}
+            className="p-1 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+            aria-label="Remove attachment"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {/* Error */}
+      {attachError && (
+        <div className="mb-2 flex items-center justify-between gap-2 bg-red-900/30 border border-red-700/50 rounded-xl px-3 py-2">
+          <p className="text-xs text-red-400">{attachError}</p>
+          <button onClick={() => setAttachError(null)} className="text-red-500 hover:text-red-300 flex-shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Input row */}
+      <div className="flex items-end gap-2 bg-gray-800 rounded-2xl px-3 py-2.5">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="text-gray-500 hover:text-purple-400 transition-colors flex-shrink-0 mb-0.5"
+          title="Attach file"
+          type="button"
+        >
+          <Paperclip size={18} />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf,text/*,audio/*,video/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
         <textarea
           ref={textareaRef}
           value={text}
@@ -123,7 +210,7 @@ function MessageInput({
         />
         <button
           onClick={handleSend}
-          disabled={!text.trim() || sending}
+          disabled={!canSend}
           className="w-10 h-10 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
         >
           <Send size={16} className="text-white" />
