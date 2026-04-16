@@ -11,6 +11,13 @@
 - `Cache-Control: no-cache` meta tags added to `index.html` to prevent browsers from serving a stale HTML shell from their own cache, independent of the service worker
 - `vite-plugin-pwa/client` types added to `tsconfig.app.json` for the `virtual:pwa-register/react` virtual module
 
+### Share Contact via Link
+- New "Share Contact Link" card in Settings > Keys, alongside the QR code
+- **Web link** — `https://[app-url]/?contact=npub1…` — works in any browser; opening it launches the app and auto-fills the Add Contact modal with your profile pre-loaded
+- **Nostr URI** — `nostr:npub1…` — for Nostr-native apps that handle the `nostr:` scheme
+- Both links have individual copy buttons; Web Share API button ("Share via…") appears on supporting devices
+- **URL handler** in App.tsx: `?contact=npub1…` is consumed on load, the param is removed from the URL history via `history.replaceState`, and the Add Contact modal opens with the profile auto-looked up
+
 ### Voice Messages
 - Microphone button in the message input (visible when the text field is empty and no attachment is pending)
 - Tap to start recording — browser prompts for microphone permission on first use
