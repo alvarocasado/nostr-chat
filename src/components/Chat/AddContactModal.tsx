@@ -8,6 +8,7 @@ import { useQRScanner } from '../../hooks/useQRScanner'
 
 interface AddContactModalProps {
   onClose: () => void
+  initialNpub?: string
 }
 
 // Extract a nostr pubkey from various QR payload formats:
@@ -113,13 +114,21 @@ function QRScannerView({ onDetected, onCancel }: { onDetected: (pk: string) => v
   )
 }
 
-export function AddContactModal({ onClose }: AddContactModalProps) {
+export function AddContactModal({ onClose, initialNpub }: AddContactModalProps) {
   const { relays, addContact, setProfile, setActiveChat, setSidebarTab } = useNostrStore()
   const [tab, setTab] = useState<'manual' | 'qr'>('manual')
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(initialNpub ?? '')
   const [loading, setLoading] = useState(false)
   const [found, setFound] = useState<{ pubkey: string; name?: string; about?: string; picture?: string } | null>(null)
   const [error, setError] = useState('')
+
+  // Auto-lookup when opened with a pre-filled npub (e.g. from a share link)
+  useEffect(() => {
+    if (initialNpub) {
+      const pk = resolvePubkey(initialNpub)
+      if (pk) lookupPubkey(pk)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const resolvePubkey = (val: string): string | null => {
     val = val.trim()
