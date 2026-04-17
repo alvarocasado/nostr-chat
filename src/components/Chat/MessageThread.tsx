@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRateLimit } from '../../hooks/useRateLimit'
+import { useTypingIndicator } from '../../hooks/useTypingIndicator'
+import { TypingIndicator } from './TypingIndicator'
 import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
@@ -77,10 +79,12 @@ interface UploadProgress { name: string; sent: number; total: number }
 function MessageInput({
   onSend,
   onSendChunked,
+  onTyping,
   placeholder,
 }: {
   onSend: (content: string) => Promise<void>
   onSendChunked: (attachment: AttachmentData, text: string, onProgress: (sent: number, total: number) => void) => Promise<void>
+  onTyping: () => void
   placeholder: string
 }) {
   const [text, setText] = useState('')
@@ -312,7 +316,7 @@ function MessageInput({
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={e => { setText(e.target.value); onTyping() }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
@@ -431,6 +435,7 @@ function MessageList({ messages, myPubkey, profiles }: {
 function ChannelThread({ channelId }: { channelId: string }) {
   const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useChannelMessages(channelId)
+  const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -446,7 +451,6 @@ function ChannelThread({ channelId }: { channelId: string }) {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
     await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
-    // Sender sees the file immediately from local state
     addMessage(channelId, {
       id: `local-${Date.now()}`,
       pubkey: publicKey,
@@ -460,7 +464,8 @@ function ChannelThread({ channelId }: { channelId: string }) {
     <>
       <ChannelHeader channelId={channelId} />
       <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} placeholder="Message channel..." />
+      <TypingIndicator typists={typists} profiles={profiles} />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." />
     </>
   )
 }
@@ -468,6 +473,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
   const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
+  const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -496,7 +502,8 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     <>
       <DMHeader pubkey={theirPubkey} />
       <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} placeholder="Encrypted message..." />
+      <TypingIndicator typists={typists} profiles={profiles} />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." />
     </>
   )
 }

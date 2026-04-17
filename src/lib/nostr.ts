@@ -75,6 +75,17 @@ export function buildChannelCreateEvent(sk: Uint8Array, name: string, about: str
   }, sk)
 }
 
+// Build kind-24133 (ephemeral typing indicator — not stored by relays)
+export function buildTypingEvent(sk: Uint8Array, chatType: 'dm' | 'channel', chatId: string): Event {
+  const tags = chatType === 'dm' ? [['p', chatId]] : [['e', chatId]]
+  return finalizeEvent({
+    kind: 24133,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: 'typing',
+  }, sk)
+}
+
 // Build kind-42 (channel message)
 export function buildChannelMessageEvent(sk: Uint8Array, content: string, channelId: string, relayUrl: string): Event {
   return finalizeEvent({
