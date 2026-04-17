@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { formatDistanceToNowStrict } from 'date-fns'
@@ -75,6 +75,72 @@ function SearchResultItem({ result, query, onSelect }: { result: SearchResult; q
   )
 }
 
+const MUTE_OPTIONS: { label: string; ms: number | null }[] = [
+  { label: '8 hours',  ms: 8 * 60 * 60 * 1000 },
+  { label: '24 hours', ms: 24 * 60 * 60 * 1000 },
+  { label: '1 week',   ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'Always',   ms: null },
+]
+
+function MuteButton({ chatId }: { chatId: string }) {
+  const { mutedChats, muteChatUntil, unmuteChat } = useNostrStore()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const muteUntil = mutedChats[chatId]
+  const isMuted = muteUntil !== undefined && (muteUntil === null || Date.now() < muteUntil)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0" onClick={e => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        title={isMuted ? 'Muted — click to change' : 'Mute notifications'}
+        className={`p-1.5 rounded-lg transition-colors ${
+          isMuted
+            ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
+            : 'text-gray-600 hover:text-gray-400 hover:bg-white/5 opacity-0 group-hover:opacity-100'
+        }`}
+      >
+        {isMuted ? <BellOff size={13} /> : <Bell size={13} />}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-8 z-50 bg-gray-800 border border-gray-700 rounded-xl shadow-xl py-1 w-36">
+          {isMuted ? (
+            <button
+              onClick={() => { unmuteChat(chatId); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-sm text-green-400 hover:bg-white/5 transition-colors"
+            >
+              Unmute
+            </button>
+          ) : null}
+          {MUTE_OPTIONS.map(opt => (
+            <button
+              key={opt.label}
+              onClick={() => {
+                muteChatUntil(chatId, opt.ms === null ? null : Date.now() + opt.ms)
+                setOpen(false)
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActive: boolean; onSelect: () => void }) {
   const { setActiveChat, joinChannel } = useNostrStore()
 
@@ -84,35 +150,47 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
     onSelect()
   }
 
+  const hasMention = (channel.mentions || 0) > 0
+  const hasUnread = (channel.unread || 0) > 0
+
   return (
-    <button
-      onClick={handleClick}
-      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
-        isActive
-          ? 'bg-purple-600/20 border border-purple-500/30 text-white'
-          : 'hover:bg-white/5 text-gray-300 hover:text-white'
-      }`}
-    >
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-        isActive ? 'bg-purple-600' : 'bg-gray-800'
-      }`}>
-        <Hash size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1">
-          <span className="font-medium truncate text-sm">{channel.name}</span>
-          <span className="text-gray-500 text-xs flex-shrink-0">{formatTime(channel.lastMessageAt)}</span>
+    <div className="group relative">
+      <button
+        onClick={handleClick}
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
+          isActive
+            ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+            : 'hover:bg-white/5 text-gray-300 hover:text-white'
+        }`}
+      >
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+          isActive ? 'bg-purple-600' : 'bg-gray-800'
+        }`}>
+          <Hash size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
         </div>
-        {channel.lastMessage && (
-          <p className="text-xs text-gray-500 truncate mt-0.5">{channel.lastMessage}</p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-1">
+            <span className={`font-medium truncate text-sm ${hasMention ? 'text-white' : ''}`}>{channel.name}</span>
+            <span className="text-gray-500 text-xs flex-shrink-0">{formatTime(channel.lastMessageAt)}</span>
+          </div>
+          {channel.lastMessage && (
+            <p className="text-xs text-gray-500 truncate mt-0.5">{channel.lastMessage}</p>
+          )}
+        </div>
+        {hasUnread && (
+          <span className={`flex-shrink-0 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center ${
+            hasMention ? 'bg-amber-500' : 'bg-gray-600'
+          }`}>
+            {hasMention
+              ? (channel.mentions! > 9 ? '9+' : channel.mentions)
+              : (channel.unread! > 9 ? '9+' : channel.unread)}
+          </span>
         )}
+      </button>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <MuteButton chatId={channel.id} />
       </div>
-      {(channel.unread || 0) > 0 && (
-        <span className="flex-shrink-0 bg-purple-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-          {channel.unread! > 9 ? '9+' : channel.unread}
-        </span>
-      )}
-    </button>
+    </div>
   )
 }
 
@@ -122,33 +200,38 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
   const name = profile?.display_name || profile?.name || contact.pubkey.slice(0, 10) + '...'
 
   return (
-    <button
-      onClick={() => { setActiveChat(contact.pubkey, 'dm'); onSelect() }}
-      className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
-        isActive
-          ? 'bg-purple-600/20 border border-purple-500/30 text-white'
-          : 'hover:bg-white/5 text-gray-300 hover:text-white'
-      }`}
-    >
-      <div className="relative">
-        <Avatar picture={profile?.picture} name={name} pubkey={contact.pubkey} size="sm" />
-        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-1">
-          <span className="font-medium truncate text-sm">{name}</span>
-          <span className="text-gray-500 text-xs flex-shrink-0">{formatTime(contact.lastMessageAt)}</span>
+    <div className="group relative">
+      <button
+        onClick={() => { setActiveChat(contact.pubkey, 'dm'); onSelect() }}
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
+          isActive
+            ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+            : 'hover:bg-white/5 text-gray-300 hover:text-white'
+        }`}
+      >
+        <div className="relative">
+          <Avatar picture={profile?.picture} name={name} pubkey={contact.pubkey} size="sm" />
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
         </div>
-        {contact.lastMessage && (
-          <p className="text-xs text-gray-500 truncate mt-0.5">{contact.lastMessage}</p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-1">
+            <span className={`font-medium truncate text-sm ${(contact.unread || 0) > 0 ? 'text-white' : ''}`}>{name}</span>
+            <span className="text-gray-500 text-xs flex-shrink-0">{formatTime(contact.lastMessageAt)}</span>
+          </div>
+          {contact.lastMessage && (
+            <p className="text-xs text-gray-500 truncate mt-0.5">{contact.lastMessage}</p>
+          )}
+        </div>
+        {(contact.unread || 0) > 0 && (
+          <span className="flex-shrink-0 bg-amber-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+            {contact.unread! > 9 ? '9+' : contact.unread}
+          </span>
         )}
+      </button>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <MuteButton chatId={contact.pubkey} />
       </div>
-      {(contact.unread || 0) > 0 && (
-        <span className="flex-shrink-0 bg-purple-600 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-          {contact.unread! > 9 ? '9+' : contact.unread}
-        </span>
-      )}
-    </button>
+    </div>
   )
 }
 

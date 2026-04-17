@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
+import { useRateLimit } from '../../hooks/useRateLimit'
+import { useTypingIndicator } from '../../hooks/useTypingIndicator'
+import { TypingIndicator } from './TypingIndicator'
 import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM } from '../../hooks/useNostrSubscriptions'
+import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
   compressImage, encodeFile, serializeMessage, formatBytes,
-  MAX_ATTACHMENT_BYTES, MAX_RAW_FILE_BYTES, MAX_AUDIO_BYTES, type AttachmentData,
+  MAX_AUDIO_BYTES, type AttachmentData,
 } from '../../lib/fileUtils'
+import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
 import { AudioMessage, formatDuration } from './AudioMessage'
 
@@ -70,26 +74,58 @@ function DMHeader({ pubkey }: { pubkey: string }) {
   )
 }
 
+interface UploadProgress { name: string; sent: number; total: number }
+
 function MessageInput({
   onSend,
+  onSendChunked,
+  onTyping,
   placeholder,
 }: {
   onSend: (content: string) => Promise<void>
+  onSendChunked: (attachment: AttachmentData, text: string, onProgress: (sent: number, total: number) => void) => Promise<void>
+  onTyping: () => void
   placeholder: string
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [attachment, setAttachment] = useState<AttachmentData | null>(null)
   const [attachError, setAttachError] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const recorder = useAudioRecorder()
+  const { isLimited, cooldownSec, tryRecord } = useRateLimit()
 
-  const canSend = (text.trim().length > 0 || attachment !== null) && !sending
+  const canSend = (text.trim().length > 0 || attachment !== null) && !sending && !isLimited
 
   const handleSend = async () => {
     if (!canSend) return
+
+    if (!tryRecord()) return
+
+    // Large-file path: chunk and send
+    if (attachment && attachment.data.length > INLINE_BASE64_THRESHOLD) {
+      const a = attachment
+      const t = text.trim()
+      setSending(true)
+      setText('')
+      setAttachment(null)
+      setUploadProgress({ name: a.name, sent: 0, total: 1 })
+      try {
+        await onSendChunked(a, t, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
+      } catch (err) {
+        setAttachError(err instanceof Error ? err.message : 'Upload failed.')
+      } finally {
+        setSending(false)
+        setUploadProgress(null)
+        textareaRef.current?.focus()
+      }
+      return
+    }
+
+    // Inline path
     const content = serializeMessage(text.trim(), attachment)
     setSending(true)
     setText('')
@@ -116,21 +152,17 @@ function MessageInput({
     e.target.value = ''
     if (!file) return
     setAttachError(null)
+
+    if (file.size > MAX_CHUNKED_FILE_BYTES) {
+      setAttachError(`File too large. Maximum is ${formatBytes(MAX_CHUNKED_FILE_BYTES)}.`)
+      return
+    }
+
     try {
-      let data: string
-      if (file.type.startsWith('image/')) {
-        data = await compressImage(file)
-      } else {
-        if (file.size > MAX_RAW_FILE_BYTES) {
-          setAttachError(`File too large. Max ${MAX_RAW_FILE_BYTES / 1024} KB for non-image files.`)
-          return
-        }
-        data = await encodeFile(file)
-        if (data.length > MAX_ATTACHMENT_BYTES) {
-          setAttachError(`Encoded file exceeds relay limit (${Math.round(data.length / 1024)} KB > ${MAX_ATTACHMENT_BYTES / 1024} KB).`)
-          return
-        }
-      }
+      // Images: compress first; if still over inline limit it will be chunked on send
+      const data = file.type.startsWith('image/')
+        ? await compressImage(file)
+        : await encodeFile(file)
       setAttachment({ name: file.name, type: file.type, size: file.size, data })
     } catch (err) {
       setAttachError(err instanceof Error ? err.message : 'Failed to attach file.')
@@ -210,6 +242,26 @@ function MessageInput({
         </div>
       )}
 
+      {/* Upload progress */}
+      {uploadProgress && (
+        <div className="mb-2 bg-gray-800 rounded-xl px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-300 truncate max-w-[60%]">{uploadProgress.name}</span>
+            <span className="text-gray-400 tabular-nums flex-shrink-0">
+              {uploadProgress.total > 1
+                ? `Chunk ${uploadProgress.sent} / ${uploadProgress.total}`
+                : 'Sending…'}
+            </span>
+          </div>
+          <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-purple-500 h-full rounded-full transition-all duration-200"
+              style={{ width: `${uploadProgress.total > 1 ? (uploadProgress.sent / uploadProgress.total) * 100 : 30}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {attachError && (
         <div className="mb-2 flex items-center justify-between gap-2 bg-red-900/30 border border-red-700/50 rounded-xl px-3 py-2">
@@ -264,15 +316,15 @@ function MessageInput({
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={e => { setText(e.target.value); onTyping() }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             rows={1}
             className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none outline-none text-sm leading-relaxed max-h-32 scrollbar-thin"
             style={{ overflow: 'hidden' }}
           />
-          {/* Mic button — shown when no text typed and no attachment */}
-          {!text.trim() && !attachment ? (
+          {/* Mic button — shown when no text typed, no attachment, and not rate-limited */}
+          {!text.trim() && !attachment && !isLimited ? (
             <button
               onClick={() => { void recorder.start() }}
               className="w-10 h-10 text-gray-500 hover:text-purple-400 transition-colors flex items-center justify-center flex-shrink-0"
@@ -281,6 +333,13 @@ function MessageInput({
             >
               <Mic size={20} />
             </button>
+          ) : isLimited ? (
+            <div
+              className="w-10 h-10 bg-amber-600/30 border border-amber-600/50 rounded-xl flex items-center justify-center flex-shrink-0"
+              title={`Slow down — wait ${cooldownSec}s`}
+            >
+              <span className="text-amber-400 text-xs font-bold tabular-nums">{cooldownSec}s</span>
+            </div>
           ) : (
             <button
               onClick={handleSend}
@@ -374,8 +433,9 @@ function MessageList({ messages, myPubkey, profiles }: {
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useChannelMessages(channelId)
+  const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -383,18 +443,37 @@ function ChannelThread({ channelId }: { channelId: string }) {
     await sendChannelMessage(sk, content, channelId, relays)
   }
 
+  const handleSendChunked = async (
+    attachment: AttachmentData,
+    text: string,
+    onProgress: (sent: number, total: number) => void,
+  ) => {
+    const sk = getPrivateKey()
+    if (!sk || !publicKey) return
+    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
+    addMessage(channelId, {
+      id: `local-${Date.now()}`,
+      pubkey: publicKey,
+      content: serializeMessage(text, attachment),
+      createdAt: Math.floor(Date.now() / 1000),
+      tags: [], kind: 42,
+    })
+  }
+
   return (
     <>
       <ChannelHeader channelId={channelId} />
       <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} />
-      <MessageInput onSend={handleSend} placeholder="Message channel..." />
+      <TypingIndicator typists={typists} profiles={profiles} />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." />
     </>
   )
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
+  const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -402,11 +481,29 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     await sendDM(sk, content, theirPubkey, relays)
   }
 
+  const handleSendChunked = async (
+    attachment: AttachmentData,
+    text: string,
+    onProgress: (sent: number, total: number) => void,
+  ) => {
+    const sk = getPrivateKey()
+    if (!sk || !publicKey) return
+    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
+    addMessage(theirPubkey, {
+      id: `local-${Date.now()}`,
+      pubkey: publicKey,
+      content: serializeMessage(text, attachment),
+      createdAt: Math.floor(Date.now() / 1000),
+      tags: [], kind: 4,
+    })
+  }
+
   return (
     <>
       <DMHeader pubkey={theirPubkey} />
       <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} />
-      <MessageInput onSend={handleSend} placeholder="Encrypted message..." />
+      <TypingIndicator typists={typists} profiles={profiles} />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." />
     </>
   )
 }

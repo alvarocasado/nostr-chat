@@ -2,6 +2,7 @@ import { format } from 'date-fns'
 import { Download, FileText, Film, Music, File } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
+import { MarkdownMessage } from './MarkdownMessage'
 import type { Message } from '../../store/nostrStore'
 import type { NostrProfile } from '../../lib/nostr'
 import { parseMessageContent, formatBytes, type AttachmentData } from '../../lib/fileUtils'
@@ -62,14 +63,6 @@ function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isO
   )
 }
 
-function MessageBubble({ content, isOwn }: { content: string; isOwn: boolean }) {
-  if (!content) return null
-  return (
-    <p className={`text-sm leading-relaxed break-words whitespace-pre-wrap ${isOwn ? 'text-white' : 'text-gray-100'}`}>
-      {content}
-    </p>
-  )
-}
 
 export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItemProps) {
   const name = profile?.display_name || profile?.name || message.pubkey.slice(0, 10) + '...'
@@ -85,7 +78,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItem
           </span>
           <div className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2">
             {attachment && <AttachmentView attachment={attachment} isOwn />}
-            <MessageBubble content={text} isOwn />
+            <MarkdownMessage content={text} isOwn={true} />
           </div>
         </div>
       </div>
@@ -106,7 +99,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItem
         <div className="flex items-end gap-2">
           <div className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2">
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
-            <MessageBubble content={text} isOwn={false} />
+            <MarkdownMessage content={text} isOwn={false} />
           </div>
           <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1 flex-shrink-0">
             {time}

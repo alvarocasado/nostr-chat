@@ -4,6 +4,7 @@ import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
+import { NotificationsTab } from './NotificationsTab'
 
 interface SettingsPanelProps {
   onClose: () => void
@@ -15,7 +16,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     addRelay, removeRelay, updateProfile, getPrivateKey,
   } = useNostrStore()
 
-  const [tab, setTab] = useState<'profile' | 'relays' | 'keys'>('profile')
+  const [tab, setTab] = useState<'profile' | 'relays' | 'keys' | 'notifications'>('profile')
   const [newRelay, setNewRelay] = useState('')
   const [relayError, setRelayError] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -81,7 +82,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
 
         {/* Tabs */}
         <div className="flex gap-1 px-6 pt-4 flex-shrink-0">
-          {(['profile', 'relays', 'keys'] as const).map(t => (
+          {(['profile', 'relays', 'keys', 'notifications'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -318,6 +319,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               />
             </div>
           )}
+
+          {/* Notifications tab */}
+          {tab === 'notifications' && <NotificationsTab />}
         </div>
       </div>
     </div>

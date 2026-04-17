@@ -1,6 +1,6 @@
-export const MAX_ATTACHMENT_BYTES = 150 * 1024 // 150 KB data-URL limit (relay-safe)
-export const MAX_RAW_FILE_BYTES = 100 * 1024   // 100 KB limit for non-image files
-export const MAX_AUDIO_BYTES = 200 * 1024      // 200 KB limit for recorded audio (~50s opus)
+export const MAX_ATTACHMENT_BYTES = 150 * 1024 // 150 KB — inline relay-safe threshold
+export const MAX_RAW_FILE_BYTES = 100 * 1024   // kept for backwards-compat / tests
+export const MAX_AUDIO_BYTES = 200 * 1024      // 200 KB limit for recorded audio
 
 export interface AttachmentData {
   name: string
@@ -44,11 +44,8 @@ export async function compressImage(file: File, maxWidth = 1280): Promise<string
         quality -= 0.1
       } while (dataUrl.length > MAX_ATTACHMENT_BYTES && quality > 0.2)
 
-      if (dataUrl.length > MAX_ATTACHMENT_BYTES) {
-        reject(new Error(`Image is too large even after compression (${Math.round(dataUrl.length / 1024)} KB). Max is ${MAX_ATTACHMENT_BYTES / 1024} KB.`))
-      } else {
-        resolve(dataUrl)
-      }
+      // Always resolve — if still over the inline limit the caller will chunk it
+      resolve(dataUrl)
     }
     img.src = objectUrl
   })

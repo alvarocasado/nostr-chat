@@ -1,5 +1,48 @@
 # Release Notes
 
+## 1.0.0-alpha.3 — 2026-04-17
+
+### Typing Indicators
+- Live "Alice is typing ···" feedback powered by ephemeral Nostr events (kind 24133 — relays forward but do not store them)
+- Works in both encrypted DMs and public channels
+- Sending throttled to one event per 3 seconds to avoid relay floods
+- Indicator auto-expires after 5 seconds of silence — no explicit "stopped typing" event needed
+- Handles multiple simultaneous typists: "Alice and Bob are typing", "Alice and 2 others are typing"
+- Fixed-height row between message list and input prevents layout shift
+
+### Rate Limiting
+- Sliding-window limiter: maximum 5 messages per 10 seconds per chat
+- On the 6th attempt the send button is replaced with an amber countdown badge (e.g. `3s`) that ticks down to zero
+- Each chat thread has its own independent limiter; applies to both text and chunked file transfers
+
+### Chunked File Transfer (up to 10 MB)
+- Large files automatically split into ~40 KB binary chunks and sent as sequential Nostr events, bypassing the 64 KB relay message limit
+- Raises the effective attachment ceiling from ~150 KB (inline) to **10 MB** per file
+- Works for both encrypted DMs (NIP-04) and public channels (NIP-28)
+- Upload progress bar shows "Chunk N / total" count with animated fill
+- Out-of-order chunk delivery handled via orphan buffer
+- Files under 150 KB continue to send inline as before
+
+### Markdown & Link Previews
+- Messages render full GitHub-Flavored Markdown: bold, italic, strikethrough, inline/block code, blockquotes, lists, headings, horizontal rules
+- Single newlines preserved as line breaks (natural chat behaviour)
+- XSS-safe — `rehype-sanitize` strips `<script>`, `<style>`, and event handlers
+- Links auto-linkified and open in a new tab
+- **Link preview cards** — first URL in a message fetches Open Graph metadata (title, description, thumbnail) via `microlink.io`; results cached per session; silently hidden on error
+- Markdown rendered on display only; input stays plain text
+
+### Desktop Notifications
+- Browser `Notification` API with urgency hierarchy: DMs (critical) → @mentions (high) → group messages (low/FYI)
+- **DMs**: amber badge + desktop banner + sound by default
+- **@mentions**: amber badge + desktop banner + sound by default; detected by matching the user's npub/hex pubkey in channel message content
+- **Group channels**: gray badge indicator only — no banner, no sound by default (configurable)
+- **Contextual suppression** — no popup when the app is focused and the user is already in that chat
+- **Per-chat mute** via bell icon in the sidebar (revealed on hover): 8 h, 24 h, 1 week, or always
+- **Settings → Notifications tab**: permission request UI, per-type show/sound toggles, Do Not Disturb with presets (1 h / 8 h / 24 h / until I turn off) and live countdown
+- Notification sounds generated via Web Audio API oscillator — no audio file required
+
+---
+
 ## 1.0.0-alpha.2 — 2026-04-16
 
 ### Share Contact via Link
