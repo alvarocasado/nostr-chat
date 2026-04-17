@@ -12,6 +12,7 @@ import {
   type NostrProfile,
 } from '../lib/nostr'
 import { useNostrStore, type Channel, type Message } from '../store/nostrStore'
+import { fireNotification } from '../lib/notifications'
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
@@ -55,7 +56,25 @@ export function useChannelMessages(channelId: string | null) {
           channelId,
         }
         addMessage(channelId, msg)
-        updateChannelLastMessage(channelId, event.content, event.created_at)
+
+        const { publicKey, npub, channels, profiles: p } = useNostrStore.getState()
+        const isMention = !!(
+          publicKey && (event.content.includes(publicKey) || (npub && event.content.includes(npub)))
+        )
+        updateChannelLastMessage(channelId, event.content, event.created_at, isMention)
+
+        if (event.pubkey !== publicKey) {
+          const channelName = channels.find(c => c.id === channelId)?.name || 'Channel'
+          const sp = p[event.pubkey]
+          const senderName = sp?.display_name || sp?.name || event.pubkey.slice(0, 8) + '…'
+          const preview = event.content.length > 80 ? event.content.slice(0, 80) + '…' : event.content
+          fireNotification(
+            channelId,
+            isMention ? 'mention' : 'channel',
+            `#${channelName}`,
+            `${senderName}: ${preview}`,
+          )
+        }
 
         if (!profiles[event.pubkey]) {
           fetchEvent(relays, { kinds: [0], authors: [event.pubkey] }).then(profileEvent => {
@@ -96,6 +115,11 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
         addMessage(chatId, msg)
         if (event.pubkey !== myPubkey) {
           updateContactLastMessage(theirPubkey, decrypted, event.created_at)
+          const { profiles: p } = useNostrStore.getState()
+          const sp = p[event.pubkey]
+          const senderName = sp?.display_name || sp?.name || event.pubkey.slice(0, 8) + '…'
+          const preview = decrypted.length > 80 ? decrypted.slice(0, 80) + '…' : decrypted
+          fireNotification(chatId, 'dm', senderName, preview, sp?.picture)
         }
 
         if (!profiles[event.pubkey]) {
