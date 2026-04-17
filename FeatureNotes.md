@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Chunked File Transfer (up to 10 MB)
+- Large files are automatically split into ~40 KB binary chunks (53,000 base64 chars each) and sent as sequential Nostr events, bypassing the 64 KB relay message limit
+- Raises the effective attachment ceiling from ~150 KB (inline) to **10 MB** per file
+- Works for both encrypted DMs (NIP-04) and public channels (NIP-28)
+- **Sender UX**: upload progress bar shows "Chunk N / total" count and animated fill; standard file picker (raised limit)
+- **Receiver UX**: file reconstructed transparently and displayed as a normal attachment — no action required
+- Out-of-order chunk delivery handled via orphan buffer — chunks that arrive before the manifest are stored and applied when the manifest comes in
+- Transfer state is ephemeral (module-level `Map`s, not Zustand) — not persisted across page reloads
+- Files under 150 KB continue to send inline as before; chunking kicks in only above that threshold
+
 ### Markdown & Link Previews
 - Messages render full GitHub-Flavored Markdown: bold, italic, strikethrough, inline/block code, blockquotes, ordered/unordered lists, headings, horizontal rules
 - Single newlines preserved as line breaks (natural chat behaviour via `remark-breaks`)
