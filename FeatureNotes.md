@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Markdown & Link Previews
+- Messages render full GitHub-Flavored Markdown: bold, italic, strikethrough, inline/block code, blockquotes, ordered/unordered lists, headings, horizontal rules
+- Single newlines preserved as line breaks (natural chat behaviour via `remark-breaks`)
+- XSS-safe — `rehype-sanitize` strips `<script>`, `<style>`, and event handlers
+- Links auto-linkified and open in a new tab
+- **Link preview cards** — first URL in a message fetches Open Graph metadata (title, description, thumbnail) via `microlink.io`; results cached per session; silently hidden on error
+- Markdown rendered on display only; input stays plain text
+
 ### Desktop Notifications
 - Browser `Notification` API with urgency hierarchy: DMs (critical) → @mentions (high) → group messages (low/FYI)
 - **DMs**: amber badge + desktop banner + sound by default
