@@ -5,6 +5,26 @@ import { encodeNsec, encodePubkey, type NostrProfile, DEFAULT_RELAYS } from '../
 
 export type ChatType = 'channel' | 'dm'
 
+export interface NotificationSettings {
+  dmEnabled: boolean
+  dmSound: boolean
+  mentionEnabled: boolean
+  mentionSound: boolean
+  groupEnabled: boolean
+  dndEnabled: boolean
+  dndUntil: number | null  // epoch ms; null = indefinite
+}
+
+const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  dmEnabled: true,
+  dmSound: true,
+  mentionEnabled: true,
+  mentionSound: true,
+  groupEnabled: false,
+  dndEnabled: false,
+  dndUntil: null,
+}
+
 export interface Channel {
   id: string
   name: string
@@ -15,6 +35,7 @@ export interface Channel {
   lastMessage?: string
   lastMessageAt?: number
   unread?: number
+  mentions?: number  // @mention count for badge color differentiation
 }
 
 export interface Contact {
@@ -72,6 +93,10 @@ interface NostrState {
   showAddChannel: boolean
   showAddContact: boolean
 
+  // Notifications
+  notificationSettings: NotificationSettings
+  mutedChats: Record<string, number | null>  // chatId -> expiry ms (null = forever)
+
   // Derived helper
   getPrivateKey: () => Uint8Array | null
 
@@ -98,7 +123,7 @@ interface NostrState {
   addMessage: (chatId: string, message: Message) => void
   markRead: (chatId: string) => void
   updateContactLastMessage: (pubkey: string, content: string, at: number) => void
-  updateChannelLastMessage: (channelId: string, content: string, at: number) => void
+  updateChannelLastMessage: (channelId: string, content: string, at: number, isMention?: boolean) => void
 
   setProfile: (pubkey: string, profile: NostrProfile) => void
 
@@ -106,6 +131,10 @@ interface NostrState {
   setShowSettings: (show: boolean) => void
   setShowAddChannel: (show: boolean) => void
   setShowAddContact: (show: boolean) => void
+
+  updateNotificationSettings: (s: Partial<NotificationSettings>) => void
+  muteChatUntil: (chatId: string, until: number | null) => void
+  unmuteChat: (chatId: string) => void
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -140,6 +169,8 @@ export const useNostrStore = create<NostrState>()(
       showSettings: false,
       showAddChannel: false,
       showAddContact: false,
+      notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
+      mutedChats: {},
 
       getPrivateKey: () => {
         const hex = get().privateKeyHex
@@ -282,7 +313,7 @@ export const useNostrStore = create<NostrState>()(
           c.pubkey === chatId ? { ...c, unread: 0 } : c
         )
         const channels = get().channels.map(ch =>
-          ch.id === chatId ? { ...ch, unread: 0 } : ch
+          ch.id === chatId ? { ...ch, unread: 0, mentions: 0 } : ch
         )
         set({ contacts, channels })
       },
@@ -311,7 +342,7 @@ export const useNostrStore = create<NostrState>()(
         set({ contacts })
       },
 
-      updateChannelLastMessage: (channelId, content, at) => {
+      updateChannelLastMessage: (channelId, content, at, isMention = false) => {
         const isActive = get().activeChatId === channelId
         const channels = get().channels.map(ch =>
           ch.id === channelId
@@ -320,6 +351,7 @@ export const useNostrStore = create<NostrState>()(
                 lastMessage: content,
                 lastMessageAt: at,
                 unread: isActive ? 0 : (ch.unread || 0) + 1,
+                mentions: isActive ? 0 : isMention ? (ch.mentions || 0) + 1 : (ch.mentions || 0),
               }
             : ch
         )
@@ -341,6 +373,17 @@ export const useNostrStore = create<NostrState>()(
       setShowSettings: (show) => set({ showSettings: show }),
       setShowAddChannel: (show) => set({ showAddChannel: show }),
       setShowAddContact: (show) => set({ showAddContact: show }),
+
+      updateNotificationSettings: (s) =>
+        set({ notificationSettings: { ...get().notificationSettings, ...s } }),
+
+      muteChatUntil: (chatId, until) =>
+        set({ mutedChats: { ...get().mutedChats, [chatId]: until } }),
+
+      unmuteChat: (chatId) => {
+        const { [chatId]: _, ...rest } = get().mutedChats
+        set({ mutedChats: rest })
+      },
     }),
     {
       name: 'nostr-chat-storage',
@@ -355,6 +398,8 @@ export const useNostrStore = create<NostrState>()(
         joinedChannelIds: state.joinedChannelIds,
         contacts: state.contacts,
         profiles: state.profiles,
+        notificationSettings: state.notificationSettings,
+        mutedChats: state.mutedChats,
       }),
     }
   )
