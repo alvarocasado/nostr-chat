@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Typing Indicators
+- Live "Alice is typing ···" feedback powered by ephemeral Nostr events (kind 24133 — relays forward but do not store them)
+- Works in both encrypted DMs and public channels
+- Sending is throttled to one event per 3 seconds to avoid relay floods
+- Indicator auto-expires after 5 seconds of silence — no explicit "stopped typing" event needed
+- Handles multiple simultaneous typists: "Alice and Bob are typing", "Alice and 2 others are typing"
+- Fixed-height row between message list and input prevents layout shift when the label appears/disappears
+
+### Rate Limiting
+- Sliding-window limiter: maximum **5 messages per 10 seconds** per chat
+- On the 6th attempt the send button is replaced with an amber countdown badge (e.g. `3s`) that ticks down to zero
+- Each chat thread has its own independent limiter (scoped to the `MessageInput` component instance)
+- Applies to both text messages and large chunked file transfers
+
 ### Chunked File Transfer (up to 10 MB)
 - Large files are automatically split into ~40 KB binary chunks (53,000 base64 chars each) and sent as sequential Nostr events, bypassing the 64 KB relay message limit
 - Raises the effective attachment ceiling from ~150 KB (inline) to **10 MB** per file
