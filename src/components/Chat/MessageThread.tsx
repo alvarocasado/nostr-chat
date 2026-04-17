@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM } from '../../hooks/useNostrSubscriptions'
+import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
   compressImage, encodeFile, serializeMessage, formatBytes,
-  MAX_ATTACHMENT_BYTES, MAX_RAW_FILE_BYTES, MAX_AUDIO_BYTES, type AttachmentData,
+  MAX_AUDIO_BYTES, type AttachmentData,
 } from '../../lib/fileUtils'
+import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
 import { AudioMessage, formatDuration } from './AudioMessage'
 
@@ -70,17 +71,22 @@ function DMHeader({ pubkey }: { pubkey: string }) {
   )
 }
 
+interface UploadProgress { name: string; sent: number; total: number }
+
 function MessageInput({
   onSend,
+  onSendChunked,
   placeholder,
 }: {
   onSend: (content: string) => Promise<void>
+  onSendChunked: (attachment: AttachmentData, text: string, onProgress: (sent: number, total: number) => void) => Promise<void>
   placeholder: string
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [attachment, setAttachment] = useState<AttachmentData | null>(null)
   const [attachError, setAttachError] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -90,6 +96,28 @@ function MessageInput({
 
   const handleSend = async () => {
     if (!canSend) return
+
+    // Large-file path: chunk and send
+    if (attachment && attachment.data.length > INLINE_BASE64_THRESHOLD) {
+      const a = attachment
+      const t = text.trim()
+      setSending(true)
+      setText('')
+      setAttachment(null)
+      setUploadProgress({ name: a.name, sent: 0, total: 1 })
+      try {
+        await onSendChunked(a, t, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
+      } catch (err) {
+        setAttachError(err instanceof Error ? err.message : 'Upload failed.')
+      } finally {
+        setSending(false)
+        setUploadProgress(null)
+        textareaRef.current?.focus()
+      }
+      return
+    }
+
+    // Inline path
     const content = serializeMessage(text.trim(), attachment)
     setSending(true)
     setText('')
@@ -116,21 +144,17 @@ function MessageInput({
     e.target.value = ''
     if (!file) return
     setAttachError(null)
+
+    if (file.size > MAX_CHUNKED_FILE_BYTES) {
+      setAttachError(`File too large. Maximum is ${formatBytes(MAX_CHUNKED_FILE_BYTES)}.`)
+      return
+    }
+
     try {
-      let data: string
-      if (file.type.startsWith('image/')) {
-        data = await compressImage(file)
-      } else {
-        if (file.size > MAX_RAW_FILE_BYTES) {
-          setAttachError(`File too large. Max ${MAX_RAW_FILE_BYTES / 1024} KB for non-image files.`)
-          return
-        }
-        data = await encodeFile(file)
-        if (data.length > MAX_ATTACHMENT_BYTES) {
-          setAttachError(`Encoded file exceeds relay limit (${Math.round(data.length / 1024)} KB > ${MAX_ATTACHMENT_BYTES / 1024} KB).`)
-          return
-        }
-      }
+      // Images: compress first; if still over inline limit it will be chunked on send
+      const data = file.type.startsWith('image/')
+        ? await compressImage(file)
+        : await encodeFile(file)
       setAttachment({ name: file.name, type: file.type, size: file.size, data })
     } catch (err) {
       setAttachError(err instanceof Error ? err.message : 'Failed to attach file.')
@@ -207,6 +231,26 @@ function MessageInput({
           >
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {/* Upload progress */}
+      {uploadProgress && (
+        <div className="mb-2 bg-gray-800 rounded-xl px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-300 truncate max-w-[60%]">{uploadProgress.name}</span>
+            <span className="text-gray-400 tabular-nums flex-shrink-0">
+              {uploadProgress.total > 1
+                ? `Chunk ${uploadProgress.sent} / ${uploadProgress.total}`
+                : 'Sending…'}
+            </span>
+          </div>
+          <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-purple-500 h-full rounded-full transition-all duration-200"
+              style={{ width: `${uploadProgress.total > 1 ? (uploadProgress.sent / uploadProgress.total) * 100 : 30}%` }}
+            />
+          </div>
         </div>
       )}
 
@@ -374,7 +418,7 @@ function MessageList({ messages, myPubkey, profiles }: {
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useChannelMessages(channelId)
 
   const handleSend = async (content: string) => {
@@ -383,17 +427,35 @@ function ChannelThread({ channelId }: { channelId: string }) {
     await sendChannelMessage(sk, content, channelId, relays)
   }
 
+  const handleSendChunked = async (
+    attachment: AttachmentData,
+    text: string,
+    onProgress: (sent: number, total: number) => void,
+  ) => {
+    const sk = getPrivateKey()
+    if (!sk || !publicKey) return
+    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
+    // Sender sees the file immediately from local state
+    addMessage(channelId, {
+      id: `local-${Date.now()}`,
+      pubkey: publicKey,
+      content: serializeMessage(text, attachment),
+      createdAt: Math.floor(Date.now() / 1000),
+      tags: [], kind: 42,
+    })
+  }
+
   return (
     <>
       <ChannelHeader channelId={channelId} />
       <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} />
-      <MessageInput onSend={handleSend} placeholder="Message channel..." />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} placeholder="Message channel..." />
     </>
   )
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
 
   const handleSend = async (content: string) => {
@@ -402,11 +464,28 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     await sendDM(sk, content, theirPubkey, relays)
   }
 
+  const handleSendChunked = async (
+    attachment: AttachmentData,
+    text: string,
+    onProgress: (sent: number, total: number) => void,
+  ) => {
+    const sk = getPrivateKey()
+    if (!sk || !publicKey) return
+    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
+    addMessage(theirPubkey, {
+      id: `local-${Date.now()}`,
+      pubkey: publicKey,
+      content: serializeMessage(text, attachment),
+      createdAt: Math.floor(Date.now() / 1000),
+      tags: [], kind: 4,
+    })
+  }
+
   return (
     <>
       <DMHeader pubkey={theirPubkey} />
       <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} />
-      <MessageInput onSend={handleSend} placeholder="Encrypted message..." />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} placeholder="Encrypted message..." />
     </>
   )
 }

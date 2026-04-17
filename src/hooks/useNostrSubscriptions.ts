@@ -13,6 +13,15 @@ import {
 } from '../lib/nostr'
 import { useNostrStore, type Channel, type Message } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
+import {
+  parseTransferPayload,
+  handleFileStart,
+  handleFileChunk,
+  reconstructDataUrl,
+  sendChunkedFile as sendChunkedFileUtil,
+  type IncomingTransfer,
+} from '../lib/fileTransfer'
+import { serializeMessage } from '../lib/fileUtils'
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
@@ -46,6 +55,18 @@ export function useChannelMessages(channelId: string | null) {
       relays,
       { kinds: [42], '#e': [channelId], limit: 200 },
       (event) => {
+        // Route file-transfer control messages; don't add them to the message list
+        const transfer = parseTransferPayload(event.content)
+        if (transfer) {
+          if (transfer.type === 'file_start') {
+            handleFileStart(transfer.transferId, transfer, channelId, event.pubkey, event.created_at)
+          } else {
+            const completed = handleFileChunk(transfer.transferId, transfer.index, transfer.data)
+            if (completed) finishTransfer(completed)
+          }
+          return
+        }
+
         const msg: Message = {
           id: event.id,
           pubkey: event.pubkey,
@@ -68,12 +89,7 @@ export function useChannelMessages(channelId: string | null) {
           const sp = p[event.pubkey]
           const senderName = sp?.display_name || sp?.name || event.pubkey.slice(0, 8) + '…'
           const preview = event.content.length > 80 ? event.content.slice(0, 80) + '…' : event.content
-          fireNotification(
-            channelId,
-            isMention ? 'mention' : 'channel',
-            `#${channelName}`,
-            `${senderName}: ${preview}`,
-          )
+          fireNotification(channelId, isMention ? 'mention' : 'channel', `#${channelName}`, `${senderName}: ${preview}`)
         }
 
         if (!profiles[event.pubkey]) {
@@ -102,6 +118,19 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
       try {
         const peerPubkey = event.pubkey === myPubkey ? theirPubkey : event.pubkey
         const decrypted = await decryptDM(sk, peerPubkey, event.content)
+
+        // Route file-transfer control messages
+        const transfer = parseTransferPayload(decrypted)
+        if (transfer) {
+          if (transfer.type === 'file_start') {
+            handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
+          } else {
+            const completed = handleFileChunk(transfer.transferId, transfer.index, transfer.data)
+            if (completed) finishTransfer(completed)
+          }
+          return
+        }
+
         const msg: Message = {
           id: event.id,
           pubkey: event.pubkey,
@@ -178,6 +207,39 @@ export function useChannelDiscovery() {
     )
     return () => sub.close()
   }, [relays.join(',')])
+}
+
+// ─── File transfer helpers ───────────────────────────────────────────────────
+
+/** Called when the last chunk of an incoming transfer arrives. Reconstructs and stores the message. */
+function finishTransfer(t: IncomingTransfer) {
+  const { addMessage } = useNostrStore.getState()
+  const dataUrl = reconstructDataUrl(t.mime, t.chunks, t.totalChunks)
+  const content = serializeMessage('', { name: t.name, type: t.mime, size: t.size, data: dataUrl })
+  addMessage(t.chatId, {
+    id: `transfer-${t.senderPubkey}-${t.createdAt}`,
+    pubkey: t.senderPubkey,
+    content,
+    createdAt: t.createdAt,
+    tags: [],
+    kind: 4,
+  })
+}
+
+/** Send a large file as chunked Nostr events (DM or channel). */
+export async function sendChunkedFile(
+  sk: Uint8Array,
+  myPubkey: string,
+  dataUrl: string,
+  name: string,
+  mime: string,
+  size: number,
+  chatType: 'dm' | 'channel',
+  chatId: string,
+  relays: string[],
+  onProgress: (sent: number, total: number) => void,
+): Promise<void> {
+  return sendChunkedFileUtil(sk, myPubkey, dataUrl, name, mime, size, chatType, chatId, relays, onProgress)
 }
 
 // Send a channel message
