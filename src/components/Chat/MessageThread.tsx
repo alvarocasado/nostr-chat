@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useRateLimit } from '../../hooks/useRateLimit'
 import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
@@ -91,11 +92,14 @@ function MessageInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const recorder = useAudioRecorder()
+  const { isLimited, cooldownSec, tryRecord } = useRateLimit()
 
-  const canSend = (text.trim().length > 0 || attachment !== null) && !sending
+  const canSend = (text.trim().length > 0 || attachment !== null) && !sending && !isLimited
 
   const handleSend = async () => {
     if (!canSend) return
+
+    if (!tryRecord()) return
 
     // Large-file path: chunk and send
     if (attachment && attachment.data.length > INLINE_BASE64_THRESHOLD) {
@@ -315,8 +319,8 @@ function MessageInput({
             className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none outline-none text-sm leading-relaxed max-h-32 scrollbar-thin"
             style={{ overflow: 'hidden' }}
           />
-          {/* Mic button — shown when no text typed and no attachment */}
-          {!text.trim() && !attachment ? (
+          {/* Mic button — shown when no text typed, no attachment, and not rate-limited */}
+          {!text.trim() && !attachment && !isLimited ? (
             <button
               onClick={() => { void recorder.start() }}
               className="w-10 h-10 text-gray-500 hover:text-purple-400 transition-colors flex items-center justify-center flex-shrink-0"
@@ -325,6 +329,13 @@ function MessageInput({
             >
               <Mic size={20} />
             </button>
+          ) : isLimited ? (
+            <div
+              className="w-10 h-10 bg-amber-600/30 border border-amber-600/50 rounded-xl flex items-center justify-center flex-shrink-0"
+              title={`Slow down — wait ${cooldownSec}s`}
+            >
+              <span className="text-amber-400 text-xs font-bold tabular-nums">{cooldownSec}s</span>
+            </div>
           ) : (
             <button
               onClick={handleSend}
