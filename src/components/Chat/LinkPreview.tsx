@@ -8,8 +8,18 @@ interface PreviewData {
   url: string
 }
 
+const CACHE_MAX = 100
+
 // Session-level cache — avoids re-fetching the same URL within a session
 const cache = new Map<string, PreviewData | null>()
+
+function setCached(url: string, value: PreviewData | null) {
+  if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+  cache.set(url, value)
+}
 
 function useLinkPreview(url: string) {
   const [data, setData] = useState<PreviewData | null | 'loading'>(
@@ -21,11 +31,10 @@ function useLinkPreview(url: string) {
       setData(cache.get(url) ?? null)
       return
     }
-    let cancelled = false
-    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`)
+    const controller = new AbortController()
+    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`, { signal: controller.signal })
       .then(r => r.json())
       .then(json => {
-        if (cancelled) return
         if (json.status === 'success') {
           const d: PreviewData = {
             title: json.data.title || undefined,
@@ -33,17 +42,19 @@ function useLinkPreview(url: string) {
             image: json.data.image?.url || undefined,
             url: json.data.url || url,
           }
-          cache.set(url, d)
+          setCached(url, d)
           setData(d)
         } else {
-          cache.set(url, null)
+          setCached(url, null)
           setData(null)
         }
       })
-      .catch(() => {
-        if (!cancelled) { cache.set(url, null); setData(null) }
+      .catch((err: unknown) => {
+        if (err instanceof Error && err.name === 'AbortError') return
+        setCached(url, null)
+        setData(null)
       })
-    return () => { cancelled = true }
+    return () => controller.abort()
   }, [url])
 
   return data

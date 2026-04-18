@@ -236,6 +236,14 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
   )
 }
 
+const MAX_SEARCH_RESULTS = 50
+
+const SIDEBAR_TABS = [
+  { id: 'channels' as const, label: 'Channels', icon: <Hash size={14} /> },
+  { id: 'dms' as const,      label: 'Messages', icon: <MessageCircle size={14} /> },
+  { id: 'contacts' as const, label: 'Contacts', icon: <Users size={14} /> },
+]
+
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
@@ -283,7 +291,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
     return results
       .sort((a, b) => b.message.createdAt - a.message.createdAt)
-      .slice(0, 50)
+      .slice(0, MAX_SEARCH_RESULTS)
   }, [searchQuery, messages, channels, contacts, profiles, publicKey, profile])
 
   const isSearching = searchQuery.trim().length >= 2
@@ -335,33 +343,18 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Tab switcher — hidden while searching */}
       {!isSearching && (
         <div className="flex px-3 pt-3 gap-1">
-          <button
-            onClick={() => setSidebarTab('channels')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-              sidebarTab === 'channels' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Hash size={14} />
-            Channels
-          </button>
-          <button
-            onClick={() => setSidebarTab('dms')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-              sidebarTab === 'dms' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <MessageCircle size={14} />
-            Messages
-          </button>
-          <button
-            onClick={() => setSidebarTab('contacts')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-              sidebarTab === 'contacts' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Users size={14} />
-            Contacts
-          </button>
+          {SIDEBAR_TABS.map(({ id, label, icon }) => (
+            <button
+              key={id}
+              onClick={() => setSidebarTab(id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
+                sidebarTab === id ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -375,7 +368,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           ) : (
             <>
               <p className="text-gray-600 text-xs px-3 py-1">
-                {searchResults.length}{searchResults.length === 50 ? '+' : ''} result{searchResults.length !== 1 ? 's' : ''}
+                {searchResults.length}{searchResults.length === MAX_SEARCH_RESULTS ? '+' : ''} result{searchResults.length !== 1 ? 's' : ''}
               </p>
               {searchResults.map(result => (
                 <SearchResultItem

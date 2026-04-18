@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Play, Pause } from 'lucide-react'
 
 export function formatDuration(seconds: number): string {
@@ -55,6 +55,8 @@ export function AudioMessage({ src, isOwn }: AudioMessageProps) {
     setDuration(isFinite(audio.duration) ? audio.duration : 0)
     audio.currentTime = 0
   }
+
+  useEffect(() => () => { audioRef.current?.pause() }, [])
 
   const safeDuration = isFinite(duration) && duration > 0 ? duration : 0
   const progress = safeDuration > 0 ? (currentTime / safeDuration) * 100 : 0

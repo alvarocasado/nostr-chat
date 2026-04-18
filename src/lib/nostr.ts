@@ -150,7 +150,7 @@ export interface NostrProfile {
 
 export function parseProfile(event: Event): NostrProfile {
   try {
-    const data = JSON.parse(event.content)
+    const data = JSON.parse(event.content) as Partial<NostrProfile>
     return { ...data, pubkey: event.pubkey }
   } catch {
     return { pubkey: event.pubkey }

@@ -303,8 +303,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         await sendSignal(senderPubkey, { type: 'call-end', callId: signal.callId, reason: 'busy' })
         return
       }
+      if (typeof signal.sdp !== 'string') return
       callIdRef.current = signal.callId
-      pendingOffer.current = { sdp: signal.sdp!, peerPubkey: senderPubkey }
+      pendingOffer.current = { sdp: signal.sdp, peerPubkey: senderPubkey }
       setMediaType(signal.mediaType ?? 'audio')
       setPeer({ pubkey: senderPubkey })
       setCallState('incoming')
@@ -315,8 +316,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     if (signal.type === 'call-answer') {
       const pc = pcRef.current
-      if (!pc) return
-      await pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp! })
+      if (!pc || typeof signal.sdp !== 'string') return
+      await pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp })
       await flushPendingCandidates()
       setCallState('connected')
       return

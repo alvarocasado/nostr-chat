@@ -96,6 +96,8 @@ function DMHeader({ pubkey }: { pubkey: string }) {
 
 interface UploadProgress { name: string; sent: number; total: number }
 
+const MAX_TEXTAREA_HEIGHT = 120
+
 function MessageInput({
   onSend,
   onSendChunked,
@@ -221,7 +223,7 @@ function MessageInput({
     const el = textareaRef.current
     if (el) {
       el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+      el.style.height = Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT) + 'px'
     }
   }, [text])
 
