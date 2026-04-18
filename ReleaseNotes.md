@@ -1,5 +1,47 @@
 # Release Notes
 
+## 1.0.0-alpha.4 — 2026-04-18
+
+### Audio & Video Calls
+- Phone and video call buttons in DM headers — disabled while a call is already active
+- **Signaling** via NIP-04-encrypted ephemeral Nostr events (kind 24100): offer / answer / ICE candidates / hangup are relayed but not stored
+- **Media** streams are WebRTC peer-to-peer — audio and video never touch the relay
+- **Incoming call** full-screen overlay: caller avatar, Accept (green) and Decline (red) buttons
+- **Active call UI**: remote video fullscreen (or animated audio-pulse avatar for audio-only), local video picture-in-picture (mirrored, bottom-right), mute / camera toggle / hang-up controls, live duration timer
+- Busy-rejection: a second incoming call while already connected receives an automatic busy signal
+- ICE candidates buffered until remote SDP is applied to handle out-of-order arrival
+- STUN via Google's public servers (`stun.l.google.com`); P2P on same-network and open-NAT connections
+
+### Screen Sharing
+- Share your screen during any active video call via the screen-share button in the call controls
+- Button is disabled until the WebRTC P2P connection is established
+- Screen track replaces the outgoing video track via `RTCRtpSender.replaceTrack()` — no renegotiation
+- "Sharing your screen" badge visible in the video overlay
+- Stop by clicking the button again or using the OS "Stop sharing" button — both revert to camera
+- Cancelling the browser picker is silently ignored; the call continues unaffected
+
+### Image Lightbox
+- Tap any image in chat to open a full-screen preview overlay
+- `Escape` or click outside to dismiss; zoom-in cursor and icon hint on hover
+- Download button and close button in the overlay corner
+
+### Bug Fixes
+- **QR code unreadable** — QR was rendered white-on-dark; fixed to standard black-on-white so phone cameras can scan it
+- **Voice message Infinity:NaN duration** — `MediaRecorder` blobs lack a duration header; fixed by seeking to `1e10` to force the browser to scan and resolve the real duration
+- **Chunked image appears twice for sender** — sender's own subscription re-triggered `finishTransfer`; fixed by skipping when `senderPubkey === publicKey`
+
+### Refactor / Technical Debt
+- `getDisplayName()` utility extracted from 8 inline copies across four files
+- ReactMarkdown component maps pre-built at module level (previously rebuilt on every render)
+- In-flight profile fetch deduplication via module-level `Set`
+- Abandoned file-transfer GC (5-minute timeout) prevents unbounded `Map` growth
+- `CallContext` SDP validation guards replace non-null assertions
+- `LinkPreview` switched to `AbortController`; session cache capped at 100 entries
+- Sidebar tab switcher collapsed from three repeated blocks to a mapped array
+- `AudioMessage` pauses on unmount to prevent `setState` after unmount
+
+---
+
 ## 1.0.0-alpha.3 — 2026-04-17
 
 ### Typing Indicators
