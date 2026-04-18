@@ -8,7 +8,7 @@ import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChun
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
-  compressImage, encodeFile, serializeMessage, formatBytes,
+  compressImage, encodeFile, serializeMessage, formatBytes, getDisplayName,
   MAX_AUDIO_BYTES, type AttachmentData,
 } from '../../lib/fileUtils'
 import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
@@ -50,7 +50,7 @@ function DMHeader({ pubkey }: { pubkey: string }) {
   const { contacts, profiles, clearActiveChat } = useNostrStore()
   const contact = contacts.find(c => c.pubkey === pubkey)
   const profile = contact?.profile || profiles[pubkey]
-  const name = profile?.display_name || profile?.name || pubkey.slice(0, 12) + '...'
+  const name = getDisplayName(profile, pubkey, 12)
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">

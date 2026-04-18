@@ -6,7 +6,7 @@ import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
 import type { Message } from '../../store/nostrStore'
 import type { NostrProfile } from '../../lib/nostr'
-import { parseMessageContent, formatBytes, type AttachmentData } from '../../lib/fileUtils'
+import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData } from '../../lib/fileUtils'
 
 interface MessageItemProps {
   message: Message
@@ -124,7 +124,7 @@ function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isO
 
 
 export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItemProps) {
-  const name = profile?.display_name || profile?.name || message.pubkey.slice(0, 10) + '...'
+  const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
   const { text, attachment } = parseMessageContent(message.content)
 

@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
+import { getDisplayName } from '../../lib/fileUtils'
 import { formatDistanceToNowStrict } from 'date-fns'
 
 function formatTime(ts?: number) {
@@ -197,7 +198,7 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
 function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActive: boolean; onSelect: () => void }) {
   const { setActiveChat, profiles } = useNostrStore()
   const profile = contact.profile || profiles[contact.pubkey]
-  const name = profile?.display_name || profile?.name || contact.pubkey.slice(0, 10) + '...'
+  const name = getDisplayName(profile, contact.pubkey, 10)
 
   return (
     <div className="group relative">
@@ -251,7 +252,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   } = useNostrStore()
 
   const myProfile = profile || profiles[publicKey || '']
-  const myName = myProfile?.display_name || myProfile?.name || (publicKey ? publicKey.slice(0, 8) + '...' : 'You')
+  const myName = publicKey ? getDisplayName(myProfile, publicKey) : 'You'
   const joinedChannels = channels.filter(c => joinedChannelIds.includes(c.id))
 
   const searchResults = useMemo<SearchResult[]>(() => {
@@ -268,17 +269,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       const chatType: ChatType = channel ? 'channel' : 'dm'
       const chatName = channel
         ? channel.name
-        : (() => {
-            const p = contact?.profile || profiles[chatId]
-            return p?.display_name || p?.name || chatId.slice(0, 10) + '...'
-          })()
+        : getDisplayName(contact?.profile || profiles[chatId], chatId, 10)
 
       for (const msg of msgs) {
         if (!msg.content.toLowerCase().includes(q)) continue
         const sp = msg.pubkey === publicKey
           ? (profile || profiles[publicKey || ''])
           : (profiles[msg.pubkey] || contact?.profile)
-        const senderName = sp?.display_name || sp?.name || msg.pubkey.slice(0, 8) + '...'
+        const senderName = getDisplayName(sp, msg.pubkey)
         results.push({ chatId, chatType, chatName, message: msg, senderName })
       }
     }
