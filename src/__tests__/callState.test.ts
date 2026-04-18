@@ -145,6 +145,102 @@ describe('state transitions on user actions', () => {
   })
 })
 
+// ─── Screen sharing state logic ──────────────────────────────────────────────
+
+// Pure model of screen-share toggle: mirrors the rules in CallContext
+// without any browser/React/WebRTC dependencies.
+
+type ScreenShareState = {
+  isScreenSharing: boolean
+  isRtcConnected: boolean
+  hasCameraTrack: boolean
+  hasSender: boolean
+}
+
+function canStartScreenShare(s: ScreenShareState): boolean {
+  return s.isRtcConnected && !s.isScreenSharing
+}
+
+function canStopScreenShare(s: ScreenShareState): boolean {
+  return s.isRtcConnected && s.isScreenSharing
+}
+
+function afterStartScreenShare(s: ScreenShareState, userCancelled: boolean): ScreenShareState {
+  if (userCancelled) return { ...s }                   // no-op on cancel
+  if (!s.hasSender) return { ...s }                    // no sender → no-op
+  return { ...s, isScreenSharing: true }
+}
+
+function afterStopScreenShare(s: ScreenShareState): ScreenShareState {
+  return { ...s, isScreenSharing: false }
+}
+
+function afterCleanup(s: ScreenShareState): ScreenShareState {
+  return { ...s, isScreenSharing: false }
+}
+
+describe('screen sharing state logic', () => {
+  const connected: ScreenShareState = {
+    isScreenSharing: false,
+    isRtcConnected: true,
+    hasCameraTrack: true,
+    hasSender: true,
+  }
+
+  it('can start screen share only when RTC is connected and not already sharing', () => {
+    expect(canStartScreenShare(connected)).toBe(true)
+  })
+
+  it('cannot start screen share when RTC is not connected', () => {
+    expect(canStartScreenShare({ ...connected, isRtcConnected: false })).toBe(false)
+  })
+
+  it('cannot start screen share when already sharing', () => {
+    expect(canStartScreenShare({ ...connected, isScreenSharing: true })).toBe(false)
+  })
+
+  it('can stop screen share when sharing and connected', () => {
+    expect(canStopScreenShare({ ...connected, isScreenSharing: true })).toBe(true)
+  })
+
+  it('cannot stop screen share when not sharing', () => {
+    expect(canStopScreenShare(connected)).toBe(false)
+  })
+
+  it('user-cancelled getDisplayMedia leaves state unchanged', () => {
+    const result = afterStartScreenShare(connected, true)
+    expect(result.isScreenSharing).toBe(false)
+  })
+
+  it('successful start sets isScreenSharing to true', () => {
+    const result = afterStartScreenShare(connected, false)
+    expect(result.isScreenSharing).toBe(true)
+  })
+
+  it('no sender available → start is a no-op', () => {
+    const noSender = { ...connected, hasSender: false }
+    const result = afterStartScreenShare(noSender, false)
+    expect(result.isScreenSharing).toBe(false)
+  })
+
+  it('stopping screen share sets isScreenSharing to false', () => {
+    const sharing = { ...connected, isScreenSharing: true }
+    const result = afterStopScreenShare(sharing)
+    expect(result.isScreenSharing).toBe(false)
+  })
+
+  it('OS "Stop sharing" button (track.onended) reverts to camera — same as manual stop', () => {
+    const sharing = { ...connected, isScreenSharing: true }
+    const result = afterStopScreenShare(sharing)  // revertToCamera mirrors afterStopScreenShare
+    expect(result.isScreenSharing).toBe(false)
+  })
+
+  it('cleanup always resets isScreenSharing regardless of prior state', () => {
+    expect(afterCleanup({ ...connected, isScreenSharing: true }).isScreenSharing).toBe(false)
+    expect(afterCleanup({ ...connected, isScreenSharing: false }).isScreenSharing).toBe(false)
+  })
+})
+
 // ─── ICE candidate buffering ─────────────────────────────────────────────────
 
 describe('ICE candidate buffering', () => {

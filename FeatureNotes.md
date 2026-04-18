@@ -7,6 +7,16 @@
 - **Voice message shows Infinity:NaN duration** — `MediaRecorder` blobs lack a duration header so `audio.duration` is `Infinity`. Fixed by seeking to `1e10` on `loadedmetadata` to force the browser to scan the file and resolve the real duration, then resetting `currentTime` to 0. `formatDuration` also guarded against non-finite inputs.
 - **Chunked image appears twice for sender** — sender's own subscription processed their own emitted chunks, causing `finishTransfer` to call `addMessage` a second time after the optimistic local add. Fixed by skipping `finishTransfer` when `senderPubkey === publicKey`.
 
+### Screen Sharing
+- Share your screen during any active video call via the screen-share button in the call controls
+- Button is disabled until the WebRTC connection is established (prevents premature track replacement)
+- Clicking the button opens the browser's native screen/window/tab picker via `getDisplayMedia`
+- Screen track replaces the outgoing video track over the existing P2P connection using `RTCRtpSender.replaceTrack()` — no renegotiation needed
+- "Sharing your screen" badge overlaid on the remote-video panel so both parties see the mode clearly
+- Stop sharing: click the button again, or use the OS "Stop sharing" button — both revert the sender to the original camera track
+- Cancelling the picker (or permission denied) is silently ignored — call continues unaffected
+- Screen audio deliberately excluded (`audio: false` in `getDisplayMedia`) to avoid double-audio feedback
+
 ### Audio & Video Calls
 - Phone and video call buttons in DM headers (disabled while another call is active)
 - **Signaling**: NIP-04-encrypted ephemeral Nostr events (kind 24100) carry offer / answer / ICE candidates / hangup — relay-based but ephemeral (not stored)
