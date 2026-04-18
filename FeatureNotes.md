@@ -7,6 +7,16 @@
 - **Voice message shows Infinity:NaN duration** — `MediaRecorder` blobs lack a duration header so `audio.duration` is `Infinity`. Fixed by seeking to `1e10` on `loadedmetadata` to force the browser to scan the file and resolve the real duration, then resetting `currentTime` to 0. `formatDuration` also guarded against non-finite inputs.
 - **Chunked image appears twice for sender** — sender's own subscription processed their own emitted chunks, causing `finishTransfer` to call `addMessage` a second time after the optimistic local add. Fixed by skipping `finishTransfer` when `senderPubkey === publicKey`.
 
+### Audio & Video Calls
+- Phone and video call buttons in DM headers (disabled while another call is active)
+- **Signaling**: NIP-04-encrypted ephemeral Nostr events (kind 24100) carry offer / answer / ICE candidates / hangup — relay-based but ephemeral (not stored)
+- **Media**: WebRTC P2P — audio and video streams travel directly between peers, never through relays
+- **Incoming call**: full-screen overlay with caller avatar, Accept and Decline buttons
+- **Active call UI**: full-screen overlay — remote video (or animated audio-pulse avatar for audio-only calls), local video picture-in-picture (mirrored, bottom-right), mute / camera toggle / hang-up controls, live duration timer
+- Busy-rejection: if a call arrives while already in a call, caller receives an automatic busy signal
+- ICE candidates buffered until remote SDP is set to handle out-of-order arrival
+- STUN via Google's free servers (`stun.l.google.com`); works on same-network and open-NAT connections
+
 ### Refactor / Technical Debt
 - **`getDisplayName()` utility** — extracted from 8 inline copies of `profile?.display_name || profile?.name || pubkey.slice(0, N) + '...'` scattered across Sidebar, MessageItem, MessageThread, and useNostrSubscriptions; ellipsis standardised to `…`
 - **ReactMarkdown component maps pre-built** — `COMPONENTS_OWN` / `COMPONENTS_OTHER` built once at module load instead of inside the render function; prevents new object references on every paint that defeated ReactMarkdown's internal memoization

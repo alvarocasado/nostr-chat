@@ -7,6 +7,9 @@ import { SettingsPanel } from './components/Settings/SettingsPanel'
 import { AddChannelModal } from './components/Chat/AddChannelModal'
 import { AddContactModal } from './components/Chat/AddContactModal'
 import { UpdatePrompt } from './components/UpdatePrompt'
+import { CallProvider } from './contexts/CallContext'
+import { IncomingCall } from './components/Call/IncomingCall'
+import { CallOverlay } from './components/Call/CallOverlay'
 
 /** Read and remove the ?contact= param from the URL without a page reload. */
 function consumeContactParam(): string | null {
@@ -48,24 +51,29 @@ function App() {
   }
 
   return (
-    <div className="flex h-full w-full bg-gray-950 overflow-hidden">
-      <Sidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
-      <MessageThread onOpenSidebar={() => setMobileSidebarOpen(true)} />
+    <CallProvider>
+      <div className="flex h-full w-full bg-gray-950 overflow-hidden">
+        <Sidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
+        <MessageThread onOpenSidebar={() => setMobileSidebarOpen(true)} />
 
-      {showSettings && (
-        <SettingsPanel onClose={() => setShowSettings(false)} />
-      )}
-      {showAddChannel && (
-        <AddChannelModal onClose={() => setShowAddChannel(false)} />
-      )}
-      {(showAddContact || contactLinkNpub) && (
-        <AddContactModal
-          initialNpub={contactLinkNpub ?? undefined}
-          onClose={() => { setShowAddContact(false); setContactLinkNpub(null) }}
-        />
-      )}
-      <UpdatePrompt />
-    </div>
+        {showSettings && (
+          <SettingsPanel onClose={() => setShowSettings(false)} />
+        )}
+        {showAddChannel && (
+          <AddChannelModal onClose={() => setShowAddChannel(false)} />
+        )}
+        {(showAddContact || contactLinkNpub) && (
+          <AddContactModal
+            initialNpub={contactLinkNpub ?? undefined}
+            onClose={() => { setShowAddContact(false); setContactLinkNpub(null) }}
+          />
+        )}
+        <UpdatePrompt />
+      </div>
+
+      <IncomingCall />
+      <CallOverlay />
+    </CallProvider>
   )
 }
 
