@@ -22,6 +22,7 @@ interface CallContextValue {
   remoteStream: MediaStream | null
   isMuted: boolean
   isCameraOff: boolean
+  isScreenSharing: boolean
   duration: number
   isRtcConnected: boolean
   initiateCall: (peerPubkey: string, type: MediaType) => void
@@ -30,6 +31,7 @@ interface CallContextValue {
   hangup: () => void
   toggleMute: () => void
   toggleCamera: () => void
+  toggleScreenShare: () => Promise<void>
 }
 
 const CallContext = createContext<CallContextValue | null>(null)
@@ -48,9 +50,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [mediaType, setMediaType]       = useState<MediaType>('audio')
   const [localStream, setLocalStream]   = useState<MediaStream | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
-  const [isMuted, setIsMuted]           = useState(false)
-  const [isCameraOff, setIsCameraOff]   = useState(false)
-  const [duration, setDuration]         = useState(0)
+  const [isMuted, setIsMuted]               = useState(false)
+  const [isCameraOff, setIsCameraOff]       = useState(false)
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
+  const [duration, setDuration]             = useState(0)
   const [isRtcConnected, setIsRtcConnected] = useState(false)
 
   const pcRef              = useRef<RTCPeerConnection | null>(null)
@@ -58,6 +61,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pendingCandidates  = useRef<RTCIceCandidateInit[]>([])
   const pendingOffer       = useRef<{ sdp: string; peerPubkey: string } | null>(null)
   const localStreamRef     = useRef<MediaStream | null>(null)
+  const screenStreamRef    = useRef<MediaStream | null>(null)
   const durationTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
   const callStateRef       = useRef<CallState>('idle')
 
@@ -83,9 +87,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     pcRef.current?.close()
     pcRef.current = null
     stopLocalStream()
+    screenStreamRef.current?.getTracks().forEach(t => t.stop())
+    screenStreamRef.current = null
     setRemoteStream(null)
     setIsMuted(false)
     setIsCameraOff(false)
+    setIsScreenSharing(false)
     setIsRtcConnected(false)
     setDuration(0)
     callIdRef.current = ''
@@ -249,6 +256,42 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setIsCameraOff(v => !v)
   }, [])
 
+  const revertToCamera = useCallback(() => {
+    screenStreamRef.current?.getTracks().forEach(t => t.stop())
+    screenStreamRef.current = null
+    setIsScreenSharing(false)
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0]
+    const sender = pcRef.current?.getSenders().find(s => s.track?.kind === 'video')
+    if (sender && cameraTrack) void sender.replaceTrack(cameraTrack)
+  }, [])
+
+  const toggleScreenShare = useCallback(async () => {
+    const pc = pcRef.current
+    if (!pc || !isRtcConnected) return
+
+    if (isScreenSharing) {
+      revertToCamera()
+      return
+    }
+
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      screenStreamRef.current = screenStream
+      const screenTrack = screenStream.getVideoTracks()[0]
+
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video')
+      if (!sender) { screenStream.getTracks().forEach(t => t.stop()); return }
+
+      await sender.replaceTrack(screenTrack)
+      setIsScreenSharing(true)
+
+      // Auto-revert when the OS "Stop sharing" button is clicked
+      screenTrack.onended = revertToCamera
+    } catch {
+      // User cancelled the picker or permission denied — no-op
+    }
+  }, [isRtcConnected, isScreenSharing, revertToCamera])
+
   // ── Incoming signal handler ───────────────────────────────────────────────
 
   const handleSignal = useCallback(async (senderPubkey: string, signal: CallSignal) => {
@@ -319,9 +362,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     <CallContext.Provider value={{
       callState, peer, mediaType,
       localStream, remoteStream,
-      isMuted, isCameraOff, duration, isRtcConnected,
+      isMuted, isCameraOff, isScreenSharing, duration, isRtcConnected,
       initiateCall, acceptCall, rejectCall, hangup,
-      toggleMute, toggleCamera,
+      toggleMute, toggleCamera, toggleScreenShare,
     }}>
       {children}
     </CallContext.Provider>

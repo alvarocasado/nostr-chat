@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Phone } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Phone, ScreenShare, ScreenShareOff } from 'lucide-react'
 import { useCallContext } from '../../contexts/CallContext'
 import { useNostrStore } from '../../store/nostrStore'
 import { Avatar } from '../Chat/Avatar'
@@ -26,9 +26,9 @@ export function CallOverlay() {
   const {
     callState, peer, mediaType,
     localStream, remoteStream,
-    isMuted, isCameraOff,
+    isMuted, isCameraOff, isScreenSharing,
     duration, isRtcConnected,
-    hangup, toggleMute, toggleCamera,
+    hangup, toggleMute, toggleCamera, toggleScreenShare,
   } = useCallContext()
   const { profiles, contacts } = useNostrStore()
 
@@ -79,6 +79,12 @@ export function CallOverlay() {
           <div className="absolute top-4 left-0 right-0 flex flex-col items-center gap-1 pointer-events-none">
             <p className="text-white font-semibold text-lg drop-shadow">{name}</p>
             <p className="text-white/70 text-sm drop-shadow">{statusLabel}</p>
+            {isScreenSharing && (
+              <span className="mt-1 flex items-center gap-1.5 bg-blue-500/30 border border-blue-400/50 rounded-full px-3 py-0.5 text-blue-300 text-xs font-medium">
+                <ScreenShare size={12} />
+                Sharing your screen
+              </span>
+            )}
           </div>
         )}
 
@@ -117,6 +123,21 @@ export function CallOverlay() {
             title={isCameraOff ? 'Turn on camera' : 'Turn off camera'}
           >
             {isCameraOff ? <VideoOff size={22} /> : <Video size={22} />}
+          </button>
+        )}
+
+        {mediaType === 'video' && (
+          <button
+            onClick={() => void toggleScreenShare()}
+            disabled={!isRtcConnected}
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+              isScreenSharing
+                ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-400/50'
+                : 'bg-gray-800 text-white hover:bg-gray-700'
+            }`}
+            title={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}
+          >
+            {isScreenSharing ? <ScreenShareOff size={22} /> : <ScreenShare size={22} />}
           </button>
         )}
 
