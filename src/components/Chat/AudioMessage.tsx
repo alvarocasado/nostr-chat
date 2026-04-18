@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Play, Pause } from 'lucide-react'
 
 export function formatDuration(seconds: number): string {
+  if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return '0:00'
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   return `${m}:${s.toString().padStart(2, '0')}`
@@ -14,6 +15,7 @@ interface AudioMessageProps {
 
 export function AudioMessage({ src, isOwn }: AudioMessageProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const fixingDuration = useRef(false)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -32,7 +34,32 @@ export function AudioMessage({ src, isOwn }: AudioMessageProps) {
     setCurrentTime(t)
   }
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0
+  // MediaRecorder blobs often lack a duration header → duration is Infinity.
+  // Seeking to a large timestamp forces the browser to scan the file and
+  // resolve the real duration; we then reset currentTime to 0.
+  const handleLoadedMetadata = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (!isFinite(audio.duration)) {
+      fixingDuration.current = true
+      audio.currentTime = 1e10
+    } else {
+      setDuration(audio.duration)
+    }
+  }
+
+  const handleSeeked = () => {
+    const audio = audioRef.current
+    if (!audio || !fixingDuration.current) return
+    fixingDuration.current = false
+    setDuration(isFinite(audio.duration) ? audio.duration : 0)
+    audio.currentTime = 0
+  }
+
+  useEffect(() => () => { audioRef.current?.pause() }, [])
+
+  const safeDuration = isFinite(duration) && duration > 0 ? duration : 0
+  const progress = safeDuration > 0 ? (currentTime / safeDuration) * 100 : 0
 
   return (
     <div className="flex items-center gap-2.5 w-52">
@@ -43,7 +70,8 @@ export function AudioMessage({ src, isOwn }: AudioMessageProps) {
         onPause={() => setPlaying(false)}
         onEnded={() => { setPlaying(false); setCurrentTime(0) }}
         onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
-        onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
+        onLoadedMetadata={handleLoadedMetadata}
+        onSeeked={handleSeeked}
         preload="metadata"
       />
       <button
@@ -59,7 +87,6 @@ export function AudioMessage({ src, isOwn }: AudioMessageProps) {
         }
       </button>
       <div className="flex-1 flex flex-col gap-1 min-w-0">
-        {/* Progress track */}
         <div className="relative h-1.5 bg-white/10 rounded-full">
           <div
             className="absolute inset-y-0 left-0 bg-purple-400 rounded-full transition-all"
@@ -68,7 +95,7 @@ export function AudioMessage({ src, isOwn }: AudioMessageProps) {
           <input
             type="range"
             min={0}
-            max={duration || 0}
+            max={safeDuration}
             step={0.1}
             value={currentTime}
             onChange={handleSeek}
@@ -77,7 +104,7 @@ export function AudioMessage({ src, isOwn }: AudioMessageProps) {
         </div>
         <span className="text-xs text-gray-400 tabular-nums">
           {formatDuration(currentTime)}
-          {duration > 0 ? ` / ${formatDuration(duration)}` : ''}
+          {safeDuration > 0 ? ` / ${formatDuration(safeDuration)}` : ''}
         </span>
       </div>
     </div>

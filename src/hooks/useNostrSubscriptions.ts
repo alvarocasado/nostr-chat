@@ -21,7 +21,10 @@ import {
   sendChunkedFile as sendChunkedFileUtil,
   type IncomingTransfer,
 } from '../lib/fileTransfer'
-import { serializeMessage } from '../lib/fileUtils'
+import { serializeMessage, getDisplayName } from '../lib/fileUtils'
+
+// Module-level set to deduplicate concurrent in-flight profile fetches
+const fetchingProfiles = new Set<string>()
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
@@ -86,16 +89,16 @@ export function useChannelMessages(channelId: string | null) {
 
         if (event.pubkey !== publicKey) {
           const channelName = channels.find(c => c.id === channelId)?.name || 'Channel'
-          const sp = p[event.pubkey]
-          const senderName = sp?.display_name || sp?.name || event.pubkey.slice(0, 8) + '…'
+          const senderName = getDisplayName(p[event.pubkey], event.pubkey)
           const preview = event.content.length > 80 ? event.content.slice(0, 80) + '…' : event.content
           fireNotification(channelId, isMention ? 'mention' : 'channel', `#${channelName}`, `${senderName}: ${preview}`)
         }
 
-        if (!profiles[event.pubkey]) {
-          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] }).then(profileEvent => {
-            if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent))
-          })
+        if (!profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
+          fetchingProfiles.add(event.pubkey)
+          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] })
+            .then(profileEvent => { if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent)) })
+            .finally(() => fetchingProfiles.delete(event.pubkey))
         }
       }
     )
@@ -145,16 +148,16 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
         if (event.pubkey !== myPubkey) {
           updateContactLastMessage(theirPubkey, decrypted, event.created_at)
           const { profiles: p } = useNostrStore.getState()
-          const sp = p[event.pubkey]
-          const senderName = sp?.display_name || sp?.name || event.pubkey.slice(0, 8) + '…'
+          const senderName = getDisplayName(p[event.pubkey], event.pubkey)
           const preview = decrypted.length > 80 ? decrypted.slice(0, 80) + '…' : decrypted
-          fireNotification(chatId, 'dm', senderName, preview, sp?.picture)
+          fireNotification(chatId, 'dm', senderName, preview, p[event.pubkey]?.picture)
         }
 
-        if (!profiles[event.pubkey]) {
-          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] }).then(profileEvent => {
-            if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent))
-          })
+        if (!profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
+          fetchingProfiles.add(event.pubkey)
+          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] })
+            .then(profileEvent => { if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent)) })
+            .finally(() => fetchingProfiles.delete(event.pubkey))
         }
       } catch {
         // Decryption failed - skip
@@ -213,7 +216,9 @@ export function useChannelDiscovery() {
 
 /** Called when the last chunk of an incoming transfer arrives. Reconstructs and stores the message. */
 function finishTransfer(t: IncomingTransfer) {
-  const { addMessage } = useNostrStore.getState()
+  const { addMessage, publicKey } = useNostrStore.getState()
+  // Sender already added the message optimistically in handleSendChunked
+  if (t.senderPubkey === publicKey) return
   const dataUrl = reconstructDataUrl(t.mime, t.chunks, t.totalChunks)
   const content = serializeMessage('', { name: t.name, type: t.mime, size: t.size, data: dataUrl })
   addMessage(t.chatId, {

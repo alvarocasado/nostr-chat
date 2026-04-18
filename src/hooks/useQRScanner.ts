@@ -21,7 +21,8 @@ export function useQRScanner(onResult: (data: string) => void) {
 
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
-    const ctx = canvas.getContext('2d')!
+    const ctx = canvas.getContext('2d')
+    if (!ctx) { rafRef.current = requestAnimationFrame(tick); return }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
     const code = jsQR(imageData.data, imageData.width, imageData.height, {

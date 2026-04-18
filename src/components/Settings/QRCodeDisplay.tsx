@@ -19,7 +19,7 @@ export function QRCodeDisplay({ value, size = 220, label }: QRCodeDisplayProps) 
       {
         width: size,
         margin: 2,
-        color: { dark: '#ffffff', light: '#1f2937' },
+        color: { dark: '#000000', light: '#ffffff' },
         errorCorrectionLevel: 'M',
       },
       (err) => {
@@ -29,7 +29,7 @@ export function QRCodeDisplay({ value, size = 220, label }: QRCodeDisplayProps) 
     QRCode.toDataURL(value, {
       width: size,
       margin: 2,
-      color: { dark: '#ffffff', light: '#1f2937' },
+      color: { dark: '#000000', light: '#ffffff' },
       errorCorrectionLevel: 'M',
     }).then(setDataUrl)
   }, [value, size])
@@ -57,7 +57,7 @@ export function QRCodeDisplay({ value, size = 220, label }: QRCodeDisplayProps) 
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="rounded-2xl overflow-hidden border border-gray-700 bg-gray-800 p-3">
+      <div className="rounded-2xl overflow-hidden border border-gray-300 bg-white p-3">
         <canvas ref={canvasRef} className="block rounded-xl" />
       </div>
       {label && (

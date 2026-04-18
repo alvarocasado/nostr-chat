@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
+import { getDisplayName } from '../../lib/fileUtils'
 import { formatDistanceToNowStrict } from 'date-fns'
 
 function formatTime(ts?: number) {
@@ -197,7 +198,7 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
 function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActive: boolean; onSelect: () => void }) {
   const { setActiveChat, profiles } = useNostrStore()
   const profile = contact.profile || profiles[contact.pubkey]
-  const name = profile?.display_name || profile?.name || contact.pubkey.slice(0, 10) + '...'
+  const name = getDisplayName(profile, contact.pubkey, 10)
 
   return (
     <div className="group relative">
@@ -235,6 +236,14 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
   )
 }
 
+const MAX_SEARCH_RESULTS = 50
+
+const SIDEBAR_TABS = [
+  { id: 'channels' as const, label: 'Channels', icon: <Hash size={14} /> },
+  { id: 'dms' as const,      label: 'Messages', icon: <MessageCircle size={14} /> },
+  { id: 'contacts' as const, label: 'Contacts', icon: <Users size={14} /> },
+]
+
 interface SidebarProps {
   isOpen: boolean
   onClose: () => void
@@ -251,7 +260,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   } = useNostrStore()
 
   const myProfile = profile || profiles[publicKey || '']
-  const myName = myProfile?.display_name || myProfile?.name || (publicKey ? publicKey.slice(0, 8) + '...' : 'You')
+  const myName = publicKey ? getDisplayName(myProfile, publicKey) : 'You'
   const joinedChannels = channels.filter(c => joinedChannelIds.includes(c.id))
 
   const searchResults = useMemo<SearchResult[]>(() => {
@@ -268,24 +277,21 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       const chatType: ChatType = channel ? 'channel' : 'dm'
       const chatName = channel
         ? channel.name
-        : (() => {
-            const p = contact?.profile || profiles[chatId]
-            return p?.display_name || p?.name || chatId.slice(0, 10) + '...'
-          })()
+        : getDisplayName(contact?.profile || profiles[chatId], chatId, 10)
 
       for (const msg of msgs) {
         if (!msg.content.toLowerCase().includes(q)) continue
         const sp = msg.pubkey === publicKey
           ? (profile || profiles[publicKey || ''])
           : (profiles[msg.pubkey] || contact?.profile)
-        const senderName = sp?.display_name || sp?.name || msg.pubkey.slice(0, 8) + '...'
+        const senderName = getDisplayName(sp, msg.pubkey)
         results.push({ chatId, chatType, chatName, message: msg, senderName })
       }
     }
 
     return results
       .sort((a, b) => b.message.createdAt - a.message.createdAt)
-      .slice(0, 50)
+      .slice(0, MAX_SEARCH_RESULTS)
   }, [searchQuery, messages, channels, contacts, profiles, publicKey, profile])
 
   const isSearching = searchQuery.trim().length >= 2
@@ -337,33 +343,18 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       {/* Tab switcher — hidden while searching */}
       {!isSearching && (
         <div className="flex px-3 pt-3 gap-1">
-          <button
-            onClick={() => setSidebarTab('channels')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-              sidebarTab === 'channels' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Hash size={14} />
-            Channels
-          </button>
-          <button
-            onClick={() => setSidebarTab('dms')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-              sidebarTab === 'dms' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <MessageCircle size={14} />
-            Messages
-          </button>
-          <button
-            onClick={() => setSidebarTab('contacts')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-              sidebarTab === 'contacts' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Users size={14} />
-            Contacts
-          </button>
+          {SIDEBAR_TABS.map(({ id, label, icon }) => (
+            <button
+              key={id}
+              onClick={() => setSidebarTab(id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
+                sidebarTab === id ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {icon}
+              {label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -377,7 +368,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           ) : (
             <>
               <p className="text-gray-600 text-xs px-3 py-1">
-                {searchResults.length}{searchResults.length === 50 ? '+' : ''} result{searchResults.length !== 1 ? 's' : ''}
+                {searchResults.length}{searchResults.length === MAX_SEARCH_RESULTS ? '+' : ''} result{searchResults.length !== 1 ? 's' : ''}
               </p>
               {searchResults.map(result => (
                 <SearchResultItem

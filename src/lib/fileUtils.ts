@@ -80,6 +80,15 @@ export function serializeMessage(text: string, attachment?: AttachmentData | nul
   return JSON.stringify({ text: text.trim(), attachment })
 }
 
+/** Return the best display name for a profile, falling back to a truncated pubkey. */
+export function getDisplayName(
+  profile: { display_name?: string; name?: string } | undefined,
+  pubkey: string,
+  len = 8,
+): string {
+  return profile?.display_name || profile?.name || pubkey.slice(0, len) + '…'
+}
+
 /** Format bytes as human-readable size string. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`

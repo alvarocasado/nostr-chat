@@ -11,7 +11,7 @@ function extractFirstUrl(text: string): string | null {
   return text.match(URL_RE)?.[0] ?? null
 }
 
-function makeComponents(isOwn: boolean): Components {
+function buildComponents(isOwn: boolean): Components {
   const linkClass = isOwn
     ? 'underline text-purple-200 hover:text-white'
     : 'underline text-purple-400 hover:text-purple-300'
@@ -44,7 +44,6 @@ function makeComponents(isOwn: boolean): Components {
       </a>
     ),
     code: ({ className, children }) => {
-      // Fenced code blocks have a language-xxx className; inline code does not
       if (className?.startsWith('language-')) {
         return (
           <pre className={`rounded-lg p-3 overflow-x-auto text-xs font-mono my-1 ${codeBlockClass}`}>
@@ -71,6 +70,10 @@ function makeComponents(isOwn: boolean): Components {
   }
 }
 
+// Built once at module load — isOwn only has two states
+const COMPONENTS_OWN   = buildComponents(true)
+const COMPONENTS_OTHER = buildComponents(false)
+
 interface MarkdownMessageProps {
   content: string
   isOwn: boolean
@@ -85,7 +88,7 @@ export function MarkdownMessage({ content, isOwn }: MarkdownMessageProps) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[rehypeSanitize]}
-        components={makeComponents(isOwn)}
+        components={isOwn ? COMPONENTS_OWN : COMPONENTS_OTHER}
       >
         {content}
       </ReactMarkdown>

@@ -43,8 +43,17 @@ export interface IncomingTransfer {
 // ─── Module-level in-memory state (ephemeral, not persisted) ────────────────
 
 const transfers = new Map<string, IncomingTransfer>()
-// Chunks that arrived before their manifest
 const orphanChunks = new Map<string, Record<number, string>>()
+
+const TRANSFER_TIMEOUT_S = 5 * 60  // 5 minutes in Unix seconds
+
+// Prune transfers older than TRANSFER_TIMEOUT_S on each new manifest arrival
+function gcStaleTransfers() {
+  const cutoff = Math.floor(Date.now() / 1000) - TRANSFER_TIMEOUT_S
+  for (const [id, t] of transfers) {
+    if (t.createdAt < cutoff) transfers.delete(id)
+  }
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -112,6 +121,7 @@ export function handleFileStart(
   senderPubkey: string,
   createdAt: number,
 ): void {
+  gcStaleTransfers()
   const orphans = orphanChunks.get(transferId) ?? {}
   orphanChunks.delete(transferId)
   transfers.set(transferId, {
