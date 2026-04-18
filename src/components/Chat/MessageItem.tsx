@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -28,16 +29,74 @@ function handleDownload(attachment: AttachmentData) {
   a.click()
 }
 
+function ImageLightbox({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex flex-col items-center gap-3 p-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <img
+          src={src}
+          alt={name}
+          className="max-w-[90vw] max-h-[80vh] object-contain rounded-xl shadow-2xl"
+        />
+        <div className="absolute top-2 right-2 flex gap-2">
+          <button
+            onClick={() => handleDownload({ data: src, name, type: 'image/', size: 0 })}
+            className="w-9 h-9 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors"
+            title="Download"
+          >
+            <Download size={16} className="text-white" />
+          </button>
+          <button
+            onClick={onClose}
+            className="w-9 h-9 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center transition-colors"
+            title="Close"
+          >
+            <X size={16} className="text-white" />
+          </button>
+        </div>
+        <p className="text-gray-400 text-xs truncate max-w-[80vw]">{name}</p>
+      </div>
+    </div>
+  )
+}
+
+function ImageAttachment({ attachment }: { attachment: AttachmentData }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div className="relative group/img cursor-zoom-in" onClick={() => setOpen(true)}>
+        <img
+          src={attachment.data}
+          alt={attachment.name}
+          className="max-w-full rounded-xl object-contain"
+          style={{ maxHeight: 300 }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity">
+          <div className="w-10 h-10 bg-black/50 rounded-full flex items-center justify-center">
+            <ZoomIn size={18} className="text-white" />
+          </div>
+        </div>
+      </div>
+      {open && <ImageLightbox src={attachment.data} name={attachment.name} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
 function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isOwn: boolean }) {
   if (attachment.type.startsWith('image/')) {
-    return (
-      <img
-        src={attachment.data}
-        alt={attachment.name}
-        className="max-w-full rounded-xl object-contain"
-        style={{ maxHeight: 300 }}
-      />
-    )
+    return <ImageAttachment attachment={attachment} />
   }
 
   if (attachment.type.startsWith('audio/')) {
