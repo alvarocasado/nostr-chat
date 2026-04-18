@@ -1,6 +1,6 @@
 # Feature Notes
 
-## Unreleased
+## Released in 1.0.0-alpha.4
 
 ### Bug Fixes
 - **QR code unreadable** — QR was rendered white-on-dark (`dark: #ffffff / light: #1f2937`), which most phone cameras cannot decode. Fixed to standard black-on-white with a white background container.
@@ -33,6 +33,11 @@
 - **In-flight profile fetch deduplication** — a module-level `Set<string>` gates concurrent `fetchEvent` calls so a burst of messages from the same unknown sender triggers only one network request instead of N
 - **Abandoned transfer GC** — `gcStaleTransfers()` called on each `handleFileStart`; prunes `IncomingTransfer` entries older than 5 minutes to prevent unbounded `Map` growth from failed transfers
 - **QR scanner canvas null check** — replaced `getContext('2d')!` non-null assertion with a guarded check that skips the frame and retries via `requestAnimationFrame`
+- **Signal SDP validation** — replaced `signal.sdp!` non-null assertions in `CallContext` with explicit `typeof signal.sdp !== 'string'` guards; malformed signaling events now silently drop instead of throwing
+- **LinkPreview: AbortController + LRU cap** — fetch cancellation switched from a `cancelled` flag to `AbortController` (actually stops the in-flight request); session cache capped at 100 entries to bound memory growth
+- **Sidebar tab switcher** — three identical 8-line button blocks collapsed into a single mapped array over `SIDEBAR_TABS`; `MAX_SEARCH_RESULTS = 50` constant replaces the magic number in `slice` and the results count label
+- **Named constants** — `MAX_TEXTAREA_HEIGHT = 120` in `MessageInput` (auto-resize effect); `Partial<NostrProfile>` type on `JSON.parse` in `parseProfile` removes implicit `any`
+- **Audio unmount cleanup** — `AudioMessage` now pauses the `<audio>` element on unmount to prevent `setState` after unmount if a message row is removed while audio is playing
 
 ### Image Lightbox
 - Tap any image in chat to open a full-screen preview overlay
