@@ -213,7 +213,9 @@ export function useChannelDiscovery() {
 
 /** Called when the last chunk of an incoming transfer arrives. Reconstructs and stores the message. */
 function finishTransfer(t: IncomingTransfer) {
-  const { addMessage } = useNostrStore.getState()
+  const { addMessage, publicKey } = useNostrStore.getState()
+  // Sender already added the message optimistically in handleSendChunked
+  if (t.senderPubkey === publicKey) return
   const dataUrl = reconstructDataUrl(t.mime, t.chunks, t.totalChunks)
   const content = serializeMessage('', { name: t.name, type: t.mime, size: t.size, data: dataUrl })
   addMessage(t.chatId, {
