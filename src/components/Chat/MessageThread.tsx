@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square } from 'lucide-react'
+import { useCallContext } from '../../contexts/CallContext'
+import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { MessageItem } from './MessageItem'
@@ -48,13 +49,14 @@ function ChannelHeader({ channelId }: { channelId: string }) {
 
 function DMHeader({ pubkey }: { pubkey: string }) {
   const { contacts, profiles, clearActiveChat } = useNostrStore()
+  const { callState, initiateCall } = useCallContext()
   const contact = contacts.find(c => c.pubkey === pubkey)
   const profile = contact?.profile || profiles[pubkey]
   const name = getDisplayName(profile, pubkey, 12)
+  const canCall = callState === 'idle'
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
-      {/* Mobile back button */}
       <button
         onClick={clearActiveChat}
         className="md:hidden p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -69,6 +71,24 @@ function DMHeader({ pubkey }: { pubkey: string }) {
           <Lock size={11} className="text-green-400 flex-shrink-0" />
           <span className="text-xs text-gray-500">End-to-end encrypted</span>
         </div>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button
+          onClick={() => initiateCall(pubkey, 'audio')}
+          disabled={!canCall}
+          className="p-2 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-white/10 transition-colors"
+          title="Audio call"
+        >
+          <Phone size={18} />
+        </button>
+        <button
+          onClick={() => initiateCall(pubkey, 'video')}
+          disabled={!canCall}
+          className="p-2 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-white/10 transition-colors"
+          title="Video call"
+        >
+          <Video size={18} />
+        </button>
       </div>
     </div>
   )
