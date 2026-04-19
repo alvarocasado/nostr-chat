@@ -387,10 +387,16 @@ export const useNostrStore = create<NostrState>()(
     }),
     {
       name: 'nostr-chat-storage',
+      // nsec is intentionally excluded — it is derivable from privateKeyHex and
+      // storing both doubles the private key exposure footprint in localStorage.
+      onRehydrateStorage: () => (state) => {
+        if (state?.privateKeyHex && !state.nsec) {
+          state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
+        }
+      },
       partialize: (state) => ({
         privateKeyHex: state.privateKeyHex,
         publicKey: state.publicKey,
-        nsec: state.nsec,
         npub: state.npub,
         profile: state.profile,
         relays: state.relays,

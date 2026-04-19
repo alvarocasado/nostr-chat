@@ -34,6 +34,26 @@ export async function buildCallSignalEvent(
   }, sk)
 }
 
+const VALID_SIGNAL_TYPES: CallSignalType[] = ['call-offer', 'call-answer', 'ice-candidate', 'call-end']
+const MAX_SDP_LEN = 65_536   // generous ceiling; real SDPs are ~2–8 KB
+const MAX_CALL_ID_LEN = 128
+
+function isValidCallSignal(obj: unknown): obj is CallSignal {
+  if (!obj || typeof obj !== 'object') return false
+  const s = obj as Record<string, unknown>
+
+  if (!VALID_SIGNAL_TYPES.includes(s.type as CallSignalType)) return false
+  if (typeof s.callId !== 'string' || s.callId.length === 0 || s.callId.length > MAX_CALL_ID_LEN) return false
+
+  if (s.sdp !== undefined) {
+    if (typeof s.sdp !== 'string' || s.sdp.length > MAX_SDP_LEN) return false
+  }
+  if (s.mediaType !== undefined && s.mediaType !== 'audio' && s.mediaType !== 'video') return false
+  if (s.candidate !== undefined && (typeof s.candidate !== 'object' || s.candidate === null)) return false
+
+  return true
+}
+
 export async function decryptCallSignal(
   sk: Uint8Array,
   senderPubkey: string,
@@ -41,9 +61,8 @@ export async function decryptCallSignal(
 ): Promise<CallSignal | null> {
   try {
     const plain = await nip04.decrypt(sk, senderPubkey, content)
-    const obj = JSON.parse(plain)
-    if (typeof obj?.type !== 'string' || typeof obj?.callId !== 'string') return null
-    return obj as CallSignal
+    const obj = JSON.parse(plain) as unknown
+    return isValidCallSignal(obj) ? obj : null
   } catch {
     return null
   }

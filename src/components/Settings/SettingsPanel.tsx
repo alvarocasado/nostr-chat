@@ -44,11 +44,26 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     setRelayError('')
     const url = newRelay.trim()
     if (!url) return
-    if (!url.startsWith('wss://') && !url.startsWith('ws://')) {
-      setRelayError('URL must start with wss:// or ws://')
+
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      setRelayError('Invalid URL — must be a valid wss:// address')
       return
     }
-    addRelay(url)
+
+    if (parsed.protocol !== 'wss:') {
+      setRelayError('Only wss:// (secure WebSocket) relays are allowed')
+      return
+    }
+
+    if (relays.includes(parsed.toString())) {
+      setRelayError('Relay already added')
+      return
+    }
+
+    addRelay(parsed.toString())
     setNewRelay('')
   }
 
