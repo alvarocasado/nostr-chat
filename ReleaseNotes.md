@@ -1,5 +1,31 @@
 # Release Notes
 
+## 1.0.0-alpha.5 — 2026-04-19
+
+### Security Hardening (SAST / DAST / Pentest)
+- **Content Security Policy** — `<meta http-equiv="Content-Security-Policy">` added to `index.html`; restricts scripts to `'self'`, blocks `object-src`, locks `base-uri` and `form-action`; `connect-src wss:` allows user-chosen Nostr relays while `https://api.microlink.io` covers link previews
+- **Referrer-Policy** — `<meta name="referrer" content="no-referrer">` prevents `?contact=npub1…` share URLs from leaking in `Referer` headers to external sites
+- **Avatar URL validation** — `picture` fields from Nostr profiles now validated to `https://` or `http://` only before rendering; `data:`, `javascript:`, and other schemes are dropped; `referrerpolicy="no-referrer"` added to `<img>` to prevent tracking-pixel IP leaks
+- **Relay URL validation** — relay input now parsed with `new URL()` and restricted to `wss:` protocol only; non-wss and malformed URLs are rejected with a clear error
+- **Transfer ID entropy** — file transfer IDs switched from `Date.now() + Math.random()` to `crypto.getRandomValues()` (cryptographically random 128-bit ID)
+- **File transfer input validation** — `handleFileStart` validates name length, MIME type (allowlist: image/audio/video/text/pdf), declared size, and chunk count; `handleFileChunk` validates chunk data size, index bounds, and orphan accumulation ceiling
+- **CallSignal type guard** — `decryptCallSignal` now uses a full `isValidCallSignal()` guard validating signal type enum, callId length (≤128), SDP length (≤64 KB), and mediaType enum before accepting any WebRTC signaling message
+- **Link preview hardening** — microlink.io fetch uses `credentials: 'omit'`; image URL from API response validated to `^https://` before rendering
+- **Event content size limit** — channel messages and decrypted DMs over 100 KB are silently dropped, preventing memory/render DoS from oversized relay events
+- **`nsec` removed from localStorage** — `nsec` (bech32-encoded private key) is no longer persisted to localStorage; it is derived from `privateKeyHex` via `onRehydrateStorage`, eliminating the duplicate key copy in storage
+
+### Bug Fixes
+- **Call overlay desktop layout** — call controls were invisible on landscape/widescreen desktops because they sat in a flex row below a `flex-1` video area that consumed all available height; controls moved to an `absolute` overlay anchored at the bottom of the video area; remote video switched from `object-cover` (over-cropped portrait camera) to `object-contain` with letterboxing
+
+### Refactor / Technical Debt
+- `CallContext` SDP non-null assertions replaced with runtime type guards
+- `AudioMessage` pause-on-unmount cleanup prevents post-unmount state updates
+- Sidebar tab switcher collapsed from three repeated blocks to a mapped constant array
+- `MessageThread` max-textarea-height magic number extracted to a named constant
+- `nostr.ts` profile JSON cast narrowed from `any` to `Partial<NostrProfile>`
+
+---
+
 ## 1.0.0-alpha.4 — 2026-04-18
 
 ### Audio & Video Calls
