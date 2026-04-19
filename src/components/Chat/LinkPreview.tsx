@@ -32,14 +32,21 @@ function useLinkPreview(url: string) {
       return
     }
     const controller = new AbortController()
-    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`, { signal: controller.signal })
+    fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}`, {
+      signal: controller.signal,
+      credentials: 'omit',
+    })
       .then(r => r.json())
       .then(json => {
         if (json.status === 'success') {
+          // Only accept https image URLs from the response — never data:, javascript:, etc.
+          const rawImage: unknown = json.data?.image?.url
+          const safeImage = (typeof rawImage === 'string' && /^https:\/\//i.test(rawImage))
+            ? rawImage : undefined
           const d: PreviewData = {
             title: json.data.title || undefined,
             description: json.data.description || undefined,
-            image: json.data.image?.url || undefined,
+            image: safeImage,
             url: json.data.url || url,
           }
           setCached(url, d)

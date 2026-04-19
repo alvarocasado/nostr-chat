@@ -27,12 +27,22 @@ function getInitials(name?: string, pubkey?: string): string {
   return '?'
 }
 
+function isSafeImageUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 export function Avatar({ picture, name, pubkey, size = 'md' }: AvatarProps) {
-  if (picture) {
+  if (picture && isSafeImageUrl(picture)) {
     return (
       <img
         src={picture}
         alt={name || pubkey}
+        referrerPolicy="no-referrer"
         className={`${sizeClasses[size]} rounded-full object-cover flex-shrink-0`}
         onError={(e) => {
           e.currentTarget.style.display = 'none'

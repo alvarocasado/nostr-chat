@@ -58,7 +58,9 @@ function gcStaleTransfers() {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 export function generateTransferId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2)
+  const arr = new Uint8Array(16)
+  crypto.getRandomValues(arr)
+  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** Parse a message content string into a transfer payload, or return null. */
@@ -113,6 +115,20 @@ export function serializeFileChunk(p: Omit<FileChunkPayload, 'type'>): string {
 
 // ─── Receive-side state machine ──────────────────────────────────────────────
 
+const MAX_TOTAL_CHUNKS = 250   // 250 × 53 KB ≈ 13 MB ceiling
+const MAX_FILE_NAME_LEN = 255
+const MAX_MIME_LEN = 127
+// Chunk data is base64; allow a 10 % safety margin over the nominal chunk size
+const MAX_CHUNK_DATA_LEN = Math.ceil(CHUNK_BASE64_SIZE * 1.1)
+
+// Only allow safe, well-known types — reject executables, scripts, archives
+const ALLOWED_MIME_PREFIXES = ['image/', 'audio/', 'video/', 'text/']
+const ALLOWED_MIME_EXACT = new Set(['application/pdf'])
+
+function isAllowedMime(mime: string): boolean {
+  return ALLOWED_MIME_PREFIXES.some(p => mime.startsWith(p)) || ALLOWED_MIME_EXACT.has(mime)
+}
+
 /** Call when a file_start message is received. */
 export function handleFileStart(
   transferId: string,
@@ -121,6 +137,15 @@ export function handleFileStart(
   senderPubkey: string,
   createdAt: number,
 ): void {
+  // Reject malformed, oversized, or disallowed-MIME manifests
+  if (
+    !payload.name || payload.name.length > MAX_FILE_NAME_LEN ||
+    !payload.mime || payload.mime.length > MAX_MIME_LEN ||
+    !isAllowedMime(payload.mime) ||
+    payload.size <= 0 || payload.size > MAX_CHUNKED_FILE_BYTES ||
+    payload.totalChunks <= 0 || payload.totalChunks > MAX_TOTAL_CHUNKS
+  ) return
+
   gcStaleTransfers()
   const orphans = orphanChunks.get(transferId) ?? {}
   orphanChunks.delete(transferId)
@@ -145,12 +170,21 @@ export function handleFileChunk(
   index: number,
   data: string,
 ): IncomingTransfer | null {
+  // Reject oversized or non-base64 chunks
+  if (typeof data !== 'string' || data.length === 0 || data.length > MAX_CHUNK_DATA_LEN) return null
+
   const transfer = transfers.get(transferId)
   if (!transfer) {
     const existing = orphanChunks.get(transferId) ?? {}
+    // Prevent orphan accumulation exceeding the file size ceiling
+    const orphanTotal = Object.values(existing).reduce((s, c) => s + c.length, 0)
+    if (orphanTotal + data.length > CHUNK_BASE64_SIZE * MAX_TOTAL_CHUNKS) return null
     orphanChunks.set(transferId, { ...existing, [index]: data })
     return null
   }
+
+  // Reject out-of-range indices
+  if (index < 0 || index >= transfer.totalChunks) return null
 
   transfer.chunks[index] = data
   const received = Object.keys(transfer.chunks).length
