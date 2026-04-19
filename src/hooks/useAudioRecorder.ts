@@ -76,7 +76,8 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         setState('stopped')
       }
 
-      mr.start(250)
+      // No timeslice: iOS Safari fires ondataavailable reliably only on stop()
+      mr.start()
       setState('recording')
       setElapsed(0)
 

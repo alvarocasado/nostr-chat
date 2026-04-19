@@ -10,7 +10,7 @@ import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
   compressImage, encodeFile, serializeMessage, formatBytes, getDisplayName,
-  MAX_AUDIO_BYTES, type AttachmentData,
+  type AttachmentData,
 } from '../../lib/fileUtils'
 import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
@@ -204,11 +204,6 @@ function MessageInput({
     const reader = new FileReader()
     reader.onload = () => {
       const data = reader.result as string
-      if (data.length > MAX_AUDIO_BYTES) {
-        setAttachError(`Voice message too large (${Math.round(data.length / 1024)} KB). Try a shorter recording.`)
-        recorder.reset()
-        return
-      }
       setAttachment({ name: `voice-message.${ext}`, type: mime, size: blob.size, data })
       recorder.reset()
     }
