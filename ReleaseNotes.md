@@ -1,5 +1,14 @@
 # Release Notes
 
+## 1.0.0-alpha.5.1 — 2026-04-19
+
+### Bug Fixes
+- **WebRTC calls not connecting after CSP hardening** — Chrome 90+ enforces `connect-src` for `RTCPeerConnection` ICE server URIs; the alpha.5 CSP omitted STUN URIs, blocking server-reflexive candidate gathering and preventing cross-network calls from connecting; `stun:stun.l.google.com:19302` and `stun:stun1.l.google.com:19302` added to `connect-src`
+- **Voice messages silent on iOS** — `MediaRecorder.start(250)` timeslice caused empty recordings on iOS Safari, which only fires `ondataavailable` reliably on `stop()`; timeslice removed
+- **Voice message false "too large" error** — 200 KB guard rejected recordings before they could take the chunked-transfer path (up to 10 MB); guard removed
+
+---
+
 ## 1.0.0-alpha.5 — 2026-04-19
 
 ### Security Hardening (SAST / DAST / Pentest)
