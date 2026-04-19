@@ -1,6 +1,5 @@
 export const MAX_ATTACHMENT_BYTES = 150 * 1024 // 150 KB — inline relay-safe threshold
 export const MAX_RAW_FILE_BYTES = 100 * 1024   // kept for backwards-compat / tests
-export const MAX_AUDIO_BYTES = 200 * 1024      // 200 KB limit for recorded audio
 
 export interface AttachmentData {
   name: string
