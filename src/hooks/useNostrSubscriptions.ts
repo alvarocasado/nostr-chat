@@ -26,8 +26,12 @@ import { serializeMessage, getDisplayName } from '../lib/fileUtils'
 // Module-level set to deduplicate concurrent in-flight profile fetches
 const fetchingProfiles = new Set<string>()
 
-// Drop events whose content exceeds this to prevent memory/render DoS
-const MAX_EVENT_CONTENT_LEN = 100_000
+// Plaintext content limit (channels + decrypted DMs): covers inline attachments
+// up to the 150 KB INLINE_BASE64_THRESHOLD plus JSON wrapper overhead.
+const MAX_CONTENT_LEN = 200_000
+// NIP-04 encrypts then base64-encodes, inflating size by ~33%.
+// 200 KB plaintext → ~270 KB encrypted; use 300 KB to give headroom.
+const MAX_ENCRYPTED_CONTENT_LEN = 300_000
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
@@ -61,7 +65,7 @@ export function useChannelMessages(channelId: string | null) {
       relays,
       { kinds: [42], '#e': [channelId], limit: 200 },
       (event) => {
-        if (event.content.length > MAX_EVENT_CONTENT_LEN) return
+        if (event.content.length > MAX_CONTENT_LEN) return
         // Route file-transfer control messages; don't add them to the message list
         const transfer = parseTransferPayload(event.content)
         if (transfer) {
@@ -122,11 +126,11 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
     const chatId = theirPubkey
 
     const handleEvent = async (event: { id: string; pubkey: string; content: string; created_at: number; tags: string[][]; kind: number }) => {
-      if (event.content.length > MAX_EVENT_CONTENT_LEN) return
+      if (event.content.length > MAX_ENCRYPTED_CONTENT_LEN) return
       try {
         const peerPubkey = event.pubkey === myPubkey ? theirPubkey : event.pubkey
         const decrypted = await decryptDM(sk, peerPubkey, event.content)
-        if (decrypted.length > MAX_EVENT_CONTENT_LEN) return
+        if (decrypted.length > MAX_CONTENT_LEN) return
 
         // Route file-transfer control messages
         const transfer = parseTransferPayload(decrypted)
