@@ -59,6 +59,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pcRef              = useRef<RTCPeerConnection | null>(null)
   const callIdRef          = useRef('')
   const pendingCandidates  = useRef<RTCIceCandidateInit[]>([])
+  const preOfferCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
   const pendingOffer       = useRef<{ sdp: string; peerPubkey: string } | null>(null)
   const localStreamRef     = useRef<MediaStream | null>(null)
   const screenStreamRef    = useRef<MediaStream | null>(null)
@@ -97,6 +98,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setDuration(0)
     callIdRef.current = ''
     pendingCandidates.current = []
+    preOfferCandidates.current.clear()
     pendingOffer.current = null
     if (durationTimer.current) { clearInterval(durationTimer.current); durationTimer.current = null }
     setCallState('idle')
@@ -305,10 +307,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       if (typeof signal.sdp !== 'string') return
       callIdRef.current = signal.callId
+      // Recover ICE candidates that arrived before this offer (relay ordering not guaranteed)
+      const preOffer = preOfferCandidates.current.get(signal.callId) ?? []
+      preOfferCandidates.current.delete(signal.callId)
+      pendingCandidates.current.push(...preOffer)
       pendingOffer.current = { sdp: signal.sdp, peerPubkey: senderPubkey }
       setMediaType(signal.mediaType ?? 'audio')
       setPeer({ pubkey: senderPubkey })
       setCallState('incoming')
+      return
+    }
+
+    // Ice candidates may arrive before the offer when relays reorder events;
+    // buffer them by callId so they can be flushed when the offer is processed.
+    if (signal.type === 'ice-candidate' && signal.candidate && !callIdRef.current) {
+      const bucket = preOfferCandidates.current.get(signal.callId) ?? []
+      bucket.push(signal.candidate)
+      preOfferCandidates.current.set(signal.callId, bucket)
       return
     }
 
