@@ -1,5 +1,13 @@
 # Release Notes
 
+## 1.0.0-alpha.5.2 — 2026-04-20
+
+### Bug Fixes
+- **Video/audio calls not connecting** — Two root causes fixed: (1) CSP `connect-src` used specific STUN host URIs; switched to `stun:` / `turn:` scheme wildcards (same pattern as `wss:`) so Chrome resolves ICE server URIs correctly. (2) Nostr relays do not guarantee event ordering — ICE candidates from the caller can arrive at the callee before the `call-offer`; the callId guard was dropping them because `callIdRef` was still empty. Added a `preOfferCandidates` buffer keyed by callId that is flushed into `pendingCandidates` when the offer arrives, so all candidates are applied after `setRemoteDescription`.
+- **File attachments silently not delivered** — The 100 KB DoS content-size guard was applied to all incoming events. Inline image attachments encode to up to 150 KB base64; NIP-04 encryption inflates that to ~200 KB, so both exceeded the limit and were silently dropped on the receive side. Split into two limits: `MAX_CONTENT_LEN = 200 KB` for plaintext content (channels and decrypted DMs) and `MAX_ENCRYPTED_CONTENT_LEN = 300 KB` for raw NIP-04 DM events before decryption. DoS protection is maintained — genuinely oversized events are still rejected.
+
+---
+
 ## 1.0.0-alpha.5.1 — 2026-04-19
 
 ### Bug Fixes
