@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
-import { Loader2, Check, Save, Mic, Video, ChevronDown, CheckCircle, XCircle, Wifi } from 'lucide-react'
+import { Loader2, Check, Save, Mic, Video, ChevronDown, AlertCircle, Wifi } from 'lucide-react'
 import { getIceServers } from '../../lib/webrtc'
 
 type TurnMode = 'none' | 'metered' | 'custom'
@@ -341,9 +341,9 @@ export function CallsTab() {
             {testStatus === 'testing'
               ? <><Loader2 size={15} className="animate-spin" />Testing…</>
               : testStatus === 'ok'
-                ? <><CheckCircle size={15} className="text-green-400" />Relay reachable</>
+                ? <><Check size={15} className="text-green-400" />Relay reachable</>
                 : testStatus === 'fail'
-                  ? <><XCircle size={15} className="text-red-400" />Could not reach relay</>
+                  ? <><AlertCircle size={15} className="text-red-400" />Could not reach relay</>
                   : <><Wifi size={15} />Test Connection</>}
           </button>
         </div>
