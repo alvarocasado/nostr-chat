@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { X } from 'lucide-react'
 import { useNostrStore } from './store/nostrStore'
 import { LoginScreen } from './components/Auth/LoginScreen'
 import { Sidebar } from './components/Chat/Sidebar'
@@ -7,9 +8,38 @@ import { SettingsPanel } from './components/Settings/SettingsPanel'
 import { AddChannelModal } from './components/Chat/AddChannelModal'
 import { AddContactModal } from './components/Chat/AddContactModal'
 import { UpdatePrompt } from './components/UpdatePrompt'
-import { CallProvider } from './contexts/CallContext'
+import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
+
+type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
+
+function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const { iceConnFailed, dismissIceFailure } = useCallContext()
+  if (!iceConnFailed) return null
+  return (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)] bg-gray-900 border border-amber-500/40 rounded-2xl px-4 py-3 shadow-2xl flex items-start gap-3">
+      <span className="text-amber-400 flex-shrink-0 text-base leading-5">⚠️</span>
+      <p className="flex-1 text-sm text-white min-w-0">
+        Call connection failed. If this keeps happening, try configuring a relay server in{' '}
+        <button
+          onClick={() => { dismissIceFailure(); onOpenSettings() }}
+          className="text-purple-400 hover:text-purple-300 underline underline-offset-2"
+        >
+          Settings → Calls
+        </button>
+        .
+      </p>
+      <button
+        onClick={dismissIceFailure}
+        className="text-gray-500 hover:text-white transition-colors flex-shrink-0"
+        aria-label="Dismiss"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  )
+}
 
 /** Read and remove the ?contact= param from the URL without a page reload. */
 function consumeContactParam(): string | null {
@@ -27,6 +57,7 @@ function consumeContactParam(): string | null {
 function App() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('profile')
 
   const {
     publicKey,
@@ -34,6 +65,11 @@ function App() {
     showAddChannel, setShowAddChannel,
     showAddContact, setShowAddContact,
   } = useNostrStore()
+
+  const openCallSettings = useCallback(() => {
+    setSettingsTab('calls')
+    setShowSettings(true)
+  }, [setShowSettings])
 
   // Handle ?contact=npub1... share links
   useEffect(() => {
@@ -57,7 +93,10 @@ function App() {
         <MessageThread onOpenSidebar={() => setMobileSidebarOpen(true)} />
 
         {showSettings && (
-          <SettingsPanel onClose={() => setShowSettings(false)} />
+          <SettingsPanel
+            initialTab={settingsTab}
+            onClose={() => { setShowSettings(false); setSettingsTab('profile') }}
+          />
         )}
         {showAddChannel && (
           <AddChannelModal onClose={() => setShowAddChannel(false)} />
@@ -73,6 +112,7 @@ function App() {
 
       <IncomingCall />
       <CallOverlay />
+      <IceFailureBanner onOpenSettings={openCallSettings} />
     </CallProvider>
   )
 }
