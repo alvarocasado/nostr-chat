@@ -10,12 +10,15 @@
     <meta http-equiv="Expires" content="0" />
     <!-- Content Security Policy
          connect-src wss: allows user-chosen Nostr relays (any domain).
-         connect-src stun: required for WebRTC ICE (Chrome 90+ enforces CSP for ICE server URIs).
+         connect-src stun: turn: turns: required for WebRTC ICE (Chrome 90+ enforces CSP for ICE
+           server URIs; turns: is TLS-wrapped TURN and is a distinct scheme from turn:).
+         connect-src https://*.metered.live: allows the Metered.ca TURN credential API fetch
+           (Settings → Calls → Metered.ca option).
          img-src data: blob: required for QR canvas exports and attachment previews.
          media-src blob: data: required for recorded audio playback.
          Note: frame-ancestors must be an HTTP header and cannot be set here;
          GitHub Pages does not support custom response headers. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src 'self' wss: stun: turn: https://api.microlink.io; media-src 'self' blob: data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src 'self' wss: stun: turn: turns: https://api.microlink.io https://*.metered.live; media-src 'self' blob: data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'self';" />
     <meta name="referrer" content="no-referrer" />
     <meta name="theme-color" content="#7c3aed" />
     <meta name="description" content="Decentralized chat over Nostr relays" />
