@@ -5,18 +5,22 @@ import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
+import { CallsTab } from './CallsTab'
+
+type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
 
 interface SettingsPanelProps {
   onClose: () => void
+  initialTab?: SettingsTab
 }
 
-export function SettingsPanel({ onClose }: SettingsPanelProps) {
+export function SettingsPanel({ onClose, initialTab = 'profile' }: SettingsPanelProps) {
   const {
     publicKey, npub, nsec, profile, relays,
     addRelay, removeRelay, updateProfile, getPrivateKey,
   } = useNostrStore()
 
-  const [tab, setTab] = useState<'profile' | 'relays' | 'keys' | 'notifications'>('profile')
+  const [tab, setTab] = useState<SettingsTab>(initialTab)
   const [newRelay, setNewRelay] = useState('')
   const [relayError, setRelayError] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -96,8 +100,8 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 px-6 pt-4 flex-shrink-0">
-          {(['profile', 'relays', 'keys', 'notifications'] as const).map(t => (
+        <div className="flex gap-1 px-6 pt-4 flex-shrink-0 overflow-x-auto scrollbar-thin">
+          {(['profile', 'relays', 'keys', 'calls', 'notifications'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -334,6 +338,9 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               />
             </div>
           )}
+
+          {/* Calls tab */}
+          {tab === 'calls' && <CallsTab />}
 
           {/* Notifications tab */}
           {tab === 'notifications' && <NotificationsTab />}
