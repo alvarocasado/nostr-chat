@@ -4,9 +4,10 @@ import {
 } from 'react'
 import { subscribeEvents, publishEvent } from '../lib/nostr'
 import { useNostrStore } from '../store/nostrStore'
+import { fireCallNotification } from '../lib/notifications'
 import {
   buildCallSignalEvent, decryptCallSignal,
-  ICE_SERVERS, CALL_SIGNAL_KIND,
+  getIceServers, CALL_SIGNAL_KIND,
   type CallSignal, type MediaType,
 } from '../lib/webrtc'
 
@@ -25,6 +26,7 @@ interface CallContextValue {
   isScreenSharing: boolean
   duration: number
   isRtcConnected: boolean
+  iceConnFailed: boolean
   initiateCall: (peerPubkey: string, type: MediaType) => void
   acceptCall: () => void
   rejectCall: () => void
@@ -32,6 +34,7 @@ interface CallContextValue {
   toggleMute: () => void
   toggleCamera: () => void
   toggleScreenShare: () => Promise<void>
+  dismissIceFailure: () => void
 }
 
 const CallContext = createContext<CallContextValue | null>(null)
@@ -55,6 +58,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [duration, setDuration]             = useState(0)
   const [isRtcConnected, setIsRtcConnected] = useState(false)
+  const [iceConnFailed, setIceConnFailed]   = useState(false)
 
   const pcRef              = useRef<RTCPeerConnection | null>(null)
   const callIdRef          = useRef('')
@@ -111,16 +115,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const getUserMedia = useCallback(async (type: MediaType): Promise<MediaStream> => {
+    let audioId: string | undefined
+    let videoId: string | undefined
+    try {
+      audioId = localStorage.getItem('media_audio_device') || undefined
+      videoId = localStorage.getItem('media_video_device') || undefined
+    } catch {}
     return navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: type === 'video' ? { width: 1280, height: 720, facingMode: 'user' } : false,
+      audio: audioId ? { deviceId: { ideal: audioId } } : true,
+      video: type === 'video'
+        ? { width: 1280, height: 720, ...(videoId ? { deviceId: { ideal: videoId } } : { facingMode: 'user' as const }) }
+        : false,
     })
   }, [])
 
   // ── Peer connection setup ─────────────────────────────────────────────────
 
   const createPeerConnection = useCallback((peerPubkey: string) => {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    const pc = new RTCPeerConnection({ iceServers: getIceServers() })
 
     pc.onicecandidate = ({ candidate }) => {
       if (!candidate) return
@@ -138,10 +150,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
         setIsRtcConnected(true)
+        setIceConnFailed(false)
         startDurationTimer()
       }
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         cleanup()
+      }
+    }
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'failed') {
+        setIceConnFailed(true)
       }
     }
 
@@ -164,6 +183,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (callStateRef.current !== 'idle') return
     const callId = Date.now().toString(36)
     callIdRef.current = callId
+    setIceConnFailed(false)
     setMediaType(type)
     setPeer({ pubkey: peerPubkey })
     setCallState('calling')
@@ -307,6 +327,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       if (typeof signal.sdp !== 'string') return
       callIdRef.current = signal.callId
+      setIceConnFailed(false)
       // Recover ICE candidates that arrived before this offer (relay ordering not guaranteed)
       const preOffer = preOfferCandidates.current.get(signal.callId) ?? []
       preOfferCandidates.current.delete(signal.callId)
@@ -371,14 +392,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => sub.close()
   }, [publicKey, relays, getPrivateKey, handleSignal])
 
+  // Ringtone + browser banner while the incoming call modal is showing
+  useEffect(() => {
+    if (callState !== 'incoming' || !peer) return
+    return fireCallNotification(peer.pubkey)
+  }, [callState, peer?.pubkey])
+
   // Cleanup on unmount
   useEffect(() => () => { cleanup() }, [cleanup])
+
+  const dismissIceFailure = useCallback(() => setIceConnFailed(false), [])
 
   return (
     <CallContext.Provider value={{
       callState, peer, mediaType,
       localStream, remoteStream,
       isMuted, isCameraOff, isScreenSharing, duration, isRtcConnected,
+      iceConnFailed, dismissIceFailure,
       initiateCall, acceptCall, rejectCall, hangup,
       toggleMute, toggleCamera, toggleScreenShare,
     }}>

@@ -8,6 +8,21 @@ export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ]
 
+/** Returns base STUN servers plus any saved TURN config from localStorage. */
+export function getIceServers(): RTCIceServer[] {
+  const base: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ]
+  try {
+    const raw = localStorage.getItem('turn_config')
+    if (!raw) return base
+    const extra = JSON.parse(raw) as RTCIceServer[]
+    if (Array.isArray(extra) && extra.length > 0) return [...base, ...extra]
+  } catch { /* localStorage unavailable or corrupt */ }
+  return base
+}
+
 export type MediaType = 'audio' | 'video'
 export type CallSignalType = 'call-offer' | 'call-answer' | 'ice-candidate' | 'call-end'
 

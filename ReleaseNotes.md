@@ -1,5 +1,29 @@
 # Release Notes
 
+## 1.0.0-alpha.5.4 — 2026-04-22
+
+### Features
+
+#### Settings → Calls Tab
+- New **Calls** tab in the Settings modal (between Keys and Notifications)
+- **TURN Server** section with three options:
+  - *None* (default) — public STUN only, no setup required
+  - *Metered.ca* — enter project subdomain + API key; ephemeral credentials are fetched from the Metered.ca API on save and stored in `localStorage` under `turn_config`
+  - *Custom* — enter a `turn:`/`turns:` URL with optional username and password; stored in `localStorage` under `turn_config`
+- **Test Connection** button: creates an `RTCPeerConnection` with the saved config, looks for a relay ICE candidate within 10 seconds, and shows ✅ Relay reachable or ❌ Could not reach relay inline
+- **Media Devices** section: Microphone and Camera dropdowns populated via `enumerateDevices()`; selections persist to `localStorage` (`media_audio_device` / `media_video_device`) and are applied automatically when calls start; permission unlock button shown when device labels are hidden by the browser
+- `getIceServers()` utility replaces the hard-coded ICE server list throughout the app — always includes Google + Cloudflare STUN as the base, appends saved TURN config if present
+- **ICE failure banner**: non-blocking dismissible toast shown when a call's ICE negotiation fails; includes a deep-link that opens Settings directly on the Calls tab
+- **CSP**: added `turns:` scheme (TLS-wrapped TURN, distinct from `turn:`) and `https://*.metered.live` (Metered credential API) to `connect-src`
+
+### Incoming Call Notifications
+- Repeating two-tone ringtone (880 / 1100 Hz, 1.5 s cycle, up to 60 s) plays when an incoming call arrives; stops automatically when the call is accepted, declined, or cancelled
+- Browser Notification banner shown with the caller's name when the app is backgrounded and notification permission is granted
+- Do Not Disturb suppresses both ringtone and banner
+- **Settings → Notifications → Calls** section added below Channels with independent toggles for "Show incoming call notification" and "Play ringtone" (both on by default)
+
+---
+
 ## 1.0.0-alpha.5.3 — 2026-04-20
 
 ### Bug Fixes

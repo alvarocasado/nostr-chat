@@ -146,6 +146,22 @@ export function NotificationsTab() {
         />
       </Section>
 
+      {/* Calls */}
+      <Section title="Calls">
+        <Toggle
+          label="Show incoming call notification"
+          sublabel="Banner when a call arrives while the app is in the background"
+          checked={ns.callEnabled}
+          onChange={v => updateNotificationSettings({ callEnabled: v })}
+        />
+        <div className="border-t border-gray-700/50" />
+        <Toggle
+          label="Play ringtone"
+          checked={ns.callSound}
+          onChange={v => updateNotificationSettings({ callSound: v })}
+        />
+      </Section>
+
       {/* Do Not Disturb */}
       <Section title="Do Not Disturb">
         {dndActive ? (

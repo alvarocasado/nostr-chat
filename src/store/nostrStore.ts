@@ -11,6 +11,8 @@ export interface NotificationSettings {
   mentionEnabled: boolean
   mentionSound: boolean
   groupEnabled: boolean
+  callEnabled: boolean
+  callSound: boolean
   dndEnabled: boolean
   dndUntil: number | null  // epoch ms; null = indefinite
 }
@@ -21,6 +23,8 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   mentionEnabled: true,
   mentionSound: true,
   groupEnabled: false,
+  callEnabled: true,
+  callSound: true,
   dndEnabled: false,
   dndUntil: null,
 }
