@@ -22,6 +22,14 @@ function VideoEl({ stream, muted, className }: { stream: MediaStream | null; mut
   )
 }
 
+function RemoteAudio({ stream }: { stream: MediaStream | null }) {
+  const ref = useRef<HTMLAudioElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream
+  }, [stream])
+  return <audio ref={ref} autoPlay />
+}
+
 export function CallOverlay() {
   const {
     callState, peer, mediaType,
@@ -45,6 +53,9 @@ export function CallOverlay() {
 
   return (
     <div className="fixed inset-0 z-40 bg-gray-950 flex flex-col">
+      {/* Hidden audio element plays remote audio for both call types.
+          Video calls also get audio through this; VideoEl handles the visuals. */}
+      <RemoteAudio stream={remoteStream} />
       {/* Main area — fills all available space */}
       <div className="flex-1 relative flex items-center justify-center overflow-hidden">
         {mediaType === 'video' && remoteStream ? (
