@@ -4,6 +4,7 @@ import {
 } from 'react'
 import { subscribeEvents, publishEvent } from '../lib/nostr'
 import { useNostrStore } from '../store/nostrStore'
+import { fireCallNotification } from '../lib/notifications'
 import {
   buildCallSignalEvent, decryptCallSignal,
   ICE_SERVERS, CALL_SIGNAL_KIND,
@@ -370,6 +371,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     )
     return () => sub.close()
   }, [publicKey, relays, getPrivateKey, handleSignal])
+
+  // Ringtone + browser banner while the incoming call modal is showing
+  useEffect(() => {
+    if (callState !== 'incoming' || !peer) return
+    return fireCallNotification(peer.pubkey)
+  }, [callState, peer?.pubkey])
 
   // Cleanup on unmount
   useEffect(() => () => { cleanup() }, [cleanup])
