@@ -1,5 +1,13 @@
 # Release Notes
 
+## 1.0.0-alpha.5.3 — 2026-04-20
+
+### Bug Fixes
+- **No audio in audio calls** — Remote stream was received and the WebRTC connection was established (video calls confirmed P2P works), but for `mediaType === 'audio'` no DOM element was given the stream to play — the branch only rendered an avatar. Added a hidden `<RemoteAudio>` component (`<audio autoPlay>`) that mounts unconditionally for both call types and keeps `srcObject` synced to `remoteStream`; `<VideoEl>` continues handling visuals only.
+- **CI main deploy cancelled by develop push** — Shared `concurrency.group: pages` caused git flow's simultaneous push of `main` and `develop` to cancel each other (`cancel-in-progress: true`); `main` consistently lost. Changed to `${{ github.workflow }}-${{ github.ref }}` so each branch has its own independent queue.
+
+---
+
 ## 1.0.0-alpha.5.2 — 2026-04-20
 
 ### Bug Fixes
