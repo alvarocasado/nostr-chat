@@ -5,7 +5,9 @@ import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
 import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { useChannelMessages, useDMMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { buildChannelMessageEvent, buildDMEvent, publishEvent } from '../../lib/nostr'
+import type { Event as NostrEvent } from 'nostr-tools'
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
@@ -429,11 +431,12 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-function MessageList({ messages, myPubkey, profiles, onReply }: {
+function MessageList({ messages, myPubkey, profiles, onReply, onRetry }: {
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
   onReply: (msg: Message) => void
+  onRetry: (msgId: string) => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -473,6 +476,7 @@ function MessageList({ messages, myPubkey, profiles, onReply }: {
         isOwn={msg.pubkey === myPubkey}
         showAvatar={showAvatar}
         onReply={onReply}
+        onRetry={onRetry}
       />
     )
   }
@@ -486,15 +490,53 @@ function MessageList({ messages, myPubkey, profiles, onReply }: {
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
-    await sendChannelMessage(sk, content, channelId, relays, replyTo?.id)
+
+    const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyTo?.id)
+
+    addMessage(channelId, {
+      id: event.id,
+      pubkey: publicKey,
+      content,
+      createdAt: event.created_at,
+      tags: event.tags,
+      kind: 42,
+      channelId,
+      status: 'sending',
+      ...(replyTo && {
+        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
+      }),
+    })
+    pendingEventsRef.current.set(event.id, event)
+
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(channelId, event.id, 'sent')
+      pendingEventsRef.current.delete(event.id)
+    } catch {
+      updateMessageStatus(channelId, event.id, 'failed')
+    }
+  }
+
+  const handleRetry = async (msgId: string) => {
+    const event = pendingEventsRef.current.get(msgId)
+    if (!event) return
+    updateMessageStatus(channelId, msgId, 'sending')
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(channelId, msgId, 'sent')
+      pendingEventsRef.current.delete(msgId)
+    } catch {
+      updateMessageStatus(channelId, msgId, 'failed')
+    }
   }
 
   const handleSendChunked = async (
@@ -518,7 +560,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
   return (
     <>
       <ChannelHeader channelId={channelId} />
-      <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} />
+      <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
       <TypingIndicator typists={typists} profiles={profiles} />
       <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </>
@@ -526,15 +568,54 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
-    await sendDM(sk, content, theirPubkey, relays)
+
+    const event = await buildDMEvent(sk, theirPubkey, content)
+
+    addMessage(theirPubkey, {
+      id: event.id,
+      pubkey: publicKey,
+      content,
+      createdAt: event.created_at,
+      tags: event.tags,
+      kind: 4,
+      recipientPubkey: theirPubkey,
+      decrypted: true,
+      status: 'sending',
+      ...(replyTo && {
+        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
+      }),
+    })
+    pendingEventsRef.current.set(event.id, event)
+
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(theirPubkey, event.id, 'sent')
+      pendingEventsRef.current.delete(event.id)
+    } catch {
+      updateMessageStatus(theirPubkey, event.id, 'failed')
+    }
+  }
+
+  const handleRetry = async (msgId: string) => {
+    const event = pendingEventsRef.current.get(msgId)
+    if (!event) return
+    updateMessageStatus(theirPubkey, msgId, 'sending')
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(theirPubkey, msgId, 'sent')
+      pendingEventsRef.current.delete(msgId)
+    } catch {
+      updateMessageStatus(theirPubkey, msgId, 'failed')
+    }
   }
 
   const handleSendChunked = async (
@@ -558,7 +639,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   return (
     <>
       <DMHeader pubkey={theirPubkey} />
-      <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} />
+      <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
       <TypingIndicator typists={typists} profiles={profiles} />
       <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </>

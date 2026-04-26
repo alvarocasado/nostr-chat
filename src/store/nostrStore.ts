@@ -66,6 +66,7 @@ export interface Message {
     pubkey: string
     previewText: string
   }
+  status?: 'sending' | 'sent' | 'failed'
 }
 
 interface NostrState {
@@ -130,6 +131,7 @@ interface NostrState {
   clearActiveChat: () => void
 
   addMessage: (chatId: string, message: Message) => void
+  updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
   updateContactLastMessage: (pubkey: string, content: string, at: number) => void
   updateChannelLastMessage: (channelId: string, content: string, at: number, isMention?: boolean) => void
@@ -315,6 +317,17 @@ export const useNostrStore = create<NostrState>()(
         if (existing.find(m => m.id === message.id)) return
         const sorted = [...existing, message].sort((a, b) => a.createdAt - b.createdAt)
         set({ messages: { ...get().messages, [chatId]: sorted } })
+      },
+
+      updateMessageStatus: (chatId, msgId, status) => {
+        const msgs = get().messages[chatId]
+        if (!msgs) return
+        set({
+          messages: {
+            ...get().messages,
+            [chatId]: msgs.map(m => m.id === msgId ? { ...m, status } : m),
+          }
+        })
       },
 
       markRead: (chatId) => {
