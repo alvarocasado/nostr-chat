@@ -61,6 +61,11 @@ export interface Message {
   recipientPubkey?: string
   decrypted?: boolean
   profile?: NostrProfile
+  replyTo?: {
+    id: string
+    pubkey: string
+    previewText: string
+  }
 }
 
 interface NostrState {
@@ -396,6 +401,13 @@ export const useNostrStore = create<NostrState>()(
       onRehydrateStorage: () => (state) => {
         if (state?.privateKeyHex && !state.nsec) {
           state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
+        }
+        // Fields added after initial release: default to true for existing users
+        // whose stored notificationSettings pre-dates these keys.
+        if (state?.notificationSettings) {
+          const ns = state.notificationSettings
+          if (ns.callEnabled === undefined) ns.callEnabled = true
+          if (ns.callSound   === undefined) ns.callSound   = true
         }
       },
       partialize: (state) => ({

@@ -1,12 +1,14 @@
 import { buildDMEvent, buildChannelMessageEvent } from './nostr'
 import { publishEvent } from './nostr'
 
-// ~40 KB binary per chunk → ~53 KB base64, comfortably under the 64 KB relay limit.
-export const CHUNK_BASE64_SIZE = 53_000
+// ~75 KB binary per chunk → ~100 KB base64, within the limits of the relays
+// used by this app (most allow 256 KB+; stricter relays cap at 64 KB and will
+// reject DM chunks regardless since NIP-04 inflation pushes them over anyway).
+export const CHUNK_BASE64_SIZE = 100_000
 // Below this base64 length, send inline; above it, chunk automatically.
 export const INLINE_BASE64_THRESHOLD = 150 * 1024
 // Hard cap on the total file the user can attach.
-export const MAX_CHUNKED_FILE_BYTES = 10 * 1024 * 1024  // 10 MB
+export const MAX_CHUNKED_FILE_BYTES = 50 * 1024 * 1024  // 50 MB
 
 // ─── Payload types ──────────────────────────────────────────────────────────
 
@@ -45,7 +47,7 @@ export interface IncomingTransfer {
 const transfers = new Map<string, IncomingTransfer>()
 const orphanChunks = new Map<string, Record<number, string>>()
 
-const TRANSFER_TIMEOUT_S = 5 * 60  // 5 minutes in Unix seconds
+const TRANSFER_TIMEOUT_S = 15 * 60  // 15 minutes — large files can take several minutes to transfer
 
 // Prune transfers older than TRANSFER_TIMEOUT_S on each new manifest arrival
 function gcStaleTransfers() {
@@ -115,7 +117,7 @@ export function serializeFileChunk(p: Omit<FileChunkPayload, 'type'>): string {
 
 // ─── Receive-side state machine ──────────────────────────────────────────────
 
-const MAX_TOTAL_CHUNKS = 250   // 250 × 53 KB ≈ 13 MB ceiling
+const MAX_TOTAL_CHUNKS = 700   // 700 × 100 KB ≈ 70 MB ceiling (covers 50 MB with margin)
 const MAX_FILE_NAME_LEN = 255
 const MAX_MIME_LEN = 127
 // Chunk data is base64; allow a 10 % safety margin over the nominal chunk size

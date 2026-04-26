@@ -21,7 +21,7 @@ import {
   sendChunkedFile as sendChunkedFileUtil,
   type IncomingTransfer,
 } from '../lib/fileTransfer'
-import { serializeMessage, getDisplayName } from '../lib/fileUtils'
+import { serializeMessage, getDisplayName, getPreviewText } from '../lib/fileUtils'
 
 // Module-level set to deduplicate concurrent in-flight profile fetches
 const fetchingProfiles = new Set<string>()
@@ -93,12 +93,12 @@ export function useChannelMessages(channelId: string | null) {
         const isMention = !!(
           publicKey && (event.content.includes(publicKey) || (npub && event.content.includes(npub)))
         )
-        updateChannelLastMessage(channelId, event.content, event.created_at, isMention)
+        updateChannelLastMessage(channelId, getPreviewText(event.content), event.created_at, isMention)
 
         if (event.pubkey !== publicKey) {
           const channelName = channels.find(c => c.id === channelId)?.name || 'Channel'
           const senderName = getDisplayName(p[event.pubkey], event.pubkey)
-          const preview = event.content.length > 80 ? event.content.slice(0, 80) + '…' : event.content
+          const preview = getPreviewText(event.content)
           fireNotification(channelId, isMention ? 'mention' : 'channel', `#${channelName}`, `${senderName}: ${preview}`)
         }
 
@@ -156,10 +156,10 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
         }
         addMessage(chatId, msg)
         if (event.pubkey !== myPubkey) {
-          updateContactLastMessage(theirPubkey, decrypted, event.created_at)
+          updateContactLastMessage(theirPubkey, getPreviewText(decrypted), event.created_at)
           const { profiles: p } = useNostrStore.getState()
           const senderName = getDisplayName(p[event.pubkey], event.pubkey)
-          const preview = decrypted.length > 80 ? decrypted.slice(0, 80) + '…' : decrypted
+          const preview = getPreviewText(decrypted)
           fireNotification(chatId, 'dm', senderName, preview, p[event.pubkey]?.picture)
         }
 
@@ -257,14 +257,15 @@ export async function sendChunkedFile(
   return sendChunkedFileUtil(sk, myPubkey, dataUrl, name, mime, size, chatType, chatId, relays, onProgress)
 }
 
-// Send a channel message
+// Send a channel message; replyEventId adds NIP-10 reply tag
 export async function sendChannelMessage(
   sk: Uint8Array,
   content: string,
   channelId: string,
-  relays: string[]
+  relays: string[],
+  replyEventId?: string,
 ) {
-  const event = buildChannelMessageEvent(sk, content, channelId, relays[0])
+  const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyEventId)
   await publishEvent(relays, event)
   return event
 }

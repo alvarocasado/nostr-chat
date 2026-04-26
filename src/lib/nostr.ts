@@ -86,14 +86,17 @@ export function buildTypingEvent(sk: Uint8Array, chatType: 'dm' | 'channel', cha
   }, sk)
 }
 
-// Build kind-42 (channel message)
-export function buildChannelMessageEvent(sk: Uint8Array, content: string, channelId: string, relayUrl: string): Event {
-  return finalizeEvent({
-    kind: 42,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [['e', channelId, relayUrl, 'root']],
-    content,
-  }, sk)
+// Build kind-42 (channel message); replyEventId adds NIP-10 reply tag
+export function buildChannelMessageEvent(
+  sk: Uint8Array,
+  content: string,
+  channelId: string,
+  relayUrl: string,
+  replyEventId?: string,
+): Event {
+  const tags: string[][] = [['e', channelId, relayUrl, 'root']]
+  if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
+  return finalizeEvent({ kind: 42, created_at: Math.floor(Date.now() / 1000), tags, content }, sk)
 }
 
 // Pool singleton

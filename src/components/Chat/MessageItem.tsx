@@ -1,19 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File, X, ZoomIn } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn, Reply } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
 import type { Message } from '../../store/nostrStore'
 import type { NostrProfile } from '../../lib/nostr'
-import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData } from '../../lib/fileUtils'
+import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData, type ReplyTo } from '../../lib/fileUtils'
+import { useNostrStore } from '../../store/nostrStore'
 
 interface MessageItemProps {
   message: Message
   profile?: NostrProfile
   isOwn: boolean
   showAvatar: boolean
+  onReply: (msg: Message) => void
 }
+
+const SWIPE_THRESHOLD = 60
+const SWIPE_DAMPEN   = 0.45
+const SWIPE_MAX      = 80
 
 function fileIcon(type: string) {
   if (type.startsWith('video/')) return <Film size={20} className="text-blue-400" />
@@ -122,20 +128,131 @@ function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isO
   )
 }
 
+function QuoteBlock({ replyTo, isOwn }: { replyTo: ReplyTo; isOwn: boolean }) {
+  const { profiles } = useNostrStore()
+  const senderName = getDisplayName(profiles[replyTo.pubkey], replyTo.pubkey, 8)
+  return (
+    <div className={`rounded-lg px-3 py-1.5 border-l-2 text-xs mb-0.5 ${
+      isOwn
+        ? 'bg-purple-800/50 border-purple-300/60'
+        : 'bg-gray-700/60 border-purple-400/60'
+    }`}>
+      <span className="text-purple-300 font-medium block truncate">{senderName}</span>
+      <span className="text-gray-300 block truncate">{replyTo.previewText}</span>
+    </div>
+  )
+}
 
-export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItemProps) {
+export function MessageItem({ message, profile, isOwn, showAvatar, onReply }: MessageItemProps) {
   const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
-  const { text, attachment } = parseMessageContent(message.content)
+  const { text, attachment, replyTo } = parseMessageContent(message.content)
+
+  const rowRef        = useRef<HTMLDivElement>(null)
+  const swipeDxRef    = useRef(0)
+  const [swipeDx, setSwipeDx]         = useState(0)
+  const [isReturning, setIsReturning] = useState(false)
+
+  useEffect(() => {
+    const el = rowRef.current
+    if (!el) return
+
+    let startX = 0, startY = 0, swiping = false
+
+    const onTouchStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX
+      startY = e.touches[0].clientY
+      swiping = false
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      const dx = e.touches[0].clientX - startX
+      const dy = e.touches[0].clientY - startY
+
+      if (!swiping) {
+        if (Math.abs(dx) < 8) return
+        if (Math.abs(dy) > Math.abs(dx)) return  // vertical dominant → let scroll win
+        if (dx < 0) return                         // leftward → ignore
+        swiping = true
+      }
+
+      e.preventDefault()
+      const clamped = Math.min(dx * SWIPE_DAMPEN, SWIPE_MAX)
+      swipeDxRef.current = clamped
+      setSwipeDx(clamped)
+    }
+
+    const onTouchEnd = () => {
+      if (swiping && swipeDxRef.current >= SWIPE_THRESHOLD) {
+        onReply(message)
+      }
+      swiping = false
+      swipeDxRef.current = 0
+      setIsReturning(true)
+      setSwipeDx(0)
+      setTimeout(() => setIsReturning(false), 250)
+    }
+
+    el.addEventListener('touchstart',  onTouchStart, { passive: true })
+    el.addEventListener('touchmove',   onTouchMove,  { passive: false })
+    el.addEventListener('touchend',    onTouchEnd,   { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd,   { passive: true })
+
+    return () => {
+      el.removeEventListener('touchstart',  onTouchStart)
+      el.removeEventListener('touchmove',   onTouchMove)
+      el.removeEventListener('touchend',    onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [message, onReply])
+
+  const bubbleSwipeStyle: React.CSSProperties = {
+    transform:  `translateX(${swipeDx}px)`,
+    transition: isReturning ? 'transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94)' : 'none',
+    willChange: 'transform',
+  }
+
+  const progress = Math.min(swipeDx / SWIPE_THRESHOLD, 1)
+
+  const replyIconStyle: React.CSSProperties = {
+    opacity:    progress,
+    transform:  `scale(${0.4 + 0.6 * progress})`,
+    transition: isReturning ? 'opacity 0.25s ease, transform 0.25s ease' : 'none',
+  }
+
+  const swipeReplyIcon = (
+    <div
+      style={replyIconStyle}
+      className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center flex-shrink-0 pointer-events-none"
+    >
+      <Reply size={15} className="text-purple-400" />
+    </div>
+  )
+
+  const replyBtn = (
+    <button
+      onClick={() => onReply(message)}
+      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-500 hover:text-purple-400 rounded-lg hover:bg-white/10 flex-shrink-0 mb-1"
+      title="Reply"
+    >
+      <Reply size={15} />
+    </button>
+  )
 
   if (isOwn) {
     return (
-      <div className="flex flex-col items-end gap-1 group">
-        <div className="flex items-end gap-2 max-w-[75%]">
+      <div ref={rowRef} className="flex flex-col items-end gap-1 group">
+        <div className="flex items-end gap-2 max-w-[85%]">
           <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1">
             {time}
           </span>
-          <div className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2">
+          {replyBtn}
+          {swipeReplyIcon}
+          <div
+            style={bubbleSwipeStyle}
+            className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2"
+          >
+            {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
             {attachment && <AttachmentView attachment={attachment} isOwn />}
             <MarkdownMessage content={text} isOwn={true} />
           </div>
@@ -145,7 +262,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItem
   }
 
   return (
-    <div className="flex items-end gap-2 group">
+    <div ref={rowRef} className="flex items-end gap-2 group">
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
           <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" />
@@ -156,10 +273,16 @@ export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItem
           <span className="text-xs text-purple-400 font-medium px-1">{name}</span>
         )}
         <div className="flex items-end gap-2">
-          <div className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2">
+          {swipeReplyIcon}
+          <div
+            style={bubbleSwipeStyle}
+            className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2"
+          >
+            {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
             <MarkdownMessage content={text} isOwn={false} />
           </div>
+          {replyBtn}
           <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1 flex-shrink-0">
             {time}
           </span>

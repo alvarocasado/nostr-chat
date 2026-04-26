@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
-import { getDisplayName } from '../../lib/fileUtils'
+import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
 import { formatDistanceToNowStrict } from 'date-fns'
 
 function formatTime(ts?: number) {
@@ -45,9 +45,7 @@ function SearchResultItem({ result, query, onSelect }: { result: SearchResult; q
     onSelect()
   }
 
-  const preview = result.message.content.length > 120
-    ? result.message.content.slice(0, 120) + '…'
-    : result.message.content
+  const preview = getPreviewText(result.message.content)
 
   return (
     <button
