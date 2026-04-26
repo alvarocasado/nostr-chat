@@ -1,5 +1,26 @@
 # Release Notes
 
+## 1.0.0-alpha.5.5 — 2026-04-26
+
+### Features
+
+#### Reply / Quote Messages
+- Swipe right on any message bubble to quote-reply on mobile; hover to reveal the reply icon button on desktop
+- A reply banner appears above the input showing the original sender's name and a text preview; tap × to cancel
+- Replied-to messages render a quoted block inside the bubble — purple left border, sender name, and preview text
+- Channel replies include a NIP-10 `['e', replyEventId, '', 'reply']` tag for interoperability with other Nostr clients
+- DM reply context is serialised into the encrypted JSON envelope, preserving end-to-end encryption
+
+#### File Attachment Limit Raised to 50 MB
+- Maximum attachment size raised from 10 MB to 50 MB — covers typical iPhone videos
+- Chunk size doubled (53 KB → 100 KB base64) so event count for a 50 MB file (~500) stays comparable to the old 10 MB limit
+- Receive-side GC timeout extended from 5 min to 15 min so large transfers are not pruned mid-flight
+
+### Bug Fixes
+- **Attachment preview showed raw JSON** — sidebar last-message preview and desktop notifications for messages with file attachments now display human-readable text (`Image: photo.jpg`, `Voice message`, `File: doc.pdf`) instead of the raw JSON envelope
+
+---
+
 ## 1.0.0-alpha.5.4 — 2026-04-22
 
 ### Features
