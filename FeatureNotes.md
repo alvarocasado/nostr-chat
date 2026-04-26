@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Reply / Quote Messages
+- Tap-and-hold (500 ms) on any message on mobile, or hover and click the reply icon on desktop, to quote-reply that message
+- A reply banner appears in the input bar showing the original sender's name and a preview of their message; press × to cancel
+- Sent messages embed a quote block showing the original sender and preview text inside the bubble
+- Channel messages include a NIP-10 `['e', replyEventId, '', 'reply']` tag for interoperability with other clients
+- For DMs the reply context is serialised into the encrypted message JSON, preserving end-to-end encryption
+
 ### Attachment Preview in Sidebar Fixed
 - Messages containing file attachments are now shown as readable text in the sidebar preview and search results ("Image: IMG_001.jpg", "Voice message", "File: doc.pdf") instead of raw JSON
 - Desktop notifications for DMs and channel messages with attachments also show the readable preview instead of JSON

@@ -3,14 +3,14 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { MessageItem } from './MessageItem'
 import { Avatar } from './Avatar'
 import {
-  compressImage, encodeFile, serializeMessage, formatBytes, getDisplayName,
-  type AttachmentData,
+  compressImage, encodeFile, serializeMessage, getPreviewText, formatBytes, getDisplayName,
+  type AttachmentData, type ReplyTo,
 } from '../../lib/fileUtils'
 import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
@@ -103,11 +103,15 @@ function MessageInput({
   onSendChunked,
   onTyping,
   placeholder,
+  replyTo,
+  onCancelReply,
 }: {
   onSend: (content: string) => Promise<void>
-  onSendChunked: (attachment: AttachmentData, text: string, onProgress: (sent: number, total: number) => void) => Promise<void>
+  onSendChunked: (attachment: AttachmentData, text: string, replyTo: ReplyTo | null, onProgress: (sent: number, total: number) => void) => Promise<void>
   onTyping: () => void
   placeholder: string
+  replyTo: Message | null
+  onCancelReply: () => void
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -116,16 +120,24 @@ function MessageInput({
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { profiles } = useNostrStore()
 
   const recorder = useAudioRecorder()
   const { isLimited, cooldownSec, tryRecord } = useRateLimit()
 
   const canSend = (text.trim().length > 0 || attachment !== null) && !sending && !isLimited
 
+  const buildReplyTo = (): ReplyTo | null => {
+    if (!replyTo) return null
+    return { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content) }
+  }
+
   const handleSend = async () => {
     if (!canSend) return
 
     if (!tryRecord()) return
+
+    const replyToData = buildReplyTo()
 
     // Large-file path: chunk and send
     if (attachment && attachment.data.length > INLINE_BASE64_THRESHOLD) {
@@ -134,9 +146,10 @@ function MessageInput({
       setSending(true)
       setText('')
       setAttachment(null)
+      onCancelReply()
       setUploadProgress({ name: a.name, sent: 0, total: 1 })
       try {
-        await onSendChunked(a, t, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
+        await onSendChunked(a, t, replyToData, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
       } catch (err) {
         setAttachError(err instanceof Error ? err.message : 'Upload failed.')
       } finally {
@@ -148,10 +161,11 @@ function MessageInput({
     }
 
     // Inline path
-    const content = serializeMessage(text.trim(), attachment)
+    const content = serializeMessage(text.trim(), attachment, replyToData)
     setSending(true)
     setText('')
     setAttachment(null)
+    onCancelReply()
     try {
       await onSend(content)
     } catch {
@@ -229,6 +243,26 @@ function MessageInput({
       className="px-3 py-3 border-t border-gray-800 bg-gray-900"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
+      {/* Reply banner */}
+      {replyTo && !isRecording && (
+        <div className="mb-2 flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2 border-l-2 border-purple-500">
+          <Reply size={14} className="text-purple-400 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="text-purple-300 text-xs font-medium block truncate">
+              {getDisplayName(profiles[replyTo.pubkey], replyTo.pubkey, 8)}
+            </span>
+            <p className="text-gray-400 text-xs truncate">{getPreviewText(replyTo.content)}</p>
+          </div>
+          <button
+            onClick={onCancelReply}
+            className="p-1 text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+            aria-label="Cancel reply"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Attachment preview */}
       {attachment && !isRecording && (
         <div className="mb-2 flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2">
@@ -395,10 +429,11 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-function MessageList({ messages, myPubkey, profiles }: {
+function MessageList({ messages, myPubkey, profiles, onReply }: {
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
+  onReply: (msg: Message) => void
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -437,6 +472,7 @@ function MessageList({ messages, myPubkey, profiles }: {
         profile={profiles[msg.pubkey]}
         isOwn={msg.pubkey === myPubkey}
         showAvatar={showAvatar}
+        onReply={onReply}
       />
     )
   }
@@ -453,16 +489,18 @@ function ChannelThread({ channelId }: { channelId: string }) {
   const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
-    await sendChannelMessage(sk, content, channelId, relays)
+    await sendChannelMessage(sk, content, channelId, relays, replyTo?.id)
   }
 
   const handleSendChunked = async (
     attachment: AttachmentData,
     text: string,
+    replyToData: ReplyTo | null,
     onProgress: (sent: number, total: number) => void,
   ) => {
     const sk = getPrivateKey()
@@ -471,7 +509,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
     addMessage(channelId, {
       id: `local-${Date.now()}`,
       pubkey: publicKey,
-      content: serializeMessage(text, attachment),
+      content: serializeMessage(text, attachment, replyToData),
       createdAt: Math.floor(Date.now() / 1000),
       tags: [], kind: 42,
     })
@@ -480,9 +518,9 @@ function ChannelThread({ channelId }: { channelId: string }) {
   return (
     <>
       <ChannelHeader channelId={channelId} />
-      <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} />
+      <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} />
       <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </>
   )
 }
@@ -491,6 +529,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -501,6 +540,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   const handleSendChunked = async (
     attachment: AttachmentData,
     text: string,
+    replyToData: ReplyTo | null,
     onProgress: (sent: number, total: number) => void,
   ) => {
     const sk = getPrivateKey()
@@ -509,7 +549,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     addMessage(theirPubkey, {
       id: `local-${Date.now()}`,
       pubkey: publicKey,
-      content: serializeMessage(text, attachment),
+      content: serializeMessage(text, attachment, replyToData),
       createdAt: Math.floor(Date.now() / 1000),
       tags: [], kind: 4,
     })
@@ -518,9 +558,9 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   return (
     <>
       <DMHeader pubkey={theirPubkey} />
-      <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} />
+      <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} />
       <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." />
+      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </>
   )
 }

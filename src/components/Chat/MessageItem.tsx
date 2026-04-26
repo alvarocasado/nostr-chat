@@ -1,18 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File, X, ZoomIn } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn, Reply } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
 import type { Message } from '../../store/nostrStore'
 import type { NostrProfile } from '../../lib/nostr'
-import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData } from '../../lib/fileUtils'
+import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData, type ReplyTo } from '../../lib/fileUtils'
+import { useNostrStore } from '../../store/nostrStore'
 
 interface MessageItemProps {
   message: Message
   profile?: NostrProfile
   isOwn: boolean
   showAvatar: boolean
+  onReply: (msg: Message) => void
 }
 
 function fileIcon(type: string) {
@@ -122,20 +124,60 @@ function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isO
   )
 }
 
+function QuoteBlock({ replyTo, isOwn }: { replyTo: ReplyTo; isOwn: boolean }) {
+  const { profiles } = useNostrStore()
+  const senderName = getDisplayName(profiles[replyTo.pubkey], replyTo.pubkey, 8)
+  return (
+    <div className={`rounded-lg px-3 py-1.5 border-l-2 text-xs mb-0.5 ${
+      isOwn
+        ? 'bg-purple-800/50 border-purple-300/60'
+        : 'bg-gray-700/60 border-purple-400/60'
+    }`}>
+      <span className="text-purple-300 font-medium block truncate">{senderName}</span>
+      <span className="text-gray-300 block truncate">{replyTo.previewText}</span>
+    </div>
+  )
+}
 
-export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItemProps) {
+export function MessageItem({ message, profile, isOwn, showAvatar, onReply }: MessageItemProps) {
   const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
-  const { text, attachment } = parseMessageContent(message.content)
+  const { text, attachment, replyTo } = parseMessageContent(message.content)
+
+  const pressTimer = useRef<number | null>(null)
+  const startPress = () => {
+    pressTimer.current = window.setTimeout(() => onReply(message), 500)
+  }
+  const cancelPress = () => {
+    if (pressTimer.current !== null) { clearTimeout(pressTimer.current); pressTimer.current = null }
+  }
+
+  const replyBtn = (
+    <button
+      onClick={() => onReply(message)}
+      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-500 hover:text-purple-400 rounded-lg hover:bg-white/10 flex-shrink-0 mb-1"
+      title="Reply"
+    >
+      <Reply size={15} />
+    </button>
+  )
 
   if (isOwn) {
     return (
-      <div className="flex flex-col items-end gap-1 group">
+      <div
+        className="flex flex-col items-end gap-1 group"
+        onPointerDown={startPress}
+        onPointerUp={cancelPress}
+        onPointerLeave={cancelPress}
+        onPointerCancel={cancelPress}
+      >
         <div className="flex items-end gap-2 max-w-[75%]">
           <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1">
             {time}
           </span>
+          {replyBtn}
           <div className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2">
+            {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
             {attachment && <AttachmentView attachment={attachment} isOwn />}
             <MarkdownMessage content={text} isOwn={true} />
           </div>
@@ -145,7 +187,13 @@ export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItem
   }
 
   return (
-    <div className="flex items-end gap-2 group">
+    <div
+      className="flex items-end gap-2 group"
+      onPointerDown={startPress}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+    >
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
           <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" />
@@ -157,9 +205,11 @@ export function MessageItem({ message, profile, isOwn, showAvatar }: MessageItem
         )}
         <div className="flex items-end gap-2">
           <div className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2">
+            {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
             <MarkdownMessage content={text} isOwn={false} />
           </div>
+          {replyBtn}
           <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1 flex-shrink-0">
             {time}
           </span>
