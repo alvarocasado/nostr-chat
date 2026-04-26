@@ -270,7 +270,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
       <div ref={rowRef} className="flex flex-col items-end gap-1 group">
         <div className="flex items-end gap-2 max-w-[85%]">
           <StatusIndicator status={message.status} onRetry={onRetry} msgId={message.id} />
-          <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1">
+          <span className="text-gray-600 text-xs mb-1">
             {time}
           </span>
           {replyBtn}
@@ -310,7 +310,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
             <MarkdownMessage content={text} isOwn={false} />
           </div>
           {replyBtn}
-          <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1 flex-shrink-0">
+          <span className="text-gray-600 text-xs mb-1 flex-shrink-0">
             {time}
           </span>
         </div>

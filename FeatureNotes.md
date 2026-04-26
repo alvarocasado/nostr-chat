@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Always-Visible Timestamps
+- Message timestamps are now always shown next to each bubble instead of appearing only on hover — fixes mobile where hover never fires
+
 ### Message Send Status
 - Own messages show a live status indicator next to the timestamp: spinning clock while sending, checkmark on success, red alert icon on failure
 - Tapping the red alert icon retries the failed send — the original signed event is reused so no new event is created
