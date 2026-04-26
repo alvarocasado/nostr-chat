@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Unread Message Divider
+- A purple "New messages" separator line appears before the first unread message when you open a chat that received messages since your last visit
+- The view scrolls to the divider on open so the first unread message is immediately visible
+- The cutoff timestamp is persisted so it survives page refreshes; updated when you leave the chat so it reflects the last message you saw
+
 ### Media Gallery
 - Photos icon in every channel and DM header opens a "Shared Media" grid of all images exchanged in that conversation
 - Tapping a thumbnail opens a full-screen lightbox with prev/next navigation (arrow keys on desktop), download button, and counter

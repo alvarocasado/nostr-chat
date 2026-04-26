@@ -441,6 +441,16 @@ function MessageInput({
   )
 }
 
+function NewMessagesDivider({ divRef }: { divRef: React.RefObject<HTMLDivElement> }) {
+  return (
+    <div ref={divRef} className="flex items-center gap-3 py-2">
+      <div className="flex-1 border-t border-purple-500/40" />
+      <span className="text-xs text-purple-400 font-semibold px-2 flex-shrink-0">New messages</span>
+      <div className="flex-1 border-t border-purple-500/40" />
+    </div>
+  )
+}
+
 function DateSeparator({ date }: { date: Date }) {
   const label = (() => {
     const now = new Date()
@@ -461,16 +471,28 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-function MessageList({ messages, myPubkey, profiles, onReply, onRetry }: {
+function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp }: {
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
   onReply: (msg: Message) => void
   onRetry: (msgId: string) => void
+  dividerTimestamp?: number
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const dividerRef = useRef<HTMLDivElement>(null)
+  const mountedRef = useRef(false)
 
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      if (dividerRef.current) {
+        dividerRef.current.scrollIntoView({ block: 'start' })
+      } else {
+        bottomRef.current?.scrollIntoView()
+      }
+      return
+    }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length])
 
@@ -488,6 +510,7 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry }: {
   const elements: React.ReactNode[] = []
   let lastDate = ''
   let lastPubkey = ''
+  let dividerInserted = false
 
   for (const msg of messages) {
     const msgDate = new Date(msg.createdAt * 1000).toDateString()
@@ -495,6 +518,10 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry }: {
       elements.push(<DateSeparator key={`date-${msgDate}`} date={new Date(msg.createdAt * 1000)} />)
       lastDate = msgDate
       lastPubkey = ''
+    }
+    if (!dividerInserted && dividerTimestamp !== undefined && msg.createdAt > dividerTimestamp) {
+      elements.push(<NewMessagesDivider key="new-messages-divider" divRef={dividerRef} />)
+      dividerInserted = true
     }
     const showAvatar = msg.pubkey !== lastPubkey && msg.pubkey !== myPubkey
     lastPubkey = msg.pubkey
@@ -520,12 +547,20 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry }: {
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
+  const dividerTimestampRef = useRef<number | undefined>(seenAt[channelId])
+
+  useEffect(() => {
+    return () => {
+      const latest = useNostrStore.getState().messages[channelId]?.at(-1)?.createdAt
+      if (latest !== undefined) updateSeenAt(channelId, latest)
+    }
+  }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -595,7 +630,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
+          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
@@ -605,12 +640,20 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
+  const dividerTimestampRef = useRef<number | undefined>(seenAt[theirPubkey])
+
+  useEffect(() => {
+    return () => {
+      const latest = useNostrStore.getState().messages[theirPubkey]?.at(-1)?.createdAt
+      if (latest !== undefined) updateSeenAt(theirPubkey, latest)
+    }
+  }, [theirPubkey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
@@ -681,7 +724,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
+          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>

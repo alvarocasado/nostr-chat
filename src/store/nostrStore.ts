@@ -110,6 +110,9 @@ interface NostrState {
   // Drafts (session-only, not persisted)
   drafts: Record<string, string>
 
+  // Seen-at timestamps for unread divider (persisted)
+  seenAt: Record<string, number>
+
   // Derived helper
   getPrivateKey: () => Uint8Array | null
 
@@ -152,6 +155,8 @@ interface NostrState {
 
   setDraft: (chatId: string, text: string) => void
   clearDraft: (chatId: string) => void
+
+  updateSeenAt: (chatId: string, at: number) => void
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -189,6 +194,7 @@ export const useNostrStore = create<NostrState>()(
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
       mutedChats: {},
       drafts: {},
+      seenAt: {},
 
       getPrivateKey: () => {
         const hex = get().privateKeyHex
@@ -421,6 +427,9 @@ export const useNostrStore = create<NostrState>()(
         const { [chatId]: _, ...rest } = get().drafts
         set({ drafts: rest })
       },
+
+      updateSeenAt: (chatId, at) =>
+        set({ seenAt: { ...get().seenAt, [chatId]: at } }),
     }),
     {
       name: 'nostr-chat-storage',
@@ -450,6 +459,7 @@ export const useNostrStore = create<NostrState>()(
         profiles: state.profiles,
         notificationSettings: state.notificationSettings,
         mutedChats: state.mutedChats,
+        seenAt: state.seenAt,
       }),
     }
   )
