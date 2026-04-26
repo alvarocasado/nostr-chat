@@ -73,6 +73,18 @@ export function parseMessageContent(content: string): ParsedMessage {
   return { text: content, attachment: null }
 }
 
+/** Return a human-readable preview string for sidebar/notification use. */
+export function getPreviewText(content: string): string {
+  const { text, attachment } = parseMessageContent(content)
+  if (attachment) {
+    if (text) return text
+    if (attachment.type.startsWith('image/')) return `Image: ${attachment.name}`
+    if (attachment.type.startsWith('audio/')) return 'Voice message'
+    return `File: ${attachment.name}`
+  }
+  return text
+}
+
 /** Serialize text + optional attachment into a message content string. */
 export function serializeMessage(text: string, attachment?: AttachmentData | null): string {
   if (!attachment) return text
