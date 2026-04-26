@@ -8,9 +8,16 @@ export interface AttachmentData {
   data: string  // data URL
 }
 
+export interface ReplyTo {
+  id: string
+  pubkey: string
+  previewText: string
+}
+
 export interface ParsedMessage {
   text: string
   attachment: AttachmentData | null
+  replyTo?: ReplyTo
 }
 
 /**
@@ -60,12 +67,16 @@ export function encodeFile(file: File): Promise<string> {
   })
 }
 
-/** Parse message content: returns text and optional attachment. */
+/** Parse message content: returns text, optional attachment, and optional replyTo. */
 export function parseMessageContent(content: string): ParsedMessage {
   try {
     const parsed = JSON.parse(content)
-    if (parsed && typeof parsed === 'object' && parsed.attachment?.data) {
-      return { text: parsed.text ?? '', attachment: parsed.attachment as AttachmentData }
+    if (parsed && typeof parsed === 'object' && (parsed.attachment?.data || parsed.replyTo)) {
+      return {
+        text: parsed.text ?? '',
+        attachment: parsed.attachment?.data ? parsed.attachment as AttachmentData : null,
+        replyTo: parsed.replyTo ?? undefined,
+      }
     }
   } catch {
     // not a JSON attachment message
@@ -85,10 +96,18 @@ export function getPreviewText(content: string): string {
   return text
 }
 
-/** Serialize text + optional attachment into a message content string. */
-export function serializeMessage(text: string, attachment?: AttachmentData | null): string {
-  if (!attachment) return text
-  return JSON.stringify({ text: text.trim(), attachment })
+/** Serialize text + optional attachment + optional replyTo into a message content string. */
+export function serializeMessage(
+  text: string,
+  attachment?: AttachmentData | null,
+  replyTo?: ReplyTo | null,
+): string {
+  if (!attachment && !replyTo) return text
+  return JSON.stringify({
+    text: text.trim(),
+    ...(attachment && { attachment }),
+    ...(replyTo && { replyTo }),
+  })
 }
 
 /** Return the best display name for a profile, falling back to a truncated pubkey. */

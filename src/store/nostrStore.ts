@@ -61,6 +61,11 @@ export interface Message {
   recipientPubkey?: string
   decrypted?: boolean
   profile?: NostrProfile
+  replyTo?: {
+    id: string
+    pubkey: string
+    previewText: string
+  }
 }
 
 interface NostrState {

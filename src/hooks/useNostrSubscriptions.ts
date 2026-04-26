@@ -257,14 +257,15 @@ export async function sendChunkedFile(
   return sendChunkedFileUtil(sk, myPubkey, dataUrl, name, mime, size, chatType, chatId, relays, onProgress)
 }
 
-// Send a channel message
+// Send a channel message; replyEventId adds NIP-10 reply tag
 export async function sendChannelMessage(
   sk: Uint8Array,
   content: string,
   channelId: string,
-  relays: string[]
+  relays: string[],
+  replyEventId?: string,
 ) {
-  const event = buildChannelMessageEvent(sk, content, channelId, relays[0])
+  const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyEventId)
   await publishEvent(relays, event)
   return event
 }
