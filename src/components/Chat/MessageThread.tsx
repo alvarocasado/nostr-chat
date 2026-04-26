@@ -3,12 +3,13 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, publishEvent } from '../../lib/nostr'
 import type { Event as NostrEvent } from 'nostr-tools'
 import { MessageItem } from './MessageItem'
+import { MediaGallery } from './MediaGallery'
 import { Avatar } from './Avatar'
 import {
   compressImage, encodeFile, serializeMessage, getPreviewText, formatBytes, getDisplayName,
@@ -22,13 +23,12 @@ interface MessageThreadProps {
   onOpenSidebar: () => void
 }
 
-function ChannelHeader({ channelId }: { channelId: string }) {
+function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {
   const { channels, clearActiveChat } = useNostrStore()
   const channel = channels.find(c => c.id === channelId)
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
-      {/* Mobile back button */}
       <button
         onClick={clearActiveChat}
         className="md:hidden p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -45,11 +45,18 @@ function ChannelHeader({ channelId }: { channelId: string }) {
           <p className="text-xs text-gray-500 mt-0.5 truncate">{channel.about}</p>
         )}
       </div>
+      <button
+        onClick={onOpenGallery}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+        title="Shared media"
+      >
+        <Images size={18} />
+      </button>
     </div>
   )
 }
 
-function DMHeader({ pubkey }: { pubkey: string }) {
+function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: () => void }) {
   const { contacts, profiles, clearActiveChat } = useNostrStore()
   const { callState, initiateCall } = useCallContext()
   const contact = contacts.find(c => c.pubkey === pubkey)
@@ -75,6 +82,13 @@ function DMHeader({ pubkey }: { pubkey: string }) {
         </div>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
+        <button
+          onClick={onOpenGallery}
+          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+          title="Shared media"
+        >
+          <Images size={18} />
+        </button>
         <button
           onClick={() => initiateCall(pubkey, 'audio')}
           disabled={!canCall}
@@ -510,6 +524,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
 
   const handleSend = async (content: string) => {
@@ -575,10 +590,16 @@ function ChannelThread({ channelId }: { channelId: string }) {
 
   return (
     <>
-      <ChannelHeader channelId={channelId} />
-      <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
-      <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
+      {showGallery ? (
+        <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
+      ) : (
+        <>
+          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
+          <TypingIndicator typists={typists} profiles={profiles} />
+          <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+        </>
+      )}
     </>
   )
 }
@@ -588,6 +609,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
 
   const handleSend = async (content: string) => {
@@ -654,10 +676,16 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 
   return (
     <>
-      <DMHeader pubkey={theirPubkey} />
-      <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
-      <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
+      {showGallery ? (
+        <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
+      ) : (
+        <>
+          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
+          <TypingIndicator typists={typists} profiles={profiles} />
+          <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+        </>
+      )}
     </>
   )
 }

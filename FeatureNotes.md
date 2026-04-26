@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Media Gallery
+- Photos icon in every channel and DM header opens a "Shared Media" grid of all images exchanged in that conversation
+- Tapping a thumbnail opens a full-screen lightbox with prev/next navigation (arrow keys on desktop), download button, and counter
+- Newest images shown first; empty state shown when no images have been shared yet
+
 ### Draft Persistence
 - Unsent text is saved per-chat when you switch away and restored when you return — drafts are held in memory for the session and cleared on send
 
