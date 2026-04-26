@@ -107,6 +107,9 @@ interface NostrState {
   notificationSettings: NotificationSettings
   mutedChats: Record<string, number | null>  // chatId -> expiry ms (null = forever)
 
+  // Drafts (session-only, not persisted)
+  drafts: Record<string, string>
+
   // Derived helper
   getPrivateKey: () => Uint8Array | null
 
@@ -146,6 +149,9 @@ interface NostrState {
   updateNotificationSettings: (s: Partial<NotificationSettings>) => void
   muteChatUntil: (chatId: string, until: number | null) => void
   unmuteChat: (chatId: string) => void
+
+  setDraft: (chatId: string, text: string) => void
+  clearDraft: (chatId: string) => void
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -182,6 +188,7 @@ export const useNostrStore = create<NostrState>()(
       showAddContact: false,
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
       mutedChats: {},
+      drafts: {},
 
       getPrivateKey: () => {
         const hex = get().privateKeyHex
@@ -405,6 +412,14 @@ export const useNostrStore = create<NostrState>()(
       unmuteChat: (chatId) => {
         const { [chatId]: _, ...rest } = get().mutedChats
         set({ mutedChats: rest })
+      },
+
+      setDraft: (chatId, text) =>
+        set({ drafts: { ...get().drafts, [chatId]: text } }),
+
+      clearDraft: (chatId) => {
+        const { [chatId]: _, ...rest } = get().drafts
+        set({ drafts: rest })
       },
     }),
     {

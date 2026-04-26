@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Draft Persistence
+- Unsent text is saved per-chat when you switch away and restored when you return — drafts are held in memory for the session and cleared on send
+
 ### Always-Visible Timestamps
 - Message timestamps are now always shown next to each bubble instead of appearing only on hover — fixes mobile where hover never fires
 

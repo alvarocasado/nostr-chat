@@ -101,6 +101,7 @@ interface UploadProgress { name: string; sent: number; total: number }
 const MAX_TEXTAREA_HEIGHT = 120
 
 function MessageInput({
+  chatId,
   onSend,
   onSendChunked,
   onTyping,
@@ -108,6 +109,7 @@ function MessageInput({
   replyTo,
   onCancelReply,
 }: {
+  chatId: string
   onSend: (content: string) => Promise<void>
   onSendChunked: (attachment: AttachmentData, text: string, replyTo: ReplyTo | null, onProgress: (sent: number, total: number) => void) => Promise<void>
   onTyping: () => void
@@ -115,14 +117,26 @@ function MessageInput({
   replyTo: Message | null
   onCancelReply: () => void
 }) {
-  const [text, setText] = useState('')
+  const { profiles, drafts, setDraft, clearDraft } = useNostrStore()
+  const [text, setText] = useState(() => drafts[chatId] ?? '')
   const [sending, setSending] = useState(false)
   const [attachment, setAttachment] = useState<AttachmentData | null>(null)
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { profiles } = useNostrStore()
+  const textRef = useRef(text)
+  textRef.current = text
+
+  useEffect(() => {
+    return () => {
+      if (textRef.current.trim()) {
+        setDraft(chatId, textRef.current)
+      } else {
+        clearDraft(chatId)
+      }
+    }
+  }, [chatId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const recorder = useAudioRecorder()
   const { isLimited, cooldownSec, tryRecord } = useRateLimit()
@@ -149,6 +163,7 @@ function MessageInput({
       setText('')
       setAttachment(null)
       onCancelReply()
+      clearDraft(chatId)
       setUploadProgress({ name: a.name, sent: 0, total: 1 })
       try {
         await onSendChunked(a, t, replyToData, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
@@ -168,6 +183,7 @@ function MessageInput({
     setText('')
     setAttachment(null)
     onCancelReply()
+    clearDraft(chatId)
     try {
       await onSend(content)
     } catch {
@@ -562,7 +578,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
       <ChannelHeader channelId={channelId} />
       <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
       <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </>
   )
 }
@@ -641,7 +657,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
       <DMHeader pubkey={theirPubkey} />
       <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} />
       <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </>
   )
 }
