@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Reply / Quote Messages
-- Tap-and-hold (500 ms) on any message on mobile, or hover and click the reply icon on desktop, to quote-reply that message
+- Swipe right on any message to quote-reply on mobile; hover and click the reply icon on desktop
 - A reply banner appears in the input bar showing the original sender's name and a preview of their message; press × to cancel
 - Sent messages embed a quote block showing the original sender and preview text inside the bubble
 - Channel messages include a NIP-10 `['e', replyEventId, '', 'reply']` tag for interoperability with other clients
