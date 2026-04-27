@@ -1,5 +1,12 @@
 # Release Notes
 
+## 1.0.0-alpha.6.1 — 2026-04-27
+
+### Bug Fixes
+- **Horizontal scroll in chat** — Long URLs in messages caused the entire chat pane to scroll horizontally on all platforms. Fixed by adding `break-all` to link text in the markdown renderer, `min-w-0 overflow-hidden` to message bubbles so they cannot push past their flex container's `max-width`, and `overflow-x-hidden` on the message list scroll container as a final backstop.
+
+---
+
 ## 1.0.0-alpha.6 — 2026-04-27
 
 ### Features
