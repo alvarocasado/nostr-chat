@@ -277,7 +277,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           {swipeReplyIcon}
           <div
             style={bubbleSwipeStyle}
-            className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2"
+            className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
             {attachment && <AttachmentView attachment={attachment} isOwn />}
@@ -303,7 +303,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           {swipeReplyIcon}
           <div
             style={bubbleSwipeStyle}
-            className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2"
+            className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}

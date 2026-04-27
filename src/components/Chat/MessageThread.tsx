@@ -539,7 +539,7 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
   }
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin px-3 py-4 space-y-1.5">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5">
       {elements}
       <div ref={bottomRef} />
     </div>

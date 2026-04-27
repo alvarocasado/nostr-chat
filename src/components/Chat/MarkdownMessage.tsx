@@ -39,7 +39,7 @@ function buildComponents(isOwn: boolean): Components {
       <del className="line-through opacity-70">{children}</del>
     ),
     a: ({ href, children }) => (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={linkClass}>
+      <a href={href} target="_blank" rel="noopener noreferrer" className={`${linkClass} break-all`}>
         {children}
       </a>
     ),
