@@ -3,7 +3,7 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, publishEvent } from '../../lib/nostr'
@@ -19,9 +19,6 @@ import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileT
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
 import { AudioMessage, formatDuration } from './AudioMessage'
 
-interface MessageThreadProps {
-  onOpenSidebar: () => void
-}
 
 function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {
   const { channels, clearActiveChat } = useNostrStore()
@@ -733,45 +730,21 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   )
 }
 
-export function MessageThread({ onOpenSidebar }: MessageThreadProps) {
+export function MessageThread() {
   const { activeChatId, activeChatType } = useNostrStore()
 
   if (!activeChatId) {
     return (
-      <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden">
-        {/* Mobile top bar (no active chat) */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900 md:hidden">
-          <button
-            onClick={onOpenSidebar}
-            className="p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-            aria-label="Menu"
-          >
-            <Menu size={22} />
-          </button>
-          <div className="w-7 h-7 bg-purple-600 rounded-lg flex items-center justify-center">
-            <Hash size={14} className="text-white" />
+      <div className="flex-1 flex items-center justify-center bg-gray-950">
+        <div className="text-center space-y-3 px-8">
+          <div className="w-20 h-20 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto">
+            <WifiOff size={36} className="text-gray-600" />
           </div>
-          <span className="font-bold text-white">NostrChat</span>
-        </div>
-
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4 px-8">
-            <div className="w-20 h-20 bg-gray-900 rounded-2xl flex items-center justify-center mx-auto">
-              <WifiOff size={36} className="text-gray-600" />
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold text-gray-300">Select a chat</h3>
-              <p className="text-gray-500 text-sm mt-1">
-                Choose a channel or contact to start chatting.
-              </p>
-            </div>
-            <button
-              onClick={onOpenSidebar}
-              className="md:hidden inline-flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold rounded-xl transition-colors"
-            >
-              <Menu size={16} />
-              Open Menu
-            </button>
+          <div>
+            <h3 className="text-xl font-semibold text-gray-300">Select a chat</h3>
+            <p className="text-gray-500 text-sm mt-1">
+              Choose a channel or contact to start chatting.
+            </p>
           </div>
         </div>
       </div>

@@ -55,7 +55,6 @@ function consumeContactParam(): string | null {
 }
 
 function App() {
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('profile')
 
@@ -88,9 +87,9 @@ function App() {
 
   return (
     <CallProvider>
-      <div className="flex h-full w-full bg-gray-950 overflow-hidden">
-        <Sidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
-        <MessageThread onOpenSidebar={() => setMobileSidebarOpen(true)} />
+      <div className="flex h-full w-full bg-gray-950 overflow-hidden pb-16 md:pb-0">
+        <Sidebar />
+        <MessageThread />
 
         {showSettings && (
           <SettingsPanel

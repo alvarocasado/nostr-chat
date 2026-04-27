@@ -236,30 +236,90 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
 
 const MAX_SEARCH_RESULTS = 50
 
-const SIDEBAR_TABS = [
-  { id: 'channels' as const, label: 'Channels', icon: <Hash size={14} /> },
-  { id: 'dms' as const,      label: 'Messages', icon: <MessageCircle size={14} /> },
-  { id: 'contacts' as const, label: 'Contacts', icon: <Users size={14} /> },
-]
+type SidebarSection = 'search' | 'messages' | 'channels' | 'contacts'
 
-interface SidebarProps {
-  isOpen: boolean
-  onClose: () => void
+const SECTION_LABELS: Record<SidebarSection, string> = {
+  search: 'Search',
+  messages: 'Messages',
+  channels: 'Channels',
+  contacts: 'Contacts',
 }
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+function NavRailButton({
+  icon, label, active, danger, onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active?: boolean
+  danger?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
+        active
+          ? 'bg-purple-600 text-white'
+          : danger
+          ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'
+          : 'text-gray-500 hover:text-white hover:bg-white/10'
+      }`}
+    >
+      {icon}
+    </button>
+  )
+}
+
+function BottomNavButton({
+  icon, label, active, onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-colors ${
+        active ? 'text-purple-400' : 'text-gray-500 active:text-gray-300'
+      }`}
+    >
+      {icon}
+      <span className="text-[10px] font-medium">{label}</span>
+    </button>
+  )
+}
+
+export function Sidebar() {
+  const [activeSection, setActiveSection] = useState<SidebarSection | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
   const {
     publicKey, profile, channels, joinedChannelIds, contacts,
-    activeChatId, activeChatType, sidebarTab, messages, profiles,
-    setSidebarTab, setShowSettings, setShowAddChannel, setShowAddContact,
+    activeChatId, activeChatType, messages, profiles,
+    setShowSettings, setShowAddChannel, setShowAddContact,
     logout,
   } = useNostrStore()
 
   const myProfile = profile || profiles[publicKey || '']
   const myName = publicKey ? getDisplayName(myProfile, publicKey) : 'You'
   const joinedChannels = channels.filter(c => joinedChannelIds.includes(c.id))
+
+  const toggleSection = (section: SidebarSection) => {
+    setActiveSection(prev => {
+      if (prev !== 'search' && section !== 'search') setSearchQuery('')
+      return prev === section ? null : section
+    })
+  }
+
+  const closePanel = () => {
+    setActiveSection(null)
+    setSearchQuery('')
+  }
 
   const searchResults = useMemo<SearchResult[]>(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -294,36 +354,14 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
   const isSearching = searchQuery.trim().length >= 2
 
-  const sidebarContent = (
-    <div className="flex flex-col h-full w-full bg-gray-900">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800">
-        <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
-          <Zap size={16} className="text-white" />
-        </div>
-        <span className="font-bold text-white text-lg flex-1">NostrChat</span>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-          title="Settings"
-        >
-          <Settings size={18} />
-        </button>
-        {/* Close button — mobile only */}
-        <button
-          onClick={onClose}
-          className="md:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-          aria-label="Close menu"
-        >
-          <X size={18} />
-        </button>
-      </div>
-
-      {/* Search bar */}
-      <div className="px-3 pt-3">
+  // ── Section panel bodies ─────────────────────────────────────
+  const searchSection = (
+    <div className="flex flex-col h-full">
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <div className="flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2 border border-gray-700 focus-within:border-purple-500/50 transition-colors">
           <Search size={14} className="text-gray-500 flex-shrink-0" />
           <input
+            autoFocus
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
@@ -337,169 +375,230 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
           )}
         </div>
       </div>
-
-      {/* Tab switcher — hidden while searching */}
-      {!isSearching && (
-        <div className="flex px-3 pt-3 gap-1">
-          {SIDEBAR_TABS.map(({ id, label, icon }) => (
-            <button
-              key={id}
-              onClick={() => setSidebarTab(id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-colors ${
-                sidebarTab === id ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {icon}
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* List / Search results */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin py-2 px-2 space-y-0.5">
-        {isSearching ? (
-          searchResults.length === 0 ? (
-            <p className="text-gray-500 text-xs text-center px-4 py-8">
-              No messages found for "{searchQuery.trim()}"
-            </p>
-          ) : (
-            <>
-              <p className="text-gray-600 text-xs px-3 py-1">
-                {searchResults.length}{searchResults.length === MAX_SEARCH_RESULTS ? '+' : ''} result{searchResults.length !== 1 ? 's' : ''}
-              </p>
-              {searchResults.map(result => (
-                <SearchResultItem
-                  key={`${result.chatId}-${result.message.id}`}
-                  result={result}
-                  query={searchQuery.trim()}
-                  onSelect={() => { setSearchQuery(''); onClose() }}
-                />
-              ))}
-            </>
-          )
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {!isSearching ? (
+          <p className="text-gray-600 text-xs text-center py-8">Type at least 2 characters to search</p>
+        ) : searchResults.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-8">No messages found for "{searchQuery.trim()}"</p>
         ) : (
           <>
-            {sidebarTab === 'channels' && (
-              <>
-                <button
-                  onClick={() => { setShowAddChannel(true); onClose() }}
-                  className="w-full flex items-center gap-2 px-3 py-3 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
-                >
-                  <Plus size={16} />
-                  <span>Add / Discover Channels</span>
-                </button>
-                {joinedChannels.length === 0 && (
-                  <p className="text-gray-500 text-xs text-center px-4 py-6">
-                    No channels yet. Discover or create one above.
-                  </p>
-                )}
-                {joinedChannels.map(ch => (
-                  <ChannelItem
-                    key={ch.id}
-                    channel={ch}
-                    isActive={activeChatId === ch.id && activeChatType === 'channel'}
-                    onSelect={onClose}
-                  />
-                ))}
-              </>
-            )}
-
-            {sidebarTab === 'dms' && (
-              <>
-                <button
-                  onClick={() => { setShowAddContact(true); onClose() }}
-                  className="w-full flex items-center gap-2 px-3 py-3 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
-                >
-                  <Plus size={16} />
-                  <span>New Message</span>
-                </button>
-                {contacts.length === 0 && (
-                  <p className="text-gray-500 text-xs text-center px-4 py-6">
-                    No conversations yet.
-                  </p>
-                )}
-                {contacts.map(c => (
-                  <ContactItem
-                    key={c.pubkey}
-                    contact={c}
-                    isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
-                    onSelect={onClose}
-                  />
-                ))}
-              </>
-            )}
-
-            {sidebarTab === 'contacts' && (
-              <>
-                <button
-                  onClick={() => { setShowAddContact(true); onClose() }}
-                  className="w-full flex items-center gap-2 px-3 py-3 text-purple-400 hover:text-purple-300 text-sm transition-colors rounded-xl hover:bg-purple-600/10"
-                >
-                  <Plus size={16} />
-                  <span>Add Contact</span>
-                </button>
-                {contacts.length === 0 && (
-                  <p className="text-gray-500 text-xs text-center px-4 py-6">
-                    No contacts yet.
-                  </p>
-                )}
-                {contacts.map(c => (
-                  <ContactItem
-                    key={c.pubkey}
-                    contact={c}
-                    isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
-                    onSelect={onClose}
-                  />
-                ))}
-              </>
-            )}
+            <p className="text-gray-600 text-xs px-3 py-1">
+              {searchResults.length}{searchResults.length === MAX_SEARCH_RESULTS ? '+' : ''} result{searchResults.length !== 1 ? 's' : ''}
+            </p>
+            {searchResults.map(result => (
+              <SearchResultItem
+                key={`${result.chatId}-${result.message.id}`}
+                result={result}
+                query={searchQuery.trim()}
+                onSelect={closePanel}
+              />
+            ))}
           </>
         )}
       </div>
+    </div>
+  )
 
-      {/* Profile footer */}
-      <div className="px-3 py-3 border-t border-gray-800" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
-        <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
-          <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">{myName}</p>
-            <p className="text-xs text-gray-500 truncate">{publicKey?.slice(0, 16)}...</p>
-          </div>
-          <button
-            onClick={logout}
-            title="Logout"
-            className="p-2 text-gray-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
-          >
-            <LogOut size={16} />
-          </button>
+  const actionButton = (label: string, onClick: () => void) => (
+    <div className="px-3 pt-3 pb-2 flex-shrink-0">
+      <button
+        onClick={onClick}
+        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-colors"
+      >
+        <Plus size={16} />
+        {label}
+      </button>
+    </div>
+  )
+
+  const messagesSection = (
+    <div className="flex flex-col h-full">
+      {actionButton('New Message', () => { setShowAddContact(true); closePanel() })}
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {contacts.length === 0 && (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No conversations yet.</p>
+        )}
+        {contacts.map(c => (
+          <ContactItem
+            key={c.pubkey}
+            contact={c}
+            isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
+            onSelect={closePanel}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
+  const channelsSection = (
+    <div className="flex flex-col h-full">
+      {actionButton('Add / Discover Channels', () => { setShowAddChannel(true); closePanel() })}
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {joinedChannels.length === 0 && (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No channels yet. Discover or create one above.</p>
+        )}
+        {joinedChannels.map(ch => (
+          <ChannelItem
+            key={ch.id}
+            channel={ch}
+            isActive={activeChatId === ch.id && activeChatType === 'channel'}
+            onSelect={closePanel}
+          />
+        ))}
+      </div>
+    </div>
+  )
+
+  const contactsSection = (
+    <div className="flex flex-col h-full">
+      {actionButton('Add Contact', () => { setShowAddContact(true); closePanel() })}
+      <div className="flex-1 flex items-start justify-center px-6 pt-6">
+        <p className="text-gray-600 text-xs text-center leading-relaxed">
+          Search by public key or Nostr address to start a private conversation.
+        </p>
+      </div>
+    </div>
+  )
+
+  const sectionBody: Record<SidebarSection, React.ReactNode> = {
+    search: searchSection,
+    messages: messagesSection,
+    channels: channelsSection,
+    contacts: contactsSection,
+  }
+
+  // ── Profile footer (shared between desktop panel and mobile sheet) ──
+  const profileFooter = (
+    <div
+      className="px-3 py-3 border-t border-gray-800 flex-shrink-0"
+      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+    >
+      <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
+        <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-white truncate">{myName}</p>
+          <p className="text-xs text-gray-500 truncate">{publicKey?.slice(0, 16)}...</p>
         </div>
+        <button
+          onClick={logout}
+          title="Logout"
+          className="p-2 text-gray-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
+        >
+          <LogOut size={16} />
+        </button>
       </div>
     </div>
   )
 
   return (
     <>
-      {/* Desktop: static sidebar */}
-      <div className="hidden md:flex md:w-72 md:flex-shrink-0 border-r border-gray-800 h-full">
-        {sidebarContent}
+      {/* ── Desktop ──────────────────────────────────────────────── */}
+      <div className="hidden md:flex h-full flex-shrink-0">
+
+        {/* Icon rail */}
+        <div className="w-14 flex flex-col items-center py-3 gap-1 bg-gray-900 border-r border-gray-800 flex-shrink-0">
+          {/* Logo */}
+          <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center mb-3 flex-shrink-0">
+            <Zap size={18} className="text-white" />
+          </div>
+
+          <NavRailButton icon={<Search size={18} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
+          <NavRailButton icon={<MessageCircle size={18} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+          <NavRailButton icon={<Hash size={18} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
+          <NavRailButton icon={<Users size={18} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
+
+          <div className="flex-1" />
+
+          <NavRailButton icon={<Settings size={18} />} label="Settings" onClick={() => setShowSettings(true)} />
+
+          {/* User avatar */}
+          <div className="my-1">
+            <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
+          </div>
+
+          <NavRailButton icon={<LogOut size={18} />} label="Logout" danger onClick={logout} />
+        </div>
+
+        {/* Section panel — slides in by revealing fixed-width inner content */}
+        <div className={`flex flex-col bg-gray-900 border-r border-gray-800 overflow-hidden transition-all duration-300 ease-in-out ${activeSection ? 'w-72' : 'w-0'}`}>
+          <div className="w-72 flex flex-col h-full">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800 flex-shrink-0">
+              <h2 className="font-bold text-white text-base">
+                {activeSection ? SECTION_LABELS[activeSection] : ''}
+              </h2>
+              <button
+                onClick={closePanel}
+                className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {/* Panel body */}
+            <div className="flex-1 overflow-hidden">
+              {activeSection && sectionBody[activeSection]}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Mobile: slide-over drawer */}
-      {/* Backdrop */}
+      {/* ── Mobile ───────────────────────────────────────────────── */}
+
+      {/* Sheet backdrop */}
       <div
         className={`md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          activeSection ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
-        onClick={onClose}
+        onClick={closePanel}
       />
-      {/* Drawer */}
+
+      {/* Sheet — anchored at top:0 so translateY(100vh) guarantees full off-screen hide */}
       <div
-        className={`md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] transition-transform duration-300 ease-in-out ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className="md:hidden fixed inset-x-0 top-0 z-50 bg-gray-900 rounded-t-2xl shadow-2xl flex flex-col transition-transform duration-300 ease-in-out"
+        style={{
+          height: `calc(100vh - 4rem - env(safe-area-inset-bottom, 0px))`,
+          transform: activeSection ? 'translateY(4rem)' : 'translateY(100vh)',
+        }}
       >
-        {sidebarContent}
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-gray-700" />
+        </div>
+
+        {/* Sheet header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-shrink-0">
+          <h2 className="font-bold text-white text-base">
+            {activeSection ? SECTION_LABELS[activeSection] : ''}
+          </h2>
+          <button
+            onClick={closePanel}
+            className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Sheet body */}
+        <div className="flex-1 overflow-hidden">
+          {activeSection && sectionBody[activeSection]}
+        </div>
+
+        {/* Profile footer inside sheet */}
+        {profileFooter}
+      </div>
+
+      {/* Bottom nav */}
+      <div
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-gray-900 border-t border-gray-800 flex"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <BottomNavButton icon={<Search size={20} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
+        <BottomNavButton icon={<MessageCircle size={20} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+        <BottomNavButton icon={<Hash size={20} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
+        <BottomNavButton icon={<Users size={20} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
+        <BottomNavButton icon={<Settings size={20} />}      label="Settings"                                       onClick={() => setShowSettings(true)} />
       </div>
     </>
   )
