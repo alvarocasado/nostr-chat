@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File, X, ZoomIn, Reply } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2 } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -15,6 +15,7 @@ interface MessageItemProps {
   isOwn: boolean
   showAvatar: boolean
   onReply: (msg: Message) => void
+  onRetry?: (msgId: string) => void
 }
 
 const SWIPE_THRESHOLD = 60
@@ -143,7 +144,32 @@ function QuoteBlock({ replyTo, isOwn }: { replyTo: ReplyTo; isOwn: boolean }) {
   )
 }
 
-export function MessageItem({ message, profile, isOwn, showAvatar, onReply }: MessageItemProps) {
+function StatusIndicator({ status, onRetry, msgId }: {
+  status?: 'sending' | 'sent' | 'failed'
+  onRetry?: (id: string) => void
+  msgId: string
+}) {
+  if (status === 'sending') {
+    return <Loader2 size={12} className="text-gray-500 animate-spin flex-shrink-0 mb-1" />
+  }
+  if (status === 'failed') {
+    return (
+      <button
+        onClick={() => onRetry?.(msgId)}
+        title="Failed — tap to retry"
+        className="flex-shrink-0 mb-1"
+      >
+        <AlertCircle size={13} className="text-red-400" />
+      </button>
+    )
+  }
+  if (status === 'sent') {
+    return <Check size={12} className="text-gray-500 flex-shrink-0 mb-1" />
+  }
+  return null
+}
+
+export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRetry }: MessageItemProps) {
   const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
   const { text, attachment, replyTo } = parseMessageContent(message.content)
@@ -243,7 +269,8 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply }: Me
     return (
       <div ref={rowRef} className="flex flex-col items-end gap-1 group">
         <div className="flex items-end gap-2 max-w-[85%]">
-          <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1">
+          <StatusIndicator status={message.status} onRetry={onRetry} msgId={message.id} />
+          <span className="text-gray-600 text-xs mb-1">
             {time}
           </span>
           {replyBtn}
@@ -283,7 +310,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply }: Me
             <MarkdownMessage content={text} isOwn={false} />
           </div>
           {replyBtn}
-          <span className="text-gray-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity mb-1 flex-shrink-0">
+          <span className="text-gray-600 text-xs mb-1 flex-shrink-0">
             {time}
           </span>
         </div>

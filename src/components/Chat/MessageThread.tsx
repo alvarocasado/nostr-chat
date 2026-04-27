@@ -3,10 +3,13 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, Menu, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, sendChannelMessage, sendDM, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { useChannelMessages, useDMMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { buildChannelMessageEvent, buildDMEvent, publishEvent } from '../../lib/nostr'
+import type { Event as NostrEvent } from 'nostr-tools'
 import { MessageItem } from './MessageItem'
+import { MediaGallery } from './MediaGallery'
 import { Avatar } from './Avatar'
 import {
   compressImage, encodeFile, serializeMessage, getPreviewText, formatBytes, getDisplayName,
@@ -20,13 +23,12 @@ interface MessageThreadProps {
   onOpenSidebar: () => void
 }
 
-function ChannelHeader({ channelId }: { channelId: string }) {
+function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {
   const { channels, clearActiveChat } = useNostrStore()
   const channel = channels.find(c => c.id === channelId)
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
-      {/* Mobile back button */}
       <button
         onClick={clearActiveChat}
         className="md:hidden p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -43,11 +45,18 @@ function ChannelHeader({ channelId }: { channelId: string }) {
           <p className="text-xs text-gray-500 mt-0.5 truncate">{channel.about}</p>
         )}
       </div>
+      <button
+        onClick={onOpenGallery}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+        title="Shared media"
+      >
+        <Images size={18} />
+      </button>
     </div>
   )
 }
 
-function DMHeader({ pubkey }: { pubkey: string }) {
+function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: () => void }) {
   const { contacts, profiles, clearActiveChat } = useNostrStore()
   const { callState, initiateCall } = useCallContext()
   const contact = contacts.find(c => c.pubkey === pubkey)
@@ -74,6 +83,13 @@ function DMHeader({ pubkey }: { pubkey: string }) {
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
         <button
+          onClick={onOpenGallery}
+          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+          title="Shared media"
+        >
+          <Images size={18} />
+        </button>
+        <button
           onClick={() => initiateCall(pubkey, 'audio')}
           disabled={!canCall}
           className="p-2 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed rounded-lg hover:bg-white/10 transition-colors"
@@ -99,6 +115,7 @@ interface UploadProgress { name: string; sent: number; total: number }
 const MAX_TEXTAREA_HEIGHT = 120
 
 function MessageInput({
+  chatId,
   onSend,
   onSendChunked,
   onTyping,
@@ -106,6 +123,7 @@ function MessageInput({
   replyTo,
   onCancelReply,
 }: {
+  chatId: string
   onSend: (content: string) => Promise<void>
   onSendChunked: (attachment: AttachmentData, text: string, replyTo: ReplyTo | null, onProgress: (sent: number, total: number) => void) => Promise<void>
   onTyping: () => void
@@ -113,14 +131,26 @@ function MessageInput({
   replyTo: Message | null
   onCancelReply: () => void
 }) {
-  const [text, setText] = useState('')
+  const { profiles, drafts, setDraft, clearDraft } = useNostrStore()
+  const [text, setText] = useState(() => drafts[chatId] ?? '')
   const [sending, setSending] = useState(false)
   const [attachment, setAttachment] = useState<AttachmentData | null>(null)
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const { profiles } = useNostrStore()
+  const textRef = useRef(text)
+  textRef.current = text
+
+  useEffect(() => {
+    return () => {
+      if (textRef.current.trim()) {
+        setDraft(chatId, textRef.current)
+      } else {
+        clearDraft(chatId)
+      }
+    }
+  }, [chatId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const recorder = useAudioRecorder()
   const { isLimited, cooldownSec, tryRecord } = useRateLimit()
@@ -147,6 +177,7 @@ function MessageInput({
       setText('')
       setAttachment(null)
       onCancelReply()
+      clearDraft(chatId)
       setUploadProgress({ name: a.name, sent: 0, total: 1 })
       try {
         await onSendChunked(a, t, replyToData, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
@@ -166,6 +197,7 @@ function MessageInput({
     setText('')
     setAttachment(null)
     onCancelReply()
+    clearDraft(chatId)
     try {
       await onSend(content)
     } catch {
@@ -409,6 +441,16 @@ function MessageInput({
   )
 }
 
+function NewMessagesDivider({ divRef }: { divRef: React.RefObject<HTMLDivElement> }) {
+  return (
+    <div ref={divRef} className="flex items-center gap-3 py-2">
+      <div className="flex-1 border-t border-purple-500/40" />
+      <span className="text-xs text-purple-400 font-semibold px-2 flex-shrink-0">New messages</span>
+      <div className="flex-1 border-t border-purple-500/40" />
+    </div>
+  )
+}
+
 function DateSeparator({ date }: { date: Date }) {
   const label = (() => {
     const now = new Date()
@@ -429,15 +471,28 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-function MessageList({ messages, myPubkey, profiles, onReply }: {
+function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp }: {
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
   onReply: (msg: Message) => void
+  onRetry: (msgId: string) => void
+  dividerTimestamp?: number
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const dividerRef = useRef<HTMLDivElement>(null)
+  const mountedRef = useRef(false)
 
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      if (dividerRef.current) {
+        dividerRef.current.scrollIntoView({ block: 'start' })
+      } else {
+        bottomRef.current?.scrollIntoView()
+      }
+      return
+    }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length])
 
@@ -455,6 +510,7 @@ function MessageList({ messages, myPubkey, profiles, onReply }: {
   const elements: React.ReactNode[] = []
   let lastDate = ''
   let lastPubkey = ''
+  let dividerInserted = false
 
   for (const msg of messages) {
     const msgDate = new Date(msg.createdAt * 1000).toDateString()
@@ -462,6 +518,10 @@ function MessageList({ messages, myPubkey, profiles, onReply }: {
       elements.push(<DateSeparator key={`date-${msgDate}`} date={new Date(msg.createdAt * 1000)} />)
       lastDate = msgDate
       lastPubkey = ''
+    }
+    if (!dividerInserted && dividerTimestamp !== undefined && msg.createdAt > dividerTimestamp) {
+      elements.push(<NewMessagesDivider key="new-messages-divider" divRef={dividerRef} />)
+      dividerInserted = true
     }
     const showAvatar = msg.pubkey !== lastPubkey && msg.pubkey !== myPubkey
     lastPubkey = msg.pubkey
@@ -473,6 +533,7 @@ function MessageList({ messages, myPubkey, profiles, onReply }: {
         isOwn={msg.pubkey === myPubkey}
         showAvatar={showAvatar}
         onReply={onReply}
+        onRetry={onRetry}
       />
     )
   }
@@ -486,15 +547,62 @@ function MessageList({ messages, myPubkey, profiles, onReply }: {
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [showGallery, setShowGallery] = useState(false)
+  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
+  const dividerTimestampRef = useRef<number | undefined>(seenAt[channelId])
+
+  useEffect(() => {
+    return () => {
+      const latest = useNostrStore.getState().messages[channelId]?.at(-1)?.createdAt
+      if (latest !== undefined) updateSeenAt(channelId, latest)
+    }
+  }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
-    await sendChannelMessage(sk, content, channelId, relays, replyTo?.id)
+
+    const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyTo?.id)
+
+    addMessage(channelId, {
+      id: event.id,
+      pubkey: publicKey,
+      content,
+      createdAt: event.created_at,
+      tags: event.tags,
+      kind: 42,
+      channelId,
+      status: 'sending',
+      ...(replyTo && {
+        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
+      }),
+    })
+    pendingEventsRef.current.set(event.id, event)
+
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(channelId, event.id, 'sent')
+      pendingEventsRef.current.delete(event.id)
+    } catch {
+      updateMessageStatus(channelId, event.id, 'failed')
+    }
+  }
+
+  const handleRetry = async (msgId: string) => {
+    const event = pendingEventsRef.current.get(msgId)
+    if (!event) return
+    updateMessageStatus(channelId, msgId, 'sending')
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(channelId, msgId, 'sent')
+      pendingEventsRef.current.delete(msgId)
+    } catch {
+      updateMessageStatus(channelId, msgId, 'failed')
+    }
   }
 
   const handleSendChunked = async (
@@ -517,24 +625,78 @@ function ChannelThread({ channelId }: { channelId: string }) {
 
   return (
     <>
-      <ChannelHeader channelId={channelId} />
-      <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} />
-      <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
+      {showGallery ? (
+        <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
+      ) : (
+        <>
+          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
+          <TypingIndicator typists={typists} profiles={profiles} />
+          <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+        </>
+      )}
     </>
   )
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [showGallery, setShowGallery] = useState(false)
+  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
+  const dividerTimestampRef = useRef<number | undefined>(seenAt[theirPubkey])
+
+  useEffect(() => {
+    return () => {
+      const latest = useNostrStore.getState().messages[theirPubkey]?.at(-1)?.createdAt
+      if (latest !== undefined) updateSeenAt(theirPubkey, latest)
+    }
+  }, [theirPubkey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
-    await sendDM(sk, content, theirPubkey, relays)
+
+    const event = await buildDMEvent(sk, theirPubkey, content)
+
+    addMessage(theirPubkey, {
+      id: event.id,
+      pubkey: publicKey,
+      content,
+      createdAt: event.created_at,
+      tags: event.tags,
+      kind: 4,
+      recipientPubkey: theirPubkey,
+      decrypted: true,
+      status: 'sending',
+      ...(replyTo && {
+        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
+      }),
+    })
+    pendingEventsRef.current.set(event.id, event)
+
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(theirPubkey, event.id, 'sent')
+      pendingEventsRef.current.delete(event.id)
+    } catch {
+      updateMessageStatus(theirPubkey, event.id, 'failed')
+    }
+  }
+
+  const handleRetry = async (msgId: string) => {
+    const event = pendingEventsRef.current.get(msgId)
+    if (!event) return
+    updateMessageStatus(theirPubkey, msgId, 'sending')
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(theirPubkey, msgId, 'sent')
+      pendingEventsRef.current.delete(msgId)
+    } catch {
+      updateMessageStatus(theirPubkey, msgId, 'failed')
+    }
   }
 
   const handleSendChunked = async (
@@ -557,10 +719,16 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 
   return (
     <>
-      <DMHeader pubkey={theirPubkey} />
-      <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} />
-      <TypingIndicator typists={typists} profiles={profiles} />
-      <MessageInput onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
+      {showGallery ? (
+        <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
+      ) : (
+        <>
+          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
+          <TypingIndicator typists={typists} profiles={profiles} />
+          <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+        </>
+      )}
     </>
   )
 }

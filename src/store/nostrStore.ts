@@ -66,6 +66,7 @@ export interface Message {
     pubkey: string
     previewText: string
   }
+  status?: 'sending' | 'sent' | 'failed'
 }
 
 interface NostrState {
@@ -106,6 +107,12 @@ interface NostrState {
   notificationSettings: NotificationSettings
   mutedChats: Record<string, number | null>  // chatId -> expiry ms (null = forever)
 
+  // Drafts (session-only, not persisted)
+  drafts: Record<string, string>
+
+  // Seen-at timestamps for unread divider (persisted)
+  seenAt: Record<string, number>
+
   // Derived helper
   getPrivateKey: () => Uint8Array | null
 
@@ -130,6 +137,7 @@ interface NostrState {
   clearActiveChat: () => void
 
   addMessage: (chatId: string, message: Message) => void
+  updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
   updateContactLastMessage: (pubkey: string, content: string, at: number) => void
   updateChannelLastMessage: (channelId: string, content: string, at: number, isMention?: boolean) => void
@@ -144,6 +152,11 @@ interface NostrState {
   updateNotificationSettings: (s: Partial<NotificationSettings>) => void
   muteChatUntil: (chatId: string, until: number | null) => void
   unmuteChat: (chatId: string) => void
+
+  setDraft: (chatId: string, text: string) => void
+  clearDraft: (chatId: string) => void
+
+  updateSeenAt: (chatId: string, at: number) => void
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -180,6 +193,8 @@ export const useNostrStore = create<NostrState>()(
       showAddContact: false,
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
       mutedChats: {},
+      drafts: {},
+      seenAt: {},
 
       getPrivateKey: () => {
         const hex = get().privateKeyHex
@@ -317,6 +332,17 @@ export const useNostrStore = create<NostrState>()(
         set({ messages: { ...get().messages, [chatId]: sorted } })
       },
 
+      updateMessageStatus: (chatId, msgId, status) => {
+        const msgs = get().messages[chatId]
+        if (!msgs) return
+        set({
+          messages: {
+            ...get().messages,
+            [chatId]: msgs.map(m => m.id === msgId ? { ...m, status } : m),
+          }
+        })
+      },
+
       markRead: (chatId) => {
         const contacts = get().contacts.map(c =>
           c.pubkey === chatId ? { ...c, unread: 0 } : c
@@ -393,6 +419,17 @@ export const useNostrStore = create<NostrState>()(
         const { [chatId]: _, ...rest } = get().mutedChats
         set({ mutedChats: rest })
       },
+
+      setDraft: (chatId, text) =>
+        set({ drafts: { ...get().drafts, [chatId]: text } }),
+
+      clearDraft: (chatId) => {
+        const { [chatId]: _, ...rest } = get().drafts
+        set({ drafts: rest })
+      },
+
+      updateSeenAt: (chatId, at) =>
+        set({ seenAt: { ...get().seenAt, [chatId]: at } }),
     }),
     {
       name: 'nostr-chat-storage',
@@ -422,6 +459,7 @@ export const useNostrStore = create<NostrState>()(
         profiles: state.profiles,
         notificationSettings: state.notificationSettings,
         mutedChats: state.mutedChats,
+        seenAt: state.seenAt,
       }),
     }
   )
