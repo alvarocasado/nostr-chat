@@ -1,5 +1,34 @@
 # Release Notes
 
+## 1.0.0-alpha.6 — 2026-04-27
+
+### Features
+
+#### Unread Message Divider
+- A purple "New messages" separator appears before the first unread message when you open a chat that received messages since your last visit
+- The view scrolls to the divider on open so the first unread message is immediately visible
+- The cutoff timestamp is persisted across page refreshes and updated when you leave the chat
+
+#### Media Gallery
+- Photos icon in every channel and DM header opens a "Shared Media" grid of all images shared in that conversation
+- Tapping a thumbnail opens a full-screen lightbox with prev/next navigation (←/→ keys on desktop), download button, and image counter
+- Newest images shown first; empty state displayed when no images have been shared yet
+
+#### Draft Persistence
+- Unsent text is saved per-chat when you switch away and restored when you return
+- Drafts are held in memory for the session and cleared automatically on send
+
+#### Message Send Status
+- Own messages show a live status indicator next to the timestamp: spinner while sending, checkmark on success, red alert icon on failure
+- Tapping the red alert icon retries the failed send — the original signed event is reused, no re-signing
+- Optimistic messages use the real event ID so the relay echo is silently deduplicated with no duplicate bubbles
+- Applies to regular text and inline-attachment messages in both channels and DMs; chunked file transfers are unaffected
+
+### Fixes
+- Message timestamps are now always visible next to each bubble instead of appearing only on hover, fixing mobile where hover never fires
+
+---
+
 ## 1.0.0-alpha.5.5 — 2026-04-26
 
 ### Features
