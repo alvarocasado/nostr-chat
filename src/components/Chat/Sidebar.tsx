@@ -332,7 +332,7 @@ export function Sidebar() {
   }
 
   const closePanel = () => {
-    if (activeSection === 'settings') setActiveSettingsTab(null)
+    setActiveSettingsTab(null)
     closePanelOnly()
   }
 
