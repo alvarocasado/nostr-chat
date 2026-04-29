@@ -194,23 +194,29 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
 }
 
 function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActive: boolean; onSelect: () => void }) {
-  const { setActiveChat, profiles } = useNostrStore()
+  const { setActiveChat, profiles, setViewingProfilePubkey } = useNostrStore()
   const profile = contact.profile || profiles[contact.pubkey]
   const name = getDisplayName(profile, contact.pubkey, 10)
 
   return (
     <div className="group relative">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => { setActiveChat(contact.pubkey, 'dm'); onSelect() }}
-        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { setActiveChat(contact.pubkey, 'dm'); onSelect() } }}
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left cursor-pointer ${
           isActive
             ? 'bg-purple-600/20 border border-purple-500/30 text-white'
             : 'hover:bg-white/5 text-gray-300 hover:text-white'
         }`}
       >
-        <div className="relative">
-          <Avatar picture={profile?.picture} name={name} pubkey={contact.pubkey} size="sm" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
+        <div
+          className="relative flex-shrink-0"
+          onClick={e => { e.stopPropagation(); setViewingProfilePubkey(contact.pubkey) }}
+        >
+          <Avatar picture={profile?.picture} name={name} pubkey={contact.pubkey} size="sm" onClick={() => setViewingProfilePubkey(contact.pubkey)} />
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900 pointer-events-none" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
@@ -226,7 +232,7 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
             {contact.unread! > 9 ? '9+' : contact.unread}
           </span>
         )}
-      </button>
+      </div>
       <div className="absolute right-2 top-1/2 -translate-y-1/2">
         <MuteButton chatId={contact.pubkey} />
       </div>

@@ -54,7 +54,7 @@ function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpen
 }
 
 function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: () => void }) {
-  const { contacts, profiles, clearActiveChat } = useNostrStore()
+  const { contacts, profiles, clearActiveChat, setViewingProfilePubkey } = useNostrStore()
   const { callState, initiateCall } = useCallContext()
   const contact = contacts.find(c => c.pubkey === pubkey)
   const profile = contact?.profile || profiles[pubkey]
@@ -70,7 +70,7 @@ function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: ()
       >
         <ArrowLeft size={20} />
       </button>
-      <Avatar picture={profile?.picture} name={name} pubkey={pubkey} size="md" />
+      <Avatar picture={profile?.picture} name={name} pubkey={pubkey} size="md" onClick={() => setViewingProfilePubkey(pubkey)} />
       <div className="flex-1 min-w-0">
         <h2 className="font-semibold text-white truncate">{name}</h2>
         <div className="flex items-center gap-1 mt-0.5">

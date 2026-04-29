@@ -11,6 +11,7 @@ import { UpdatePrompt } from './components/UpdatePrompt'
 import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
+import { ProfileCard } from './components/Chat/ProfileCard'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -99,6 +100,7 @@ function App() {
 
       <IncomingCall />
       <CallOverlay />
+      <ProfileCard />
       <IceFailureBanner onOpenSettings={openCallSettings} />
     </CallProvider>
   )

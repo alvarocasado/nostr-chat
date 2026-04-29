@@ -3,6 +3,7 @@ interface AvatarProps {
   name?: string
   pubkey: string
   size?: 'sm' | 'md' | 'lg'
+  onClick?: () => void
 }
 
 const sizeClasses = {
@@ -36,14 +37,17 @@ function isSafeImageUrl(url: string): boolean {
   }
 }
 
-export function Avatar({ picture, name, pubkey, size = 'md' }: AvatarProps) {
+export function Avatar({ picture, name, pubkey, size = 'md', onClick }: AvatarProps) {
+  const clickClass = onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
+
   if (picture && isSafeImageUrl(picture)) {
     return (
       <img
         src={picture}
         alt={name || pubkey}
         referrerPolicy="no-referrer"
-        className={`${sizeClasses[size]} rounded-full object-cover flex-shrink-0`}
+        onClick={onClick}
+        className={`${sizeClasses[size]} rounded-full object-cover flex-shrink-0 ${clickClass}`}
         onError={(e) => {
           e.currentTarget.style.display = 'none'
           e.currentTarget.nextElementSibling?.removeAttribute('style')
@@ -54,7 +58,8 @@ export function Avatar({ picture, name, pubkey, size = 'md' }: AvatarProps) {
 
   return (
     <div
-      className={`${sizeClasses[size]} ${getColor(pubkey)} rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0`}
+      onClick={onClick}
+      className={`${sizeClasses[size]} ${getColor(pubkey)} rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0 ${clickClass}`}
     >
       {getInitials(name, pubkey)}
     </div>

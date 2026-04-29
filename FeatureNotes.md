@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Profile card on avatar tap
+- Tapping any avatar (message list, DM header, contact list) opens a modal profile card
+- Card shows: avatar, display name, NIP-05 identifier, about text, copyable public key (npub)
+- "Send Message" button adds contact and navigates to DM; hidden when viewing your own profile
+- Backdrop click or X button closes the card
+- `viewingProfilePubkey: string | null` added to store; `setViewingProfilePubkey` action controls the card
+- `<ProfileCard />` rendered globally in App.tsx inside CallProvider (so it sits above all other UI)
+
 ### Settings as a first-class screen
 - Settings is no longer a modal; it opens in the main area as a full-width page
 - The Settings section in the sidebar shows a vertical menu: Profile · Relays · Keys · Calls · Notifications

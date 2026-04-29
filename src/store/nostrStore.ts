@@ -102,6 +102,7 @@ interface NostrState {
   sidebarTab: 'channels' | 'dms' | 'contacts'
   showSettings: boolean
   activeSettingsTab: SettingsTab | null
+  viewingProfilePubkey: string | null
   showAddChannel: boolean
   showAddContact: boolean
 
@@ -151,6 +152,7 @@ interface NostrState {
   setActiveSettingsTab: (tab: SettingsTab | null) => void
   setShowAddChannel: (show: boolean) => void
   setShowAddContact: (show: boolean) => void
+  setViewingProfilePubkey: (pubkey: string | null) => void
 
   updateNotificationSettings: (s: Partial<NotificationSettings>) => void
   muteChatUntil: (chatId: string, until: number | null) => void
@@ -195,6 +197,7 @@ export const useNostrStore = create<NostrState>()(
       activeSettingsTab: null,
       showAddChannel: false,
       showAddContact: false,
+      viewingProfilePubkey: null,
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
       mutedChats: {},
       drafts: {},
@@ -413,6 +416,7 @@ export const useNostrStore = create<NostrState>()(
       setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
       setShowAddChannel: (show) => set({ showAddChannel: show }),
       setShowAddContact: (show) => set({ showAddContact: show }),
+      setViewingProfilePubkey: (pubkey) => set({ viewingProfilePubkey: pubkey }),
 
       updateNotificationSettings: (s) =>
         set({ notificationSettings: { ...get().notificationSettings, ...s } }),
