@@ -7,7 +7,7 @@ import { useNostrStore } from '../store/nostrStore'
 import { fireCallNotification } from '../lib/notifications'
 import {
   buildCallSignalEvent, decryptCallSignal,
-  getIceServers, CALL_SIGNAL_KIND,
+  getIceServers, fetchCallIceServers, mergeIceServers, CALL_SIGNAL_KIND,
   type CallSignal, type MediaType,
 } from '../lib/webrtc'
 
@@ -64,7 +64,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const callIdRef          = useRef('')
   const pendingCandidates  = useRef<RTCIceCandidateInit[]>([])
   const preOfferCandidates = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
-  const pendingOffer       = useRef<{ sdp: string; peerPubkey: string } | null>(null)
+  const pendingOffer       = useRef<{ sdp: string; peerPubkey: string; iceServers?: RTCIceServer[] } | null>(null)
   const localStreamRef     = useRef<MediaStream | null>(null)
   const screenStreamRef    = useRef<MediaStream | null>(null)
   const durationTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -131,8 +131,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // ── Peer connection setup ─────────────────────────────────────────────────
 
-  const createPeerConnection = useCallback((peerPubkey: string) => {
-    const pc = new RTCPeerConnection({ iceServers: getIceServers() })
+  const createPeerConnection = useCallback((peerPubkey: string, iceServers: RTCIceServer[]) => {
+    const pc = new RTCPeerConnection({ iceServers })
 
     pc.onicecandidate = ({ candidate }) => {
       if (!candidate) return
@@ -189,11 +189,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCallState('calling')
 
     try {
+      const iceServers = await fetchCallIceServers()
       const stream = await getUserMedia(type)
       localStreamRef.current = stream
       setLocalStream(stream)
 
-      const pc = createPeerConnection(peerPubkey)
+      const pc = createPeerConnection(peerPubkey, iceServers)
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       const offer = await pc.createOffer()
@@ -204,6 +205,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         callId,
         mediaType: type,
         sdp: offer.sdp,
+        iceServers,
       })
     } catch {
       cleanup()
@@ -218,11 +220,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     try {
       const type = mediaType
+      const iceServers = mergeIceServers(getIceServers(), offer.iceServers ?? [])
       const stream = await getUserMedia(type)
       localStreamRef.current = stream
       setLocalStream(stream)
 
-      const pc = createPeerConnection(peerPubkey)
+      const pc = createPeerConnection(peerPubkey, iceServers)
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       await pc.setRemoteDescription({ type: 'offer', sdp })
@@ -332,7 +335,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const preOffer = preOfferCandidates.current.get(signal.callId) ?? []
       preOfferCandidates.current.delete(signal.callId)
       pendingCandidates.current.push(...preOffer)
-      pendingOffer.current = { sdp: signal.sdp, peerPubkey: senderPubkey }
+      pendingOffer.current = { sdp: signal.sdp, peerPubkey: senderPubkey, iceServers: signal.iceServers }
       setMediaType(signal.mediaType ?? 'audio')
       setPeer({ pubkey: senderPubkey })
       setCallState('incoming')

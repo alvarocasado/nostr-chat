@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### TURN server sharing via encrypted call-offer
+- When using Metered.ca, the caller fetches fresh time-scoped TURN credentials at call-initiation time (instead of reusing the cached ones) and includes them in the encrypted `call-offer` Nostr signal
+- The callee merges the caller's ICE servers with their own when creating the `RTCPeerConnection`, so both parties can relay through the caller's TURN server for that call
+- Credentials are NIP-04 encrypted in transit and expire automatically (Metered.ca HMAC timestamps); no extra revocation needed
+- Custom and "none" modes are unaffected — their ICE config continues to come from the local cache
+- `fetchCallIceServers()` and `mergeIceServers()` added to `src/lib/webrtc.ts`; `CallSignal` extended with optional `iceServers?: RTCIceServer[]` field (capped at 20 entries, validated on receipt)
+
 ### Profile card on avatar tap
 - Tapping any avatar (message list, DM header, contact list) opens a modal profile card
 - Card shows: avatar, display name, NIP-05 identifier, about text, copyable public key (npub)
