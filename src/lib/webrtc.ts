@@ -33,6 +33,7 @@ export interface CallSignal {
   sdp?: string
   candidate?: RTCIceCandidateInit
   reason?: 'rejected' | 'busy' | 'ended'
+  iceServers?: RTCIceServer[]
 }
 
 export async function buildCallSignalEvent(
@@ -52,6 +53,7 @@ export async function buildCallSignalEvent(
 const VALID_SIGNAL_TYPES: CallSignalType[] = ['call-offer', 'call-answer', 'ice-candidate', 'call-end']
 const MAX_SDP_LEN = 65_536   // generous ceiling; real SDPs are ~2–8 KB
 const MAX_CALL_ID_LEN = 128
+const MAX_ICE_SERVERS = 20
 
 function isValidCallSignal(obj: unknown): obj is CallSignal {
   if (!obj || typeof obj !== 'object') return false
@@ -66,7 +68,55 @@ function isValidCallSignal(obj: unknown): obj is CallSignal {
   if (s.mediaType !== undefined && s.mediaType !== 'audio' && s.mediaType !== 'video') return false
   if (s.candidate !== undefined && (typeof s.candidate !== 'object' || s.candidate === null)) return false
 
+  if (s.iceServers !== undefined) {
+    if (!Array.isArray(s.iceServers) || s.iceServers.length > MAX_ICE_SERVERS) return false
+    for (const srv of s.iceServers as unknown[]) {
+      if (!srv || typeof srv !== 'object') return false
+      const { urls } = srv as Record<string, unknown>
+      if (typeof urls !== 'string' && !Array.isArray(urls)) return false
+    }
+  }
+
   return true
+}
+
+/**
+ * Fetches fresh ICE servers for use at call-initiation time.
+ * For Metered.ca mode this calls the API to get new time-scoped credentials
+ * rather than reusing the cached ones, so they can be safely shared in the
+ * encrypted call-offer signal.
+ * Falls back to the cached config (getIceServers) on any error.
+ */
+export async function fetchCallIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const mode = localStorage.getItem('turn_mode')
+    if (mode !== 'metered') return getIceServers()
+
+    const raw = localStorage.getItem('turn_metered_config')
+    if (!raw) return getIceServers()
+    const { subdomain, apiKey } = JSON.parse(raw) as { subdomain: string; apiKey: string }
+    if (!subdomain || !apiKey) return getIceServers()
+
+    const res = await fetch(
+      `https://${encodeURIComponent(subdomain)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`
+    )
+    if (!res.ok) return getIceServers()
+    const servers = await res.json() as RTCIceServer[]
+    if (!Array.isArray(servers) || servers.length === 0) return getIceServers()
+
+    return [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      ...servers,
+    ]
+  } catch {
+    return getIceServers()
+  }
+}
+
+/** Merges two ICE server lists, appending remote servers after local ones. */
+export function mergeIceServers(local: RTCIceServer[], remote: RTCIceServer[]): RTCIceServer[] {
+  return remote.length === 0 ? local : [...local, ...remote]
 }
 
 export async function decryptCallSignal(

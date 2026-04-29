@@ -4,6 +4,7 @@ import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools'
 import { encodeNsec, encodePubkey, type NostrProfile, DEFAULT_RELAYS } from '../lib/nostr'
 
 export type ChatType = 'channel' | 'dm'
+export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
 
 export interface NotificationSettings {
   dmEnabled: boolean
@@ -100,6 +101,8 @@ interface NostrState {
   // UI
   sidebarTab: 'channels' | 'dms' | 'contacts'
   showSettings: boolean
+  activeSettingsTab: SettingsTab | null
+  viewingProfilePubkey: string | null
   showAddChannel: boolean
   showAddContact: boolean
 
@@ -146,8 +149,10 @@ interface NostrState {
 
   setSidebarTab: (tab: 'channels' | 'dms' | 'contacts') => void
   setShowSettings: (show: boolean) => void
+  setActiveSettingsTab: (tab: SettingsTab | null) => void
   setShowAddChannel: (show: boolean) => void
   setShowAddContact: (show: boolean) => void
+  setViewingProfilePubkey: (pubkey: string | null) => void
 
   updateNotificationSettings: (s: Partial<NotificationSettings>) => void
   muteChatUntil: (chatId: string, until: number | null) => void
@@ -189,8 +194,10 @@ export const useNostrStore = create<NostrState>()(
       profiles: {},
       sidebarTab: 'channels',
       showSettings: false,
+      activeSettingsTab: null,
       showAddChannel: false,
       showAddContact: false,
+      viewingProfilePubkey: null,
       notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
       mutedChats: {},
       drafts: {},
@@ -406,8 +413,10 @@ export const useNostrStore = create<NostrState>()(
 
       setSidebarTab: (tab) => set({ sidebarTab: tab }),
       setShowSettings: (show) => set({ showSettings: show }),
+      setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
       setShowAddChannel: (show) => set({ showAddChannel: show }),
       setShowAddContact: (show) => set({ showAddContact: show }),
+      setViewingProfilePubkey: (pubkey) => set({ viewingProfilePubkey: pubkey }),
 
       updateNotificationSettings: (s) =>
         set({ notificationSettings: { ...get().notificationSettings, ...s } }),

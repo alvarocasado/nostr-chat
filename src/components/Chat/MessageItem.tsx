@@ -173,6 +173,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
   const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
   const { text, attachment, replyTo } = parseMessageContent(message.content)
+  const { setViewingProfilePubkey } = useNostrStore()
 
   const rowRef        = useRef<HTMLDivElement>(null)
   const swipeDxRef    = useRef(0)
@@ -292,7 +293,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
     <div ref={rowRef} className="flex items-end gap-2 group">
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
-          <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" />
+          <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" onClick={() => setViewingProfilePubkey(message.pubkey)} />
         )}
       </div>
       <div className="flex flex-col gap-1 max-w-[75%]">

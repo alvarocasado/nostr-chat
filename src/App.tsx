@@ -4,15 +4,14 @@ import { useNostrStore } from './store/nostrStore'
 import { LoginScreen } from './components/Auth/LoginScreen'
 import { Sidebar } from './components/Chat/Sidebar'
 import { MessageThread } from './components/Chat/MessageThread'
-import { SettingsPanel } from './components/Settings/SettingsPanel'
+import { SettingsScreen } from './components/Settings/SettingsScreen'
 import { AddChannelModal } from './components/Chat/AddChannelModal'
 import { AddContactModal } from './components/Chat/AddContactModal'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
-
-type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
+import { ProfileCard } from './components/Chat/ProfileCard'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -41,7 +40,6 @@ function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   )
 }
 
-/** Read and remove the ?contact= param from the URL without a page reload. */
 function consumeContactParam(): string | null {
   const params = new URLSearchParams(window.location.search)
   const npub = params.get('contact')
@@ -55,23 +53,19 @@ function consumeContactParam(): string | null {
 }
 
 function App() {
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('profile')
 
   const {
     publicKey,
-    showSettings, setShowSettings,
+    activeSettingsTab, setActiveSettingsTab,
     showAddChannel, setShowAddChannel,
     showAddContact, setShowAddContact,
   } = useNostrStore()
 
   const openCallSettings = useCallback(() => {
-    setSettingsTab('calls')
-    setShowSettings(true)
-  }, [setShowSettings])
+    setActiveSettingsTab('calls')
+  }, [setActiveSettingsTab])
 
-  // Handle ?contact=npub1... share links
   useEffect(() => {
     const npub = consumeContactParam()
     if (npub) setContactLinkNpub(npub)
@@ -88,16 +82,10 @@ function App() {
 
   return (
     <CallProvider>
-      <div className="flex h-full w-full bg-gray-950 overflow-hidden">
-        <Sidebar isOpen={mobileSidebarOpen} onClose={() => setMobileSidebarOpen(false)} />
-        <MessageThread onOpenSidebar={() => setMobileSidebarOpen(true)} />
+      <div className="flex h-full w-full bg-gray-950 overflow-hidden pb-16 md:pb-0">
+        <Sidebar />
+        {activeSettingsTab ? <SettingsScreen /> : <MessageThread />}
 
-        {showSettings && (
-          <SettingsPanel
-            initialTab={settingsTab}
-            onClose={() => { setShowSettings(false); setSettingsTab('profile') }}
-          />
-        )}
         {showAddChannel && (
           <AddChannelModal onClose={() => setShowAddChannel(false)} />
         )}
@@ -112,6 +100,7 @@ function App() {
 
       <IncomingCall />
       <CallOverlay />
+      <ProfileCard />
       <IceFailureBanner onOpenSettings={openCallSettings} />
     </CallProvider>
   )
