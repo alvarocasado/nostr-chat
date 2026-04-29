@@ -21,8 +21,8 @@ beforeEach(() => {
 })
 
 describe('generateAndLogin', () => {
-  it('sets publicKey, nsec, npub, and privateKeyHex', () => {
-    const { nsec, npub } = useNostrStore.getState().generateAndLogin()
+  it('sets publicKey, nsec, npub, and privateKeyHex', async () => {
+    const { nsec, npub } = await useNostrStore.getState().generateAndLogin()
     const state = useNostrStore.getState()
 
     expect(state.publicKey).toMatch(/^[0-9a-f]{64}$/)
@@ -35,30 +35,28 @@ describe('generateAndLogin', () => {
 })
 
 describe('loginFromNsec', () => {
-  it('returns true and sets keys for a valid nsec', () => {
-    // Generate a key first to get a valid nsec
-    const { nsec } = useNostrStore.getState().generateAndLogin()
+  it('returns true and sets keys for a valid nsec', async () => {
+    const { nsec } = await useNostrStore.getState().generateAndLogin()
     const savedPk = useNostrStore.getState().publicKey
 
-    // Reset and login with nsec
     useNostrStore.setState({ privateKeyHex: null, publicKey: null, nsec: null, npub: null })
-    const ok = useNostrStore.getState().loginFromNsec(nsec)
+    const ok = await useNostrStore.getState().loginFromNsec(nsec)
 
     expect(ok).toBe(true)
     expect(useNostrStore.getState().publicKey).toBe(savedPk)
     expect(useNostrStore.getState().nsec).toBe(nsec)
   })
 
-  it('returns false for an invalid nsec', () => {
-    const ok = useNostrStore.getState().loginFromNsec('nsec1notvalid')
+  it('returns false for an invalid nsec', async () => {
+    const ok = await useNostrStore.getState().loginFromNsec('nsec1notvalid')
     expect(ok).toBe(false)
     expect(useNostrStore.getState().publicKey).toBeNull()
   })
 })
 
 describe('logout', () => {
-  it('clears auth state and messages', () => {
-    useNostrStore.getState().generateAndLogin()
+  it('clears auth state and messages', async () => {
+    await useNostrStore.getState().generateAndLogin()
     useNostrStore.setState({ messages: { test: [{ id: '1', pubkey: 'pk', content: 'hi', createdAt: 0, tags: [], kind: 1 }] } })
 
     useNostrStore.getState().logout()

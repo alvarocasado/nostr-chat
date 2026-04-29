@@ -12,6 +12,7 @@ import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
+import { getActivePubkey, openUserDb, evictOldMessages } from './lib/userDb'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -53,6 +54,7 @@ function consumeContactParam(): string | null {
 }
 
 function App() {
+  const [isHydrating, setIsHydrating] = useState(true)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
 
   const {
@@ -70,6 +72,28 @@ function App() {
     const npub = consumeContactParam()
     if (npub) setContactLinkNpub(npub)
   }, [])
+
+  // Bootstrap: open the previously active user's DB and rehydrate Zustand.
+  useEffect(() => {
+    async function bootstrap() {
+      const pubkey = getActivePubkey()
+      if (pubkey) {
+        openUserDb(pubkey)
+await evictOldMessages()
+        await useNostrStore.persist.rehydrate()
+      }
+      setIsHydrating(false)
+    }
+    bootstrap()
+  }, [])
+
+  if (isHydrating) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   if (!publicKey) {
     return (
