@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Loader2, Check, Save, Mic, Video, ChevronDown, AlertCircle, Wifi } from 'lucide-react'
 import { getIceServers } from '../../lib/webrtc'
+import { getSetting, setSetting, deleteSetting } from '../../lib/userDb'
 
 type TurnMode = 'none' | 'metered' | 'custom'
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
 
-const LS = {
+const SK = {
   TURN_MODE:    'turn_mode',
   TURN_CONFIG:  'turn_config',
   TURN_METERED: 'turn_metered_config',
@@ -14,27 +15,15 @@ const LS = {
   VIDEO_DEVICE: 'media_video_device',
 }
 
-function lsGet(key: string): string {
-  try { return localStorage.getItem(key) ?? '' } catch { return '' }
-}
-function lsSet(key: string, val: string) {
-  try { localStorage.setItem(key, val) } catch {}
-}
-function lsDel(key: string) {
-  try { localStorage.removeItem(key) } catch {}
-}
-function parseJson<T>(str: string, fallback: T): T {
-  try { return str ? (JSON.parse(str) as T) : fallback } catch { return fallback }
-}
-
 async function testRelayConnection(): Promise<'relay' | 'fail'> {
+  const iceServers = await getIceServers()
   return new Promise((resolve) => {
     let resolved = false
     const done = (r: 'relay' | 'fail') => { if (!resolved) { resolved = true; resolve(r) } }
 
     let pc: RTCPeerConnection
     try {
-      pc = new RTCPeerConnection({ iceServers: getIceServers() })
+      pc = new RTCPeerConnection({ iceServers })
     } catch {
       resolve('fail')
       return
@@ -140,34 +129,49 @@ function DeviceSelect({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function CallsTab() {
-  // TURN configuration
-  const [mode, setMode] = useState<TurnMode>(() => {
-    const m = lsGet(LS.TURN_MODE)
-    return (m === 'metered' || m === 'custom') ? m : 'none'
-  })
-
-  const savedMetered = parseJson(lsGet(LS.TURN_METERED), { apiKey: '', subdomain: '' })
-  const savedCustom  = parseJson(lsGet(LS.TURN_CUSTOM), { url: '', username: '', credential: '' })
-
-  const [meteredSubdomain, setMeteredSubdomain] = useState(savedMetered.subdomain)
-  const [meteredApiKey, setMeteredApiKey]       = useState(savedMetered.apiKey)
-  const [customUrl, setCustomUrl]               = useState(savedCustom.url)
-  const [customUsername, setCustomUsername]     = useState(savedCustom.username)
-  const [customCredential, setCustomCredential] = useState(savedCustom.credential)
+  const [mode, setMode]                     = useState<TurnMode>('none')
+  const [meteredSubdomain, setMeteredSubdomain] = useState('')
+  const [meteredApiKey, setMeteredApiKey]       = useState('')
+  const [customUrl, setCustomUrl]               = useState('')
+  const [customUsername, setCustomUsername]     = useState('')
+  const [customCredential, setCustomCredential] = useState('')
+  const [hasTurnConfig, setHasTurnConfig]       = useState(false)
 
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState(false)
   const [saveError, setSaveError] = useState('')
-
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
 
-  // Media devices
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([])
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([])
-  const [audioDevice, setAudioDevice]   = useState(() => lsGet(LS.AUDIO_DEVICE))
-  const [videoDevice, setVideoDevice]   = useState(() => lsGet(LS.VIDEO_DEVICE))
+  const [audioDevice, setAudioDevice]   = useState('')
+  const [videoDevice, setVideoDevice]   = useState('')
   const [devicesLabelled, setDevicesLabelled] = useState(false)
   const [permRequesting, setPermRequesting]   = useState(false)
+
+  // Load all settings from Dexie on mount
+  useEffect(() => {
+    async function load() {
+      const [m, metered, custom, audio, video, config] = await Promise.all([
+        getSetting<string>(SK.TURN_MODE, 'none'),
+        getSetting<{ subdomain: string; apiKey: string }>(SK.TURN_METERED, { subdomain: '', apiKey: '' }),
+        getSetting<{ url: string; username: string; credential: string }>(SK.TURN_CUSTOM, { url: '', username: '', credential: '' }),
+        getSetting<string>(SK.AUDIO_DEVICE, ''),
+        getSetting<string>(SK.VIDEO_DEVICE, ''),
+        getSetting<string>(SK.TURN_CONFIG, ''),
+      ])
+      setMode((m === 'metered' || m === 'custom') ? m : 'none')
+      setMeteredSubdomain(metered.subdomain)
+      setMeteredApiKey(metered.apiKey)
+      setCustomUrl(custom.url)
+      setCustomUsername(custom.username)
+      setCustomCredential(custom.credential)
+      setAudioDevice(audio)
+      setVideoDevice(video)
+      setHasTurnConfig(!!config)
+    }
+    void load()
+  }, [])
 
   const enumerateDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return
@@ -193,13 +197,13 @@ export function CallsTab() {
     setPermRequesting(false)
   }
 
-  const handleDeviceChange = (type: 'audio' | 'video', deviceId: string) => {
+  const handleDeviceChange = async (type: 'audio' | 'video', deviceId: string) => {
     if (type === 'audio') {
       setAudioDevice(deviceId)
-      lsSet(LS.AUDIO_DEVICE, deviceId)
+      await setSetting(SK.AUDIO_DEVICE, deviceId)
     } else {
       setVideoDevice(deviceId)
-      lsSet(LS.VIDEO_DEVICE, deviceId)
+      await setSetting(SK.VIDEO_DEVICE, deviceId)
     }
   }
 
@@ -210,10 +214,11 @@ export function CallsTab() {
 
     try {
       if (mode === 'none') {
-        lsDel(LS.TURN_CONFIG)
-        lsSet(LS.TURN_MODE, 'none')
+        await deleteSetting(SK.TURN_CONFIG)
+        await setSetting(SK.TURN_MODE, 'none')
+        setHasTurnConfig(false)
       } else if (mode === 'metered') {
-        const sub = meteredSubdomain.trim()
+        const sub = meteredSubdomain.trim().replace(/\.metered\.live$/i, '')
         const key = meteredApiKey.trim()
         if (!sub || !key) { setSaveError('Subdomain and API key are required.'); return }
 
@@ -223,9 +228,10 @@ export function CallsTab() {
         const servers = await res.json() as RTCIceServer[]
         if (!Array.isArray(servers)) throw new Error('Unexpected response from Metered API.')
 
-        lsSet(LS.TURN_CONFIG, JSON.stringify(servers))
-        lsSet(LS.TURN_MODE, 'metered')
-        lsSet(LS.TURN_METERED, JSON.stringify({ subdomain: sub, apiKey: key }))
+        await setSetting(SK.TURN_CONFIG, JSON.stringify(servers))
+        await setSetting(SK.TURN_MODE, 'metered')
+        await setSetting(SK.TURN_METERED, { subdomain: sub, apiKey: key })
+        setHasTurnConfig(true)
       } else if (mode === 'custom') {
         const turnUrl = customUrl.trim()
         if (!turnUrl) { setSaveError('TURN URL is required.'); return }
@@ -236,13 +242,14 @@ export function CallsTab() {
           username: customUsername.trim() || undefined,
           credential: customCredential.trim() || undefined,
         }
-        lsSet(LS.TURN_CONFIG, JSON.stringify([server]))
-        lsSet(LS.TURN_MODE, 'custom')
-        lsSet(LS.TURN_CUSTOM, JSON.stringify({
+        await setSetting(SK.TURN_CONFIG, JSON.stringify([server]))
+        await setSetting(SK.TURN_MODE, 'custom')
+        await setSetting(SK.TURN_CUSTOM, {
           url: turnUrl,
           username: customUsername.trim(),
           credential: customCredential.trim(),
-        }))
+        })
+        setHasTurnConfig(true)
       }
 
       setSaved(true)
@@ -260,8 +267,6 @@ export function CallsTab() {
     setTestStatus(result === 'relay' ? 'ok' : 'fail')
     setTimeout(() => setTestStatus('idle'), 6000)
   }
-
-  const hasTurnConfig = !!lsGet(LS.TURN_CONFIG)
 
   return (
     <div className="space-y-4">
@@ -372,7 +377,7 @@ export function CallsTab() {
           label="Microphone"
           devices={audioDevices}
           value={audioDevice}
-          onChange={id => handleDeviceChange('audio', id)}
+          onChange={id => { void handleDeviceChange('audio', id) }}
         />
 
         <div className="border-t border-gray-700/50 pt-2">
@@ -381,7 +386,7 @@ export function CallsTab() {
             label="Camera"
             devices={videoDevices}
             value={videoDevice}
-            onChange={id => handleDeviceChange('video', id)}
+            onChange={id => { void handleDeviceChange('video', id) }}
           />
         </div>
       </Section>

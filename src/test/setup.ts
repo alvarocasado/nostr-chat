@@ -1,11 +1,6 @@
 import '@testing-library/jest-dom'
-import { afterEach, vi } from 'vitest'
-import { cleanup } from '@testing-library/react'
-
-// Auto-cleanup after each test
-afterEach(() => {
-  cleanup()
-})
+import { vi } from 'vitest'
+// @testing-library/react v16 auto-registers cleanup via afterEach when globals:true
 
 // Mock navigator.clipboard
 Object.assign(navigator, {

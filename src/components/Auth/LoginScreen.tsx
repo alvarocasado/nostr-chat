@@ -11,13 +11,13 @@ export function LoginScreen() {
   const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const handleGenerate = () => {
-    const keys = generateAndLogin()
+  const handleGenerate = async () => {
+    const keys = await generateAndLogin()
     setNewKeys(keys)
     setMode('newKey')
   }
 
-  const handleImport = () => {
+  const handleImport = async () => {
     setError('')
     const val = inputValue.trim()
     if (!val) {
@@ -26,9 +26,9 @@ export function LoginScreen() {
     }
     let ok = false
     if (val.startsWith('nsec1')) {
-      ok = loginFromNsec(val)
+      ok = await loginFromNsec(val)
     } else if (/^[0-9a-fA-F]{64}$/.test(val)) {
-      ok = loginFromHex(val)
+      ok = await loginFromHex(val)
     } else {
       setError('Invalid key format. Use nsec1... or 64-char hex')
       return

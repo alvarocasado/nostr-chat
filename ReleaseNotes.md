@@ -1,5 +1,21 @@
 # Release Notes
 
+## 1.0.0-alpha.8 — 2026-04-29
+
+### Features
+
+#### Per-User IndexedDB Storage (Dexie.js)
+- All app data is now stored in a per-user IndexedDB database (`nostr-chat-<pubkey>`), fully scoped to the logged-in Nostr identity
+- Switching users loads that user's own contacts, channels, and settings — no data leakage between accounts
+- Chat messages are cached for offline viewing with a 7-day rolling TTL; old messages are automatically evicted on startup
+- On startup the app reads `nostr-active-pubkey` from localStorage, opens the matching Dexie DB, evicts stale messages, then rehydrates Zustand — all before rendering
+- Persisted per user: contacts (with profiles, last message, unread counts), channels, joined channel IDs, cached Nostr profiles, notification settings, relays, auth credentials, and call settings
+
+### Bug Fixes
+- **TURN subdomain double-suffix** — Saving a Metered.ca subdomain would produce `<subdomain>.metered.live.metered.live` (double domain suffix). The subdomain input now strips any trailing `.metered.live` before saving.
+
+---
+
 ## 1.0.0-alpha.7 — 2026-04-29
 
 ### Features

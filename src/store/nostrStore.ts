@@ -1,7 +1,15 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage, type StorageValue } from 'zustand/middleware'
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools'
 import { encodeNsec, encodePubkey, type NostrProfile, DEFAULT_RELAYS } from '../lib/nostr'
+import {
+  openUserDb,
+  closeUserDb,
+  getUserDb,
+  setActivePubkey,
+  clearActivePubkey,
+} from '../lib/userDb'
+import { messageToRecord, recordToMessage } from '../lib/db'
 
 export type ChatType = 'channel' | 'dm'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
@@ -40,7 +48,7 @@ export interface Channel {
   lastMessage?: string
   lastMessageAt?: number
   unread?: number
-  mentions?: number  // @mention count for badge color differentiation
+  mentions?: number
 }
 
 export interface Contact {
@@ -71,7 +79,7 @@ export interface Message {
 }
 
 interface NostrState {
-  // Auth - store private key as hex string for JSON persistence
+  // Auth
   privateKeyHex: string | null
   publicKey: string | null
   nsec: string | null
@@ -108,7 +116,7 @@ interface NostrState {
 
   // Notifications
   notificationSettings: NotificationSettings
-  mutedChats: Record<string, number | null>  // chatId -> expiry ms (null = forever)
+  mutedChats: Record<string, number | null>
 
   // Drafts (session-only, not persisted)
   drafts: Record<string, string>
@@ -120,9 +128,9 @@ interface NostrState {
   getPrivateKey: () => Uint8Array | null
 
   // Actions
-  generateAndLogin: () => { nsec: string; npub: string }
-  loginFromNsec: (nsec: string) => boolean
-  loginFromHex: (hex: string) => boolean
+  generateAndLogin: () => Promise<{ nsec: string; npub: string }>
+  loginFromNsec: (nsec: string) => Promise<boolean>
+  loginFromHex: (hex: string) => Promise<boolean>
   logout: () => void
   updateProfile: (profile: Partial<NostrProfile>) => void
 
@@ -176,6 +184,73 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
+// Rehydrate existing user data from Dexie before completing login.
+// Returns the stored partialize state merged with default values,
+// so channels/contacts/settings are restored when the same user logs back in.
+async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState>> {
+  const db = getUserDb()
+  if (!db) return {}
+  try {
+    const record = await db.settings.get('nostr-chat-storage')
+    if (!record) return {}
+    const parsed = JSON.parse(record.value) as StorageValue<Partial<NostrState>>
+    const stored = parsed?.state ?? {}
+    // Only restore if the stored state belongs to this pubkey
+    if (stored.publicKey && stored.publicKey !== pubkey) return {}
+    return stored
+  } catch {
+    return {}
+  }
+}
+
+async function completeLogin(
+  sk: Uint8Array,
+  pk: string,
+  nsecStr: string,
+  set: (s: Partial<NostrState>) => void,
+  get: () => NostrState,
+): Promise<void> {
+  openUserDb(pk)
+  const existing = await loadExistingUserState(pk)
+  // Restore persisted user data, then override auth fields
+  if (existing.publicKey === pk) {
+    set(existing)
+  }
+  set({
+    privateKeyHex: bytesToHex(sk),
+    publicKey: pk,
+    nsec: nsecStr,
+    npub: encodePubkey(pk),
+    profile: get().profile?.pubkey === pk ? get().profile : (existing.profile ?? { pubkey: pk }),
+  })
+  setActivePubkey(pk)
+}
+
+// Custom Dexie-backed storage adapter for Zustand persist.
+// Routes all reads/writes through the currently open user DB.
+const dexieStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    const db = getUserDb()
+    if (!db) return null
+    try {
+      const record = await db.settings.get(name)
+      return record?.value ?? null
+    } catch {
+      return null
+    }
+  },
+  setItem: async (name: string, value: string): Promise<void> => {
+    const db = getUserDb()
+    if (!db) return
+    await db.settings.put({ key: name, value })
+  },
+  removeItem: async (name: string): Promise<void> => {
+    const db = getUserDb()
+    if (!db) return
+    await db.settings.delete(name)
+  },
+}
+
 export const useNostrStore = create<NostrState>()(
   persist(
     (set, get) => ({
@@ -208,54 +283,33 @@ export const useNostrStore = create<NostrState>()(
         return hex ? hexToBytes(hex) : null
       },
 
-      generateAndLogin: () => {
+      generateAndLogin: async () => {
         const sk = generateSecretKey()
         const pk = getPublicKey(sk)
         const nsec = encodeNsec(sk)
-        const npub = encodePubkey(pk)
-        set({
-          privateKeyHex: bytesToHex(sk),
-          publicKey: pk,
-          nsec,
-          npub,
-          profile: { pubkey: pk },
-        })
-        return { nsec, npub }
+        await completeLogin(sk, pk, nsec, set, get)
+        return { nsec, npub: encodePubkey(pk) }
       },
 
-      loginFromNsec: (nsecStr: string) => {
+      loginFromNsec: async (nsecStr: string) => {
         try {
           const decoded = nip19.decode(nsecStr)
           if (decoded.type !== 'nsec') return false
           const sk = decoded.data as Uint8Array
           const pk = getPublicKey(sk)
-          const npub = encodePubkey(pk)
-          set({
-            privateKeyHex: bytesToHex(sk),
-            publicKey: pk,
-            nsec: nsecStr,
-            npub,
-            profile: get().profile?.pubkey === pk ? get().profile : { pubkey: pk },
-          })
+          await completeLogin(sk, pk, nsecStr, set, get)
           return true
         } catch {
           return false
         }
       },
 
-      loginFromHex: (hex: string) => {
+      loginFromHex: async (hex: string) => {
         try {
           const sk = hexToBytes(hex.trim())
           const pk = getPublicKey(sk)
           const nsec = encodeNsec(sk)
-          const npub = encodePubkey(pk)
-          set({
-            privateKeyHex: hex.trim(),
-            publicKey: pk,
-            nsec,
-            npub,
-            profile: get().profile?.pubkey === pk ? get().profile : { pubkey: pk },
-          })
+          await completeLogin(sk, pk, nsec, set, get)
           return true
         } catch {
           return false
@@ -273,6 +327,8 @@ export const useNostrStore = create<NostrState>()(
           activeChatType: null,
           messages: {},
         })
+        closeUserDb()
+        clearActivePubkey()
       },
 
       updateProfile: (profileUpdate) => {
@@ -326,6 +382,22 @@ export const useNostrStore = create<NostrState>()(
       setActiveChat: (id, type) => {
         set({ activeChatId: id, activeChatType: type })
         get().markRead(id)
+        const db = getUserDb()
+        if (db) {
+          void db.messages
+            .where('[chatId+createdAt]')
+            .between([id, -Infinity], [id, Infinity])
+            .toArray()
+            .then(records => {
+              if (records.length === 0) return
+              const existing = get().messages[id] || []
+              const existingIds = new Set(existing.map(m => m.id))
+              const fresh = records.map(recordToMessage).filter(m => !existingIds.has(m.id))
+              if (fresh.length === 0) return
+              const merged = [...existing, ...fresh].sort((a, b) => a.createdAt - b.createdAt)
+              set({ messages: { ...get().messages, [id]: merged } })
+            })
+        }
       },
 
       clearActiveChat: () => {
@@ -337,6 +409,8 @@ export const useNostrStore = create<NostrState>()(
         if (existing.find(m => m.id === message.id)) return
         const sorted = [...existing, message].sort((a, b) => a.createdAt - b.createdAt)
         set({ messages: { ...get().messages, [chatId]: sorted } })
+        const db = getUserDb()
+        if (db) void db.messages.put(messageToRecord(chatId, message))
       },
 
       updateMessageStatus: (chatId, msgId, status) => {
@@ -372,7 +446,6 @@ export const useNostrStore = create<NostrState>()(
               }
             : c
         )
-        // Add if not exists
         if (!contacts.find(c => c.pubkey === pubkey)) {
           contacts.unshift({
             pubkey,
@@ -442,14 +515,11 @@ export const useNostrStore = create<NostrState>()(
     }),
     {
       name: 'nostr-chat-storage',
-      // nsec is intentionally excluded — it is derivable from privateKeyHex and
-      // storing both doubles the private key exposure footprint in localStorage.
+      storage: createJSONStorage(() => dexieStorage),
       onRehydrateStorage: () => (state) => {
         if (state?.privateKeyHex && !state.nsec) {
           state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
         }
-        // Fields added after initial release: default to true for existing users
-        // whose stored notificationSettings pre-dates these keys.
         if (state?.notificationSettings) {
           const ns = state.notificationSettings
           if (ns.callEnabled === undefined) ns.callEnabled = true

@@ -20,10 +20,10 @@ describe('LoginScreen', () => {
   it('generates a new account and shows the key display screen', async () => {
     render(<LoginScreen />)
     await userEvent.click(screen.getByText('Create New Account'))
-    expect(screen.getByText('Your New Keys')).toBeInTheDocument()
+    // generateAndLogin is async; wait for the re-render after state updates
+    expect(await screen.findByText('Your New Keys')).toBeInTheDocument()
     expect(screen.getByText(/Private Key/)).toBeInTheDocument()
     expect(screen.getByText(/Public Key/)).toBeInTheDocument()
-    // State should be set
     expect(useNostrStore.getState().publicKey).toBeTruthy()
   })
 
@@ -44,8 +44,7 @@ describe('LoginScreen', () => {
   })
 
   it('logs in successfully with a valid nsec', async () => {
-    // Generate a valid nsec first
-    const { nsec } = useNostrStore.getState().generateAndLogin()
+    const { nsec } = await useNostrStore.getState().generateAndLogin()
     useNostrStore.setState({ privateKeyHex: null, publicKey: null, nsec: null, npub: null })
 
     render(<LoginScreen />)

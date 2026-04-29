@@ -3,6 +3,7 @@ import {
   type ReactNode,
 } from 'react'
 import { subscribeEvents, publishEvent } from '../lib/nostr'
+import { getSetting } from '../lib/userDb'
 import { useNostrStore } from '../store/nostrStore'
 import { fireCallNotification } from '../lib/notifications'
 import {
@@ -115,12 +116,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const getUserMedia = useCallback(async (type: MediaType): Promise<MediaStream> => {
-    let audioId: string | undefined
-    let videoId: string | undefined
-    try {
-      audioId = localStorage.getItem('media_audio_device') || undefined
-      videoId = localStorage.getItem('media_video_device') || undefined
-    } catch {}
+    const [audioSetting, videoSetting] = await Promise.all([
+      getSetting<string>('media_audio_device', ''),
+      getSetting<string>('media_video_device', ''),
+    ])
+    const audioId = audioSetting || undefined
+    const videoId = videoSetting || undefined
     return navigator.mediaDevices.getUserMedia({
       audio: audioId ? { deviceId: { ideal: audioId } } : true,
       video: type === 'video'
@@ -220,7 +221,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     try {
       const type = mediaType
-      const iceServers = mergeIceServers(getIceServers(), offer.iceServers ?? [])
+      const iceServers = mergeIceServers(await getIceServers(), offer.iceServers ?? [])
       const stream = await getUserMedia(type)
       localStreamRef.current = stream
       setLocalStream(stream)
