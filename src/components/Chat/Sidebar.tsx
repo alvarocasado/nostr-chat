@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell } from 'lucide-react'
+import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
@@ -236,13 +236,14 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
 
 const MAX_SEARCH_RESULTS = 50
 
-type SidebarSection = 'search' | 'messages' | 'channels' | 'contacts'
+type SidebarSection = 'search' | 'messages' | 'channels' | 'contacts' | 'settings'
 
 const SECTION_LABELS: Record<SidebarSection, string> = {
   search: 'Search',
   messages: 'Messages',
   channels: 'Channels',
   contacts: 'Contacts',
+  settings: 'Settings',
 }
 
 function NavRailButton({
@@ -301,7 +302,8 @@ export function Sidebar() {
   const {
     publicKey, profile, channels, joinedChannelIds, contacts,
     activeChatId, activeChatType, messages, profiles,
-    setShowSettings, setShowAddChannel, setShowAddContact,
+    activeSettingsTab, setActiveSettingsTab,
+    setShowAddChannel, setShowAddContact,
     logout,
   } = useNostrStore()
 
@@ -312,11 +314,14 @@ export function Sidebar() {
   const toggleSection = (section: SidebarSection) => {
     setActiveSection(prev => {
       if (prev !== 'search' && section !== 'search') setSearchQuery('')
+      if (prev === section && section === 'settings') setActiveSettingsTab(null)
+      if (prev !== section && prev === 'settings') setActiveSettingsTab(null)
       return prev === section ? null : section
     })
   }
 
   const closePanel = () => {
+    if (activeSection === 'settings') setActiveSettingsTab(null)
     setActiveSection(null)
     setSearchQuery('')
   }
@@ -465,6 +470,34 @@ export function Sidebar() {
     messages: messagesSection,
     channels: channelsSection,
     contacts: contactsSection,
+    settings: (
+      <div className="flex flex-col h-full py-2 px-2">
+        {(
+          [
+            { tab: 'profile',       label: 'Profile',       icon: <User    size={16} /> },
+            { tab: 'relays',        label: 'Relays',        icon: <Wifi    size={16} /> },
+            { tab: 'keys',          label: 'Keys',          icon: <Key     size={16} /> },
+            { tab: 'calls',         label: 'Calls',         icon: <Phone   size={16} /> },
+            { tab: 'notifications', label: 'Notifications', icon: <Bell    size={16} /> },
+          ] as const
+        ).map(({ tab, label, icon }) => (
+          <button
+            key={tab}
+            onClick={() => setActiveSettingsTab(tab)}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm transition-colors ${
+              activeSettingsTab === tab
+                ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+                : 'text-gray-300 hover:bg-white/5 hover:text-white'
+            }`}
+          >
+            <span className={activeSettingsTab === tab ? 'text-purple-400' : 'text-gray-500'}>
+              {icon}
+            </span>
+            {label}
+          </button>
+        ))}
+      </div>
+    ),
   }
 
   // ── Profile footer (shared between desktop panel and mobile sheet) ──
@@ -509,7 +542,7 @@ export function Sidebar() {
 
           <div className="flex-1" />
 
-          <NavRailButton icon={<Settings size={18} />} label="Settings" onClick={() => setShowSettings(true)} />
+          <NavRailButton icon={<Settings size={18} />} label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />
 
           {/* User avatar */}
           <div className="my-1">
@@ -598,7 +631,7 @@ export function Sidebar() {
         <BottomNavButton icon={<MessageCircle size={20} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
         <BottomNavButton icon={<Hash size={20} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
         <BottomNavButton icon={<Users size={20} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
-        <BottomNavButton icon={<Settings size={20} />}      label="Settings"                                       onClick={() => setShowSettings(true)} />
+        <BottomNavButton icon={<Settings size={20} />}      label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />
       </div>
     </>
   )

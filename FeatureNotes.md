@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Settings as a first-class screen
+- Settings is no longer a modal; it opens in the main area as a full-width page
+- The Settings section in the sidebar shows a vertical menu: Profile · Relays · Keys · Calls · Notifications
+- Clicking a menu item opens that settings screen in the main area (replaces the chat view)
+- Closing the settings section panel (X or clicking the Settings rail icon again) returns the main area to chat
+- `IceFailureBanner` "Settings → Calls" link navigates directly to the Calls settings screen
+- Added `activeSettingsTab: SettingsTab | null` to the store; removed the modal-based `showSettings` flow from App.tsx
+
 ### Sidebar redesign — icon rail + collapsible sections
 - Replaced the single full-width sidebar with a narrow icon rail (56 px) whose icons open collapsible section panels
 - Icon rail order: Search · Messages · Channels · Contacts — spacer — Settings · Avatar · Logout

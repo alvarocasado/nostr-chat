@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
+import { Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { Avatar } from '../Chat/Avatar'
@@ -7,21 +7,21 @@ import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
 import { CallsTab } from './CallsTab'
 
-type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
-
-interface SettingsPanelProps {
-  onClose: () => void
-  initialTab?: SettingsTab
-  inline?: boolean
+const TAB_LABELS: Record<string, string> = {
+  profile: 'Profile',
+  relays: 'Relays',
+  keys: 'Keys',
+  calls: 'Calls',
+  notifications: 'Notifications',
 }
 
-export function SettingsPanel({ onClose, initialTab = 'profile', inline = false }: SettingsPanelProps) {
+export function SettingsScreen() {
   const {
     publicKey, npub, nsec, profile, relays,
+    activeSettingsTab,
     addRelay, removeRelay, updateProfile, getPrivateKey,
   } = useNostrStore()
 
-  const [tab, setTab] = useState<SettingsTab>(initialTab)
   const [newRelay, setNewRelay] = useState('')
   const [relayError, setRelayError] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -29,15 +29,14 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
   const [saved, setSaved] = useState(false)
   const [showQR, setShowQR] = useState(false)
 
-  const contactLink = npub
-    ? `${window.location.origin}${import.meta.env.BASE_URL}?contact=${npub}`
-    : ''
-
-  // Profile form state
   const [displayName, setDisplayName] = useState(profile?.display_name || profile?.name || '')
   const [about, setAbout] = useState(profile?.about || '')
   const [picture, setPicture] = useState(profile?.picture || '')
   const [nip05, setNip05] = useState(profile?.nip05 || '')
+
+  const contactLink = npub
+    ? `${window.location.origin}${import.meta.env.BASE_URL}?contact=${npub}`
+    : ''
 
   const copy = (text: string, key: string) => {
     navigator.clipboard.writeText(text)
@@ -49,25 +48,19 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
     setRelayError('')
     const url = newRelay.trim()
     if (!url) return
-
     let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
+    try { parsed = new URL(url) } catch {
       setRelayError('Invalid URL — must be a valid wss:// address')
       return
     }
-
     if (parsed.protocol !== 'wss:') {
       setRelayError('Only wss:// (secure WebSocket) relays are allowed')
       return
     }
-
     if (relays.includes(parsed.toString())) {
       setRelayError('Relay already added')
       return
     }
-
     addRelay(parsed.toString())
     setNewRelay('')
   }
@@ -82,33 +75,25 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
       await publishProfile(sk, { display_name: displayName, name: displayName, about, picture, nip05 }, relays)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
-    } catch {
-      // ignore publish errors
-    } finally {
-      setSaving(false)
-    }
+    } catch { /* ignore publish errors */ }
+    finally { setSaving(false) }
   }
 
-  const tabs = (
-    <div className={`flex gap-1 flex-shrink-0 overflow-x-auto scrollbar-none flex-wrap ${inline ? 'px-3 pt-3 pb-1' : 'px-6 pt-4'}`}>
-      {(['profile', 'relays', 'keys', 'calls', 'notifications'] as const).map(t => (
-        <button
-          key={t}
-          onClick={() => setTab(t)}
-          className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-colors flex-shrink-0 ${
-            tab === t ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          {t}
-        </button>
-      ))}
-    </div>
-  )
+  if (!activeSettingsTab) return null
 
-  const body = (
-    <div className={`flex-1 overflow-y-auto scrollbar-thin space-y-4 ${inline ? 'p-3' : 'p-6'}`}>
-          {/* Profile tab */}
-          {tab === 'profile' && (
+  return (
+    <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-800 bg-gray-900 flex-shrink-0">
+        <h1 className="text-lg font-semibold text-white">{TAB_LABELS[activeSettingsTab]}</h1>
+      </div>
+
+      {/* Content — centered, max readable width */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="max-w-lg mx-auto px-6 py-6 space-y-4">
+
+          {/* Profile */}
+          {activeSettingsTab === 'profile' && (
             <>
               <div className="flex items-center gap-4">
                 <Avatar
@@ -168,8 +153,8 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
             </>
           )}
 
-          {/* Relays tab */}
-          {tab === 'relays' && (
+          {/* Relays */}
+          {activeSettingsTab === 'relays' && (
             <>
               <p className="text-gray-400 text-sm">
                 Connected to {relays.length} relay{relays.length !== 1 ? 's' : ''}.
@@ -209,8 +194,8 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
             </>
           )}
 
-          {/* Keys tab */}
-          {tab === 'keys' && (
+          {/* Keys */}
+          {activeSettingsTab === 'keys' && (
             <div className="space-y-4">
               <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-xl p-4">
                 <p className="text-yellow-300 text-sm">
@@ -218,7 +203,6 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
                 </p>
               </div>
 
-              {/* QR Code share section */}
               <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
                 <button
                   onClick={() => setShowQR(v => !v)}
@@ -228,11 +212,8 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
                     <QrCode size={16} className="text-purple-400" />
                     Share Public Key via QR Code
                   </div>
-                  {showQR
-                    ? <ChevronUp size={16} className="text-gray-400" />
-                    : <ChevronDown size={16} className="text-gray-400" />}
+                  {showQR ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
                 </button>
-
                 {showQR && npub && (
                   <div className="px-4 pb-5 pt-1 border-t border-gray-700">
                     <p className="text-gray-400 text-xs mb-4 text-center">
@@ -246,7 +227,6 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
                 )}
               </div>
 
-              {/* Share contact link */}
               <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
                 <div className="flex items-center gap-2">
                   <Link size={16} className="text-purple-400 flex-shrink-0" />
@@ -255,47 +235,29 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
                 <p className="text-gray-400 text-xs">
                   Anyone who opens this link will be prompted to add you as a contact on NostrChat.
                 </p>
-
-                {/* Web link */}
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Web Link</p>
                   <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
                     <span className="flex-1 text-xs font-mono text-gray-300 truncate">{contactLink}</span>
-                    <button
-                      onClick={() => copy(contactLink, 'contactLink')}
-                      className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0"
-                      title="Copy link"
-                    >
+                    <button onClick={() => copy(contactLink, 'contactLink')} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0" title="Copy link">
                       {copied === 'contactLink' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
                     </button>
                   </div>
                 </div>
-
-                {/* Nostr URI */}
                 <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Nostr URI</p>
                   <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
                     <span className="flex-1 text-xs font-mono text-gray-300 truncate">nostr:{npub}</span>
-                    <button
-                      onClick={() => copy(`nostr:${npub}`, 'nostrUri')}
-                      className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0"
-                      title="Copy Nostr URI"
-                    >
+                    <button onClick={() => copy(`nostr:${npub}`, 'nostrUri')} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0" title="Copy Nostr URI">
                       {copied === 'nostrUri' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
                     </button>
                   </div>
                 </div>
-
-                {/* Web Share API */}
                 {typeof navigator !== 'undefined' && !!navigator.share && (
                   <button
                     onClick={async () => {
                       try {
-                        await navigator.share({
-                          title: 'Add me on NostrChat',
-                          text: `Add me on NostrChat (nostr:${npub})`,
-                          url: contactLink,
-                        })
+                        await navigator.share({ title: 'Add me on NostrChat', text: `Add me on NostrChat (nostr:${npub})`, url: contactLink })
                       } catch { /* user cancelled */ }
                     }}
                     className="w-full flex items-center justify-center gap-2 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-sm font-semibold rounded-xl transition-colors"
@@ -306,59 +268,19 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
                 )}
               </div>
 
-              <KeyRow
-                label="Public Key (npub)"
-                value={npub || ''}
-                icon={<User size={16} className="text-purple-400" />}
-                onCopy={() => copy(npub || '', 'npub')}
-                copied={copied === 'npub'}
-              />
-              <KeyRow
-                label="Public Key (hex)"
-                value={publicKey || ''}
-                icon={<User size={16} className="text-purple-400" />}
-                onCopy={() => copy(publicKey || '', 'pkHex')}
-                copied={copied === 'pkHex'}
-              />
-              <KeyRow
-                label="Private Key (nsec) — Keep Secret!"
-                value={nsec || ''}
-                icon={<Key size={16} className="text-red-400" />}
-                onCopy={() => copy(nsec || '', 'nsec')}
-                copied={copied === 'nsec'}
-                secret
-              />
+              <KeyRow label="Public Key (npub)" value={npub || ''} icon={<User size={16} className="text-purple-400" />} onCopy={() => copy(npub || '', 'npub')} copied={copied === 'npub'} />
+              <KeyRow label="Public Key (hex)" value={publicKey || ''} icon={<User size={16} className="text-purple-400" />} onCopy={() => copy(publicKey || '', 'pkHex')} copied={copied === 'pkHex'} />
+              <KeyRow label="Private Key (nsec) — Keep Secret!" value={nsec || ''} icon={<Key size={16} className="text-red-400" />} onCopy={() => copy(nsec || '', 'nsec')} copied={copied === 'nsec'} secret />
             </div>
           )}
 
-          {/* Calls tab */}
-          {tab === 'calls' && <CallsTab />}
+          {/* Calls */}
+          {activeSettingsTab === 'calls' && <CallsTab />}
 
-          {/* Notifications tab */}
-          {tab === 'notifications' && <NotificationsTab />}
+          {/* Notifications */}
+          {activeSettingsTab === 'notifications' && <NotificationsTab />}
+
         </div>
-  )
-
-  if (inline) {
-    return (
-      <div className="flex flex-col h-full">
-        {tabs}
-        {body}
-      </div>
-    )
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="bg-gray-900 border-t sm:border border-gray-700 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg shadow-2xl max-h-[92dvh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 flex-shrink-0">
-          <h2 className="text-lg font-semibold text-white">Settings</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-        {tabs}
-        {body}
       </div>
     </div>
   )
@@ -375,9 +297,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function KeyRow({
-  label, value, icon, onCopy, copied, secret = false,
-}: {
+function KeyRow({ label, value, icon, onCopy, copied, secret = false }: {
   label: string
   value: string
   icon: React.ReactNode
@@ -386,7 +306,6 @@ function KeyRow({
   secret?: boolean
 }) {
   const [show, setShow] = useState(false)
-
   return (
     <div>
       <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -397,10 +316,7 @@ function KeyRow({
           {secret && !show ? '•'.repeat(40) : value}
         </span>
         {secret && (
-          <button
-            onClick={() => setShow(!show)}
-            className="text-gray-400 hover:text-white transition-colors text-xs"
-          >
+          <button onClick={() => setShow(!show)} className="text-gray-400 hover:text-white transition-colors text-xs">
             {show ? 'Hide' : 'Show'}
           </button>
         )}
