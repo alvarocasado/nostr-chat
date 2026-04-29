@@ -1,5 +1,12 @@
 # Release Notes
 
+## 1.0.0-alpha.8.1 — 2026-04-29
+
+### Bug Fixes
+- After opening settings, cannot open later messages or other actions outside settings
+
+---
+
 ## 1.0.0-alpha.8 — 2026-04-29
 
 ### Features
