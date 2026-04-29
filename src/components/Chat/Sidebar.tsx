@@ -326,10 +326,14 @@ export function Sidebar() {
     })
   }
 
-  const closePanel = () => {
-    if (activeSection === 'settings') setActiveSettingsTab(null)
+  const closePanelOnly = () => {
     setActiveSection(null)
     setSearchQuery('')
+  }
+
+  const closePanel = () => {
+    if (activeSection === 'settings') setActiveSettingsTab(null)
+    closePanelOnly()
   }
 
   const searchResults = useMemo<SearchResult[]>(() => {
@@ -489,7 +493,7 @@ export function Sidebar() {
         ).map(({ tab, label, icon }) => (
           <button
             key={tab}
-            onClick={() => setActiveSettingsTab(tab)}
+            onClick={() => { setActiveSettingsTab(tab); closePanelOnly() }}
             className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm transition-colors ${
               activeSettingsTab === tab
                 ? 'bg-purple-600/20 border border-purple-500/30 text-white'
