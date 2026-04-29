@@ -213,7 +213,7 @@ export function CallsTab() {
         lsDel(LS.TURN_CONFIG)
         lsSet(LS.TURN_MODE, 'none')
       } else if (mode === 'metered') {
-        const sub = meteredSubdomain.trim()
+        const sub = meteredSubdomain.trim().replace(/\.metered\.live$/i, '')
         const key = meteredApiKey.trim()
         if (!sub || !key) { setSaveError('Subdomain and API key are required.'); return }
 

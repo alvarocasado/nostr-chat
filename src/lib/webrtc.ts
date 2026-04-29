@@ -96,9 +96,10 @@ export async function fetchCallIceServers(): Promise<RTCIceServer[]> {
     if (!raw) return getIceServers()
     const { subdomain, apiKey } = JSON.parse(raw) as { subdomain: string; apiKey: string }
     if (!subdomain || !apiKey) return getIceServers()
+    const cleanSubdomain = subdomain.replace(/\.metered\.live$/i, '')
 
     const res = await fetch(
-      `https://${encodeURIComponent(subdomain)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`
+      `https://${encodeURIComponent(cleanSubdomain)}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`
     )
     if (!res.ok) return getIceServers()
     const servers = await res.json() as RTCIceServer[]
