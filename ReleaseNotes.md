@@ -1,5 +1,37 @@
 # Release Notes
 
+## 1.0.0-alpha.7 — 2026-04-29
+
+### Features
+
+#### Sidebar Redesign — Icon Rail + Collapsible Sections
+- Replaced the single full-width sidebar with a narrow 56 px icon rail whose icons open collapsible section panels
+- Icon rail order: Search · Messages · Channels · Contacts — spacer — Settings · Avatar · Logout
+- Clicking the active icon collapses its panel; selecting a chat auto-collapses the panel on mobile
+- Section panel slides in next to the rail on desktop (300 ms ease-in-out); panel replaces the rail on mobile
+- Mobile: fixed bottom nav bar (Search / Messages / Channels / Contacts / Settings) replaces the previous hamburger drawer; tapping an icon slides up a sheet from above the nav bar; profile + logout live in the sheet footer
+- Removed the mobile "Open Menu" top bar and the hamburger button from the empty-chat state
+
+#### Settings as a First-Class Screen
+- Settings is no longer a modal; it opens in the main area as a full-width page
+- The Settings section in the sidebar shows a vertical menu: Profile · Relays · Keys · Calls · Notifications
+- Clicking a menu item opens that settings screen in the main area, replacing the chat view
+- `IceFailureBanner` "Settings → Calls" link navigates directly to the Calls settings screen
+
+#### Profile Card on Avatar Tap
+- Tapping any avatar (message list, DM header, contact list) opens a modal profile card
+- Card shows: avatar, display name, NIP-05 identifier, about text, copyable public key (npub)
+- "Send Message" button adds the contact and navigates to their DM; hidden when viewing your own profile
+- Backdrop click or X button closes the card
+
+#### TURN Server Sharing via Encrypted Call Offer
+- The caller fetches fresh time-scoped TURN credentials at call-initiation time and includes them in the encrypted `call-offer` Nostr signal
+- The callee merges the caller's ICE servers with their own when creating the `RTCPeerConnection`, so both parties can relay through the caller's TURN server for that call
+- Credentials are NIP-04 encrypted in transit and expire automatically; no extra revocation needed
+- Custom and "none" TURN modes are unaffected — their ICE config continues to come from the local cache
+
+---
+
 ## 1.0.0-alpha.6.1 — 2026-04-27
 
 ### Bug Fixes
