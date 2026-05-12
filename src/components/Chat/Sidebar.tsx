@@ -164,7 +164,7 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
         }`}
       >
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-          isActive ? 'bg-purple-600' : 'bg-gray-800'
+          isActive ? 'bg-gradient-to-br from-violet-500 to-purple-700' : 'bg-gray-800'
         }`}>
           <Hash size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
         </div>
