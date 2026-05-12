@@ -415,7 +415,7 @@ function MessageInput({
             </button>
           ) : isLimited ? (
             <div
-              className="w-10 h-10 bg-amber-600/30 border border-amber-600/50 rounded-xl flex items-center justify-center flex-shrink-0"
+              className="w-10 h-10 bg-amber-600/30 border border-amber-600/50 rounded-full flex items-center justify-center flex-shrink-0"
               title={`Slow down — wait ${cooldownSec}s`}
             >
               <span className="text-amber-400 text-xs font-bold tabular-nums">{cooldownSec}s</span>
