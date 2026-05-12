@@ -1,5 +1,39 @@
 # Release Notes
 
+## 1.0.0-alpha.9 — 2026-05-11
+
+### Features
+
+#### Cross-Device Sync via Nostr Relays
+Contacts, joined channels, and settings are now stored on the user's own relays and automatically synced across devices — no external service required.
+- **Contacts** (NIP-02, kind 3) — contact list published as a replaceable event; merged additively on login
+- **Joined channels** (NIP-51, kind 30001) — list of joined channel IDs; merged additively on login
+- **Settings** (NIP-78, kind 30078) — notification preferences, muted chats, and relay list; NIP-04 encrypted to the user's own public key; applied on login if the relay event is strictly newer than the last known sync
+- On login all three are fetched in parallel via `syncFromRelays()`; login is never blocked by the sync
+- Mutations debounced at 1.5 s before republishing to avoid relay floods
+- Settings conflicts resolved by `syncedSettingsAt` timestamp: relay settings only overwrite local when newer
+
+#### Relay Connection Health
+Live per-relay connection status, visible without leaving the app.
+- **Settings → Relays tab** — each relay row shows a colored dot (green = connected, pulsing gray = connecting, red = disconnected) and an `ok` / `…` / `error` label; header updates to "X / N relays connected"
+- **Sidebar Settings menu** — Relays item shows a live `connected/total` count badge, highlighted amber when any relay is unreachable
+- **Desktop nav rail** — small amber dot on the Settings icon when one or more relays are down; disappears when Settings is open or all relays recover
+- Powered by `useRelayHealth` hook: calls `pool.ensureRelay()` on mount then polls `pool.listConnectionStatus()` every 5 seconds
+
+#### Smart Auto-Scroll
+The message list no longer interrupts reading history when new messages arrive.
+- A scroll listener tracks whether the bottom of the list is within 120 px of the viewport
+- Incoming messages only trigger a scroll-to-bottom when the view is already near the bottom
+- Initial open still scrolls to the "New messages" divider (if present) or the bottom
+
+### Bug Fixes
+- **Chunked file transfer message ID collision** — completed transfers were stored with ID `transfer-${senderPubkey}-${createdAt}`, which could collide when the same sender transferred two files within the same second; ID is now `transfer-${transferId}` (128-bit cryptographically random hex)
+
+### Testing
+- Added 22 unit tests covering previously untested store actions: `updateMessageStatus`, `markRead`, `setProfile`, `updateContactLastMessage`, `updateChannelLastMessage`, `muteChatUntil`, `unmuteChat`, `setDraft`, `clearDraft`, `updateSeenAt`, `loginFromHex`; suite grows from 127 to 149 tests
+
+---
+
 ## 1.0.0-alpha.8.1 — 2026-04-29
 
 ### Bug Fixes
