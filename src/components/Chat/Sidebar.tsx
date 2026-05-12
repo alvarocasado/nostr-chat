@@ -159,7 +159,7 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
         onClick={handleClick}
         className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
           isActive
-            ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+            ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
             : 'hover:bg-white/5 text-gray-300 hover:text-white'
         }`}
       >
@@ -208,7 +208,7 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { setActiveChat(contact.pubkey, 'dm'); onSelect() } }}
         className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left cursor-pointer ${
           isActive
-            ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+            ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
             : 'hover:bg-white/5 text-gray-300 hover:text-white'
         }`}
       >
@@ -269,10 +269,10 @@ function NavRailButton({
       aria-label={label}
       className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
         active
-          ? 'bg-purple-600 text-white'
+          ? 'bg-gradient-to-br from-violet-500/20 to-purple-700/20 text-white border border-violet-500/40 shadow-[0_0_8px_rgba(124,58,237,0.15)]'
           : danger
           ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'
-          : 'text-gray-500 hover:text-white hover:bg-white/10'
+          : 'text-gray-500 hover:text-white hover:bg-white/[0.08]'
       }`}
     >
       {icon}
@@ -501,7 +501,7 @@ export function Sidebar() {
             onClick={() => { setActiveSettingsTab(tab); closePanelOnly() }}
             className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm transition-colors ${
               activeSettingsTab === tab
-                ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+                ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
                 : 'text-gray-300 hover:bg-white/5 hover:text-white'
             }`}
           >
@@ -553,7 +553,7 @@ export function Sidebar() {
         {/* Icon rail */}
         <div className="w-14 flex flex-col items-center py-3 gap-1 bg-gray-900 border-r border-gray-800 flex-shrink-0">
           {/* Logo */}
-          <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center mb-3 flex-shrink-0">
+          <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center mb-3 flex-shrink-0 shadow-[0_2px_10px_rgba(124,58,237,0.35)]">
             <Zap size={18} className="text-white" />
           </div>
 
