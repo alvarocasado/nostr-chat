@@ -293,7 +293,11 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
     <div ref={rowRef} className="flex items-end gap-2 group">
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
-          <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" onClick={() => setViewingProfilePubkey(message.pubkey)} />
+          <div className="p-[1.5px] bg-gradient-to-br from-violet-500 to-cyan-400 rounded-full">
+            <div className="bg-gray-950 rounded-full">
+              <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" onClick={() => setViewingProfilePubkey(message.pubkey)} />
+            </div>
+          </div>
         )}
       </div>
       <div className="flex flex-col gap-1 max-w-[75%]">
@@ -304,7 +308,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           {swipeReplyIcon}
           <div
             style={bubbleSwipeStyle}
-            className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
+            className="bg-[#13131f] border border-[#1e1e30] rounded-[18px] rounded-bl-[4px] px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
