@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { X, Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
+import { X, Plus, Trash2, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
 import { CallsTab } from './CallsTab'
+import { useRelayHealth, type RelayStatus } from '../../hooks/useRelayHealth'
 
 type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
 
@@ -170,43 +171,15 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
 
           {/* Relays tab */}
           {tab === 'relays' && (
-            <>
-              <p className="text-gray-400 text-sm">
-                Connected to {relays.length} relay{relays.length !== 1 ? 's' : ''}.
-              </p>
-
-              <div className="flex gap-2">
-                <input
-                  value={newRelay}
-                  onChange={e => { setNewRelay(e.target.value); setRelayError('') }}
-                  placeholder="wss://relay.example.com"
-                  className="flex-1 bg-gray-800 border border-gray-700 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 text-sm font-mono outline-none transition-colors"
-                  onKeyDown={e => e.key === 'Enter' && addRelayHandler()}
-                />
-                <button
-                  onClick={addRelayHandler}
-                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors"
-                >
-                  <Plus size={18} />
-                </button>
-              </div>
-              {relayError && <p className="text-red-400 text-xs">{relayError}</p>}
-
-              <div className="space-y-2">
-                {relays.map(relay => (
-                  <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
-                    <Wifi size={16} className="text-green-400 flex-shrink-0" />
-                    <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
-                    <button
-                      onClick={() => removeRelay(relay)}
-                      className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-red-500/10"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </>
+            <RelaysTab
+              relays={relays}
+              newRelay={newRelay}
+              setNewRelay={setNewRelay}
+              relayError={relayError}
+              setRelayError={setRelayError}
+              addRelayHandler={addRelayHandler}
+              removeRelay={removeRelay}
+            />
           )}
 
           {/* Keys tab */}
@@ -361,6 +334,76 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
         {body}
       </div>
     </div>
+  )
+}
+
+function RelayStatusDot({ status }: { status: RelayStatus }) {
+  if (status === 'connected') {
+    return <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="Connected" />
+  }
+  if (status === 'disconnected') {
+    return <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" title="Disconnected" />
+  }
+  return <span className="w-2 h-2 rounded-full bg-gray-500 animate-pulse flex-shrink-0" title="Connecting…" />
+}
+
+function RelaysTab({
+  relays, newRelay, setNewRelay, relayError, setRelayError, addRelayHandler, removeRelay,
+}: {
+  relays: string[]
+  newRelay: string
+  setNewRelay: (v: string) => void
+  relayError: string
+  setRelayError: (v: string) => void
+  addRelayHandler: () => void
+  removeRelay: (url: string) => void
+}) {
+  const health = useRelayHealth(relays)
+  const connected = Object.values(health).filter(s => s === 'connected').length
+
+  return (
+    <>
+      <p className="text-gray-400 text-sm">
+        {relays.length === 0
+          ? 'No relays configured.'
+          : `${connected} / ${relays.length} relay${relays.length !== 1 ? 's' : ''} connected.`}
+      </p>
+
+      <div className="flex gap-2">
+        <input
+          value={newRelay}
+          onChange={e => { setNewRelay(e.target.value); setRelayError('') }}
+          placeholder="wss://relay.example.com"
+          className="flex-1 bg-gray-800 border border-gray-700 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 text-sm font-mono outline-none transition-colors"
+          onKeyDown={e => e.key === 'Enter' && addRelayHandler()}
+        />
+        <button
+          onClick={addRelayHandler}
+          className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors"
+        >
+          <Plus size={18} />
+        </button>
+      </div>
+      {relayError && <p className="text-red-400 text-xs">{relayError}</p>}
+
+      <div className="space-y-2">
+        {relays.map(relay => (
+          <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
+            <RelayStatusDot status={health[relay] ?? 'pending'} />
+            <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
+            <span className="text-xs text-gray-500 flex-shrink-0 mr-1">
+              {health[relay] === 'connected' ? 'ok' : health[relay] === 'disconnected' ? 'error' : '…'}
+            </span>
+            <button
+              onClick={() => removeRelay(relay)}
+              className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-red-500/10"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 
