@@ -572,8 +572,10 @@ export function Sidebar() {
           </div>
 
           {/* User avatar */}
-          <div className="my-1">
-            <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
+          <div className="my-1 p-[1.5px] bg-gradient-to-br from-violet-500 to-cyan-400 rounded-full flex-shrink-0">
+            <div className="bg-gray-900 rounded-full">
+              <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
+            </div>
           </div>
 
           <NavRailButton icon={<LogOut size={18} />} label="Logout" danger onClick={logout} />
