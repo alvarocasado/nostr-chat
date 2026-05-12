@@ -4,6 +4,7 @@ import { useNostrStore, type Channel, type Contact, type Message, type ChatType 
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
 import { formatDistanceToNowStrict } from 'date-fns'
+import { useRelayHealth, aggregateRelayHealth } from '../../hooks/useRelayHealth'
 
 function formatTime(ts?: number) {
   if (!ts) return ''
@@ -310,8 +311,12 @@ export function Sidebar() {
     activeChatId, activeChatType, messages, profiles,
     activeSettingsTab, setActiveSettingsTab,
     setShowAddChannel, setShowAddContact,
-    logout,
+    logout, relays,
   } = useNostrStore()
+
+  const relayHealth = useRelayHealth(relays)
+  const { connected: relaysConnected, total: relaysTotal } = aggregateRelayHealth(relayHealth)
+  const relaysDegraded = relaysTotal > 0 && relaysConnected < relaysTotal
 
   const myProfile = profile || profiles[publicKey || '']
   const myName = publicKey ? getDisplayName(myProfile, publicKey) : 'You'
@@ -484,13 +489,13 @@ export function Sidebar() {
       <div className="flex flex-col h-full py-2 px-2">
         {(
           [
-            { tab: 'profile',       label: 'Profile',       icon: <User    size={16} /> },
-            { tab: 'relays',        label: 'Relays',        icon: <Wifi    size={16} /> },
-            { tab: 'keys',          label: 'Keys',          icon: <Key     size={16} /> },
-            { tab: 'calls',         label: 'Calls',         icon: <Phone   size={16} /> },
-            { tab: 'notifications', label: 'Notifications', icon: <Bell    size={16} /> },
+            { tab: 'profile',       label: 'Profile',       icon: <User  size={16} />, badge: null },
+            { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysTotal > 0 ? `${relaysConnected}/${relaysTotal}` : null },
+            { tab: 'keys',          label: 'Keys',          icon: <Key   size={16} />, badge: null },
+            { tab: 'calls',         label: 'Calls',         icon: <Phone size={16} />, badge: null },
+            { tab: 'notifications', label: 'Notifications', icon: <Bell  size={16} />, badge: null },
           ] as const
-        ).map(({ tab, label, icon }) => (
+        ).map(({ tab, label, icon, badge }) => (
           <button
             key={tab}
             onClick={() => { setActiveSettingsTab(tab); closePanelOnly() }}
@@ -503,7 +508,14 @@ export function Sidebar() {
             <span className={activeSettingsTab === tab ? 'text-purple-400' : 'text-gray-500'}>
               {icon}
             </span>
-            {label}
+            <span className="flex-1">{label}</span>
+            {badge !== null && (
+              <span className={`text-xs font-mono tabular-nums ${
+                relaysDegraded && tab === 'relays' ? 'text-amber-400' : 'text-gray-500'
+              }`}>
+                {badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -552,7 +564,12 @@ export function Sidebar() {
 
           <div className="flex-1" />
 
-          <NavRailButton icon={<Settings size={18} />} label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />
+          <div className="relative">
+            <NavRailButton icon={<Settings size={18} />} label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />
+            {relaysDegraded && activeSection !== 'settings' && (
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-400 pointer-events-none" />
+            )}
+          </div>
 
           {/* User avatar */}
           <div className="my-1">

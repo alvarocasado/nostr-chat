@@ -10,6 +10,13 @@ import {
   clearActivePubkey,
 } from '../lib/userDb'
 import { messageToRecord, recordToMessage } from '../lib/db'
+import {
+  syncFromRelays,
+  publishContactList,
+  publishChannelBookmarks,
+  publishAppSettings,
+  debounce,
+} from '../lib/nostrSync'
 
 export type ChatType = 'channel' | 'dm'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
@@ -124,6 +131,9 @@ interface NostrState {
   // Seen-at timestamps for unread divider (persisted)
   seenAt: Record<string, number>
 
+  // Relay sync: created_at of the last kind-30078 settings event we received or published
+  syncedSettingsAt: number | null
+
   // Derived helper
   getPrivateKey: () => Uint8Array | null
 
@@ -185,8 +195,6 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 // Rehydrate existing user data from Dexie before completing login.
-// Returns the stored partialize state merged with default values,
-// so channels/contacts/settings are restored when the same user logs back in.
 async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState>> {
   const db = getUserDb()
   if (!db) return {}
@@ -195,7 +203,6 @@ async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState
     if (!record) return {}
     const parsed = JSON.parse(record.value) as StorageValue<Partial<NostrState>>
     const stored = parsed?.state ?? {}
-    // Only restore if the stored state belongs to this pubkey
     if (stored.publicKey && stored.publicKey !== pubkey) return {}
     return stored
   } catch {
@@ -212,7 +219,6 @@ async function completeLogin(
 ): Promise<void> {
   openUserDb(pk)
   const existing = await loadExistingUserState(pk)
-  // Restore persisted user data, then override auth fields
   if (existing.publicKey === pk) {
     set(existing)
   }
@@ -224,10 +230,48 @@ async function completeLogin(
     profile: get().profile?.pubkey === pk ? get().profile : (existing.profile ?? { pubkey: pk }),
   })
   setActivePubkey(pk)
+
+  // Relay sync runs in background — never blocks login
+  const relays = get().relays
+  syncFromRelays(sk, pk, relays).then(result => {
+    // Contacts: additive merge — relay contacts added to local, never removed here
+    if (result.contacts) {
+      const current = get().contacts
+      const localSet = new Set(current.map(c => c.pubkey))
+      const incoming = result.contacts.pubkeys
+        .filter(p => !localSet.has(p))
+        .map(p => ({ pubkey: p }))
+      if (incoming.length > 0) {
+        set({ contacts: [...current, ...incoming] })
+      }
+    }
+
+    // Joined channels: additive merge
+    if (result.channels) {
+      const localSet = new Set(get().joinedChannelIds)
+      const incoming = result.channels.channelIds.filter(id => !localSet.has(id))
+      if (incoming.length > 0) {
+        set({ joinedChannelIds: [...get().joinedChannelIds, ...incoming] })
+      }
+    }
+
+    // Settings: apply only when the relay event is newer than the last one we synced
+    if (result.settings) {
+      const lastSynced = get().syncedSettingsAt
+      if (!lastSynced || result.settings.createdAt > lastSynced) {
+        const s = result.settings.settings
+        set({
+          ...(s.notificationSettings !== undefined ? { notificationSettings: s.notificationSettings } : {}),
+          ...(s.mutedChats !== undefined ? { mutedChats: s.mutedChats } : {}),
+          ...(s.relays !== undefined ? { relays: s.relays } : {}),
+          syncedSettingsAt: result.settings.createdAt,
+        })
+      }
+    }
+  }).catch(() => {}) // non-fatal
 }
 
 // Custom Dexie-backed storage adapter for Zustand persist.
-// Routes all reads/writes through the currently open user DB.
 const dexieStorage = {
   getItem: async (name: string): Promise<string | null> => {
     const db = getUserDb()
@@ -253,266 +297,309 @@ const dexieStorage = {
 
 export const useNostrStore = create<NostrState>()(
   persist(
-    (set, get) => ({
-      privateKeyHex: null,
-      publicKey: null,
-      nsec: null,
-      npub: null,
-      profile: null,
-      relays: DEFAULT_RELAYS,
-      channels: [],
-      joinedChannelIds: [],
-      contacts: [],
-      activeChatId: null,
-      activeChatType: null,
-      messages: {},
-      profiles: {},
-      sidebarTab: 'channels',
-      showSettings: false,
-      activeSettingsTab: null,
-      showAddChannel: false,
-      showAddContact: false,
-      viewingProfilePubkey: null,
-      notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
-      mutedChats: {},
-      drafts: {},
-      seenAt: {},
+    (set, get) => {
+      // Debounced relay publish helpers — read fresh state at publish time
+      const scheduleContactsSync = () => {
+        debounce('contacts', () => {
+          const { contacts, relays, getPrivateKey } = get()
+          const sk = getPrivateKey()
+          if (sk) void publishContactList(sk, contacts, relays).catch(() => {})
+        })
+      }
 
-      getPrivateKey: () => {
-        const hex = get().privateKeyHex
-        return hex ? hexToBytes(hex) : null
-      },
+      const scheduleChannelsSync = () => {
+        debounce('channels', () => {
+          const { joinedChannelIds, relays, getPrivateKey } = get()
+          const sk = getPrivateKey()
+          if (sk) void publishChannelBookmarks(sk, joinedChannelIds, relays).catch(() => {})
+        })
+      }
 
-      generateAndLogin: async () => {
-        const sk = generateSecretKey()
-        const pk = getPublicKey(sk)
-        const nsec = encodeNsec(sk)
-        await completeLogin(sk, pk, nsec, set, get)
-        return { nsec, npub: encodePubkey(pk) }
-      },
+      const scheduleSettingsSync = () => {
+        debounce('settings', () => {
+          const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey } = get()
+          const sk = getPrivateKey()
+          if (!sk || !publicKey) return
+          const now = Math.floor(Date.now() / 1000)
+          void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays }, relays)
+            .then(() => set({ syncedSettingsAt: now }))
+            .catch(() => {})
+        })
+      }
 
-      loginFromNsec: async (nsecStr: string) => {
-        try {
-          const decoded = nip19.decode(nsecStr)
-          if (decoded.type !== 'nsec') return false
-          const sk = decoded.data as Uint8Array
-          const pk = getPublicKey(sk)
-          await completeLogin(sk, pk, nsecStr, set, get)
-          return true
-        } catch {
-          return false
-        }
-      },
+      return {
+        privateKeyHex: null,
+        publicKey: null,
+        nsec: null,
+        npub: null,
+        profile: null,
+        relays: DEFAULT_RELAYS,
+        channels: [],
+        joinedChannelIds: [],
+        contacts: [],
+        activeChatId: null,
+        activeChatType: null,
+        messages: {},
+        profiles: {},
+        sidebarTab: 'channels',
+        showSettings: false,
+        activeSettingsTab: null,
+        showAddChannel: false,
+        showAddContact: false,
+        viewingProfilePubkey: null,
+        notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
+        mutedChats: {},
+        drafts: {},
+        seenAt: {},
+        syncedSettingsAt: null,
 
-      loginFromHex: async (hex: string) => {
-        try {
-          const sk = hexToBytes(hex.trim())
+        getPrivateKey: () => {
+          const hex = get().privateKeyHex
+          return hex ? hexToBytes(hex) : null
+        },
+
+        generateAndLogin: async () => {
+          const sk = generateSecretKey()
           const pk = getPublicKey(sk)
           const nsec = encodeNsec(sk)
           await completeLogin(sk, pk, nsec, set, get)
-          return true
-        } catch {
-          return false
-        }
-      },
+          return { nsec, npub: encodePubkey(pk) }
+        },
 
-      logout: () => {
-        set({
-          privateKeyHex: null,
-          publicKey: null,
-          nsec: null,
-          npub: null,
-          profile: null,
-          activeChatId: null,
-          activeChatType: null,
-          messages: {},
-        })
-        closeUserDb()
-        clearActivePubkey()
-      },
-
-      updateProfile: (profileUpdate) => {
-        const current = get().profile || { pubkey: get().publicKey || '' }
-        set({ profile: { ...current, ...profileUpdate } })
-      },
-
-      addRelay: (url) => {
-        const relays = get().relays
-        if (!relays.includes(url)) {
-          set({ relays: [...relays, url] })
-        }
-      },
-
-      removeRelay: (url) => {
-        set({ relays: get().relays.filter(r => r !== url) })
-      },
-
-      addChannel: (channel) => {
-        const existing = get().channels.find(c => c.id === channel.id)
-        if (!existing) {
-          set({ channels: [channel, ...get().channels] })
-        }
-      },
-
-      joinChannel: (id) => {
-        const joined = get().joinedChannelIds
-        if (!joined.includes(id)) {
-          set({ joinedChannelIds: [...joined, id] })
-        }
-      },
-
-      leaveChannel: (id) => {
-        set({
-          joinedChannelIds: get().joinedChannelIds.filter(i => i !== id),
-          activeChatId: get().activeChatId === id ? null : get().activeChatId,
-        })
-      },
-
-      addContact: (pubkey) => {
-        const existing = get().contacts.find(c => c.pubkey === pubkey)
-        if (!existing) {
-          set({ contacts: [{ pubkey }, ...get().contacts] })
-        }
-      },
-
-      removeContact: (pubkey) => {
-        set({ contacts: get().contacts.filter(c => c.pubkey !== pubkey) })
-      },
-
-      setActiveChat: (id, type) => {
-        set({ activeChatId: id, activeChatType: type })
-        get().markRead(id)
-        const db = getUserDb()
-        if (db) {
-          void db.messages
-            .where('[chatId+createdAt]')
-            .between([id, -Infinity], [id, Infinity])
-            .toArray()
-            .then(records => {
-              if (records.length === 0) return
-              const existing = get().messages[id] || []
-              const existingIds = new Set(existing.map(m => m.id))
-              const fresh = records.map(recordToMessage).filter(m => !existingIds.has(m.id))
-              if (fresh.length === 0) return
-              const merged = [...existing, ...fresh].sort((a, b) => a.createdAt - b.createdAt)
-              set({ messages: { ...get().messages, [id]: merged } })
-            })
-        }
-      },
-
-      clearActiveChat: () => {
-        set({ activeChatId: null, activeChatType: null })
-      },
-
-      addMessage: (chatId, message) => {
-        const existing = get().messages[chatId] || []
-        if (existing.find(m => m.id === message.id)) return
-        const sorted = [...existing, message].sort((a, b) => a.createdAt - b.createdAt)
-        set({ messages: { ...get().messages, [chatId]: sorted } })
-        const db = getUserDb()
-        if (db) void db.messages.put(messageToRecord(chatId, message))
-      },
-
-      updateMessageStatus: (chatId, msgId, status) => {
-        const msgs = get().messages[chatId]
-        if (!msgs) return
-        set({
-          messages: {
-            ...get().messages,
-            [chatId]: msgs.map(m => m.id === msgId ? { ...m, status } : m),
+        loginFromNsec: async (nsecStr: string) => {
+          try {
+            const decoded = nip19.decode(nsecStr)
+            if (decoded.type !== 'nsec') return false
+            const sk = decoded.data as Uint8Array
+            const pk = getPublicKey(sk)
+            await completeLogin(sk, pk, nsecStr, set, get)
+            return true
+          } catch {
+            return false
           }
-        })
-      },
+        },
 
-      markRead: (chatId) => {
-        const contacts = get().contacts.map(c =>
-          c.pubkey === chatId ? { ...c, unread: 0 } : c
-        )
-        const channels = get().channels.map(ch =>
-          ch.id === chatId ? { ...ch, unread: 0, mentions: 0 } : ch
-        )
-        set({ contacts, channels })
-      },
+        loginFromHex: async (hex: string) => {
+          try {
+            const sk = hexToBytes(hex.trim())
+            const pk = getPublicKey(sk)
+            const nsec = encodeNsec(sk)
+            await completeLogin(sk, pk, nsec, set, get)
+            return true
+          } catch {
+            return false
+          }
+        },
 
-      updateContactLastMessage: (pubkey, content, at) => {
-        const isActive = get().activeChatId === pubkey
-        const contacts = get().contacts.map(c =>
-          c.pubkey === pubkey
-            ? {
-                ...c,
-                lastMessage: content,
-                lastMessageAt: at,
-                unread: isActive ? 0 : (c.unread || 0) + 1,
-              }
-            : c
-        )
-        if (!contacts.find(c => c.pubkey === pubkey)) {
-          contacts.unshift({
-            pubkey,
-            lastMessage: content,
-            lastMessageAt: at,
-            unread: isActive ? 0 : 1,
+        logout: () => {
+          set({
+            privateKeyHex: null,
+            publicKey: null,
+            nsec: null,
+            npub: null,
+            profile: null,
+            activeChatId: null,
+            activeChatType: null,
+            messages: {},
           })
-        }
-        set({ contacts })
-      },
+          closeUserDb()
+          clearActivePubkey()
+        },
 
-      updateChannelLastMessage: (channelId, content, at, isMention = false) => {
-        const isActive = get().activeChatId === channelId
-        const channels = get().channels.map(ch =>
-          ch.id === channelId
-            ? {
-                ...ch,
-                lastMessage: content,
-                lastMessageAt: at,
-                unread: isActive ? 0 : (ch.unread || 0) + 1,
-                mentions: isActive ? 0 : isMention ? (ch.mentions || 0) + 1 : (ch.mentions || 0),
-              }
-            : ch
-        )
-        set({ channels })
-      },
+        updateProfile: (profileUpdate) => {
+          const current = get().profile || { pubkey: get().publicKey || '' }
+          set({ profile: { ...current, ...profileUpdate } })
+        },
 
-      setProfile: (pubkey, profile) => {
-        set({ profiles: { ...get().profiles, [pubkey]: profile } })
-        if (pubkey === get().publicKey) {
-          set({ profile })
-        }
-        const contacts = get().contacts.map(c =>
-          c.pubkey === pubkey ? { ...c, profile } : c
-        )
-        set({ contacts })
-      },
+        addRelay: (url) => {
+          const relays = get().relays
+          if (!relays.includes(url)) {
+            set({ relays: [...relays, url] })
+            scheduleSettingsSync()
+          }
+        },
 
-      setSidebarTab: (tab) => set({ sidebarTab: tab }),
-      setShowSettings: (show) => set({ showSettings: show }),
-      setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
-      setShowAddChannel: (show) => set({ showAddChannel: show }),
-      setShowAddContact: (show) => set({ showAddContact: show }),
-      setViewingProfilePubkey: (pubkey) => set({ viewingProfilePubkey: pubkey }),
+        removeRelay: (url) => {
+          set({ relays: get().relays.filter(r => r !== url) })
+          scheduleSettingsSync()
+        },
 
-      updateNotificationSettings: (s) =>
-        set({ notificationSettings: { ...get().notificationSettings, ...s } }),
+        addChannel: (channel) => {
+          const existing = get().channels.find(c => c.id === channel.id)
+          if (!existing) {
+            set({ channels: [channel, ...get().channels] })
+          }
+        },
 
-      muteChatUntil: (chatId, until) =>
-        set({ mutedChats: { ...get().mutedChats, [chatId]: until } }),
+        joinChannel: (id) => {
+          const joined = get().joinedChannelIds
+          if (!joined.includes(id)) {
+            set({ joinedChannelIds: [...joined, id] })
+            scheduleChannelsSync()
+          }
+        },
 
-      unmuteChat: (chatId) => {
-        const { [chatId]: _, ...rest } = get().mutedChats
-        set({ mutedChats: rest })
-      },
+        leaveChannel: (id) => {
+          set({
+            joinedChannelIds: get().joinedChannelIds.filter(i => i !== id),
+            activeChatId: get().activeChatId === id ? null : get().activeChatId,
+          })
+          scheduleChannelsSync()
+        },
 
-      setDraft: (chatId, text) =>
-        set({ drafts: { ...get().drafts, [chatId]: text } }),
+        addContact: (pubkey) => {
+          const existing = get().contacts.find(c => c.pubkey === pubkey)
+          if (!existing) {
+            set({ contacts: [{ pubkey }, ...get().contacts] })
+            scheduleContactsSync()
+          }
+        },
 
-      clearDraft: (chatId) => {
-        const { [chatId]: _, ...rest } = get().drafts
-        set({ drafts: rest })
-      },
+        removeContact: (pubkey) => {
+          set({ contacts: get().contacts.filter(c => c.pubkey !== pubkey) })
+          scheduleContactsSync()
+        },
 
-      updateSeenAt: (chatId, at) =>
-        set({ seenAt: { ...get().seenAt, [chatId]: at } }),
-    }),
+        setActiveChat: (id, type) => {
+          set({ activeChatId: id, activeChatType: type })
+          get().markRead(id)
+          const db = getUserDb()
+          if (db) {
+            void db.messages
+              .where('[chatId+createdAt]')
+              .between([id, -Infinity], [id, Infinity])
+              .toArray()
+              .then(records => {
+                if (records.length === 0) return
+                const existing = get().messages[id] || []
+                const existingIds = new Set(existing.map(m => m.id))
+                const fresh = records.map(recordToMessage).filter(m => !existingIds.has(m.id))
+                if (fresh.length === 0) return
+                const merged = [...existing, ...fresh].sort((a, b) => a.createdAt - b.createdAt)
+                set({ messages: { ...get().messages, [id]: merged } })
+              })
+          }
+        },
+
+        clearActiveChat: () => {
+          set({ activeChatId: null, activeChatType: null })
+        },
+
+        addMessage: (chatId, message) => {
+          const existing = get().messages[chatId] || []
+          if (existing.find(m => m.id === message.id)) return
+          const sorted = [...existing, message].sort((a, b) => a.createdAt - b.createdAt)
+          set({ messages: { ...get().messages, [chatId]: sorted } })
+          const db = getUserDb()
+          if (db) void db.messages.put(messageToRecord(chatId, message))
+        },
+
+        updateMessageStatus: (chatId, msgId, status) => {
+          const msgs = get().messages[chatId]
+          if (!msgs) return
+          set({
+            messages: {
+              ...get().messages,
+              [chatId]: msgs.map(m => m.id === msgId ? { ...m, status } : m),
+            }
+          })
+        },
+
+        markRead: (chatId) => {
+          const contacts = get().contacts.map(c =>
+            c.pubkey === chatId ? { ...c, unread: 0 } : c
+          )
+          const channels = get().channels.map(ch =>
+            ch.id === chatId ? { ...ch, unread: 0, mentions: 0 } : ch
+          )
+          set({ contacts, channels })
+        },
+
+        updateContactLastMessage: (pubkey, content, at) => {
+          const isActive = get().activeChatId === pubkey
+          const contacts = get().contacts.map(c =>
+            c.pubkey === pubkey
+              ? {
+                  ...c,
+                  lastMessage: content,
+                  lastMessageAt: at,
+                  unread: isActive ? 0 : (c.unread || 0) + 1,
+                }
+              : c
+          )
+          if (!contacts.find(c => c.pubkey === pubkey)) {
+            contacts.unshift({
+              pubkey,
+              lastMessage: content,
+              lastMessageAt: at,
+              unread: isActive ? 0 : 1,
+            })
+          }
+          set({ contacts })
+        },
+
+        updateChannelLastMessage: (channelId, content, at, isMention = false) => {
+          const isActive = get().activeChatId === channelId
+          const channels = get().channels.map(ch =>
+            ch.id === channelId
+              ? {
+                  ...ch,
+                  lastMessage: content,
+                  lastMessageAt: at,
+                  unread: isActive ? 0 : (ch.unread || 0) + 1,
+                  mentions: isActive ? 0 : isMention ? (ch.mentions || 0) + 1 : (ch.mentions || 0),
+                }
+              : ch
+          )
+          set({ channels })
+        },
+
+        setProfile: (pubkey, profile) => {
+          set({ profiles: { ...get().profiles, [pubkey]: profile } })
+          if (pubkey === get().publicKey) {
+            set({ profile })
+          }
+          const contacts = get().contacts.map(c =>
+            c.pubkey === pubkey ? { ...c, profile } : c
+          )
+          set({ contacts })
+        },
+
+        setSidebarTab: (tab) => set({ sidebarTab: tab }),
+        setShowSettings: (show) => set({ showSettings: show }),
+        setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+        setShowAddChannel: (show) => set({ showAddChannel: show }),
+        setShowAddContact: (show) => set({ showAddContact: show }),
+        setViewingProfilePubkey: (pubkey) => set({ viewingProfilePubkey: pubkey }),
+
+        updateNotificationSettings: (s) => {
+          set({ notificationSettings: { ...get().notificationSettings, ...s } })
+          scheduleSettingsSync()
+        },
+
+        muteChatUntil: (chatId, until) => {
+          set({ mutedChats: { ...get().mutedChats, [chatId]: until } })
+          scheduleSettingsSync()
+        },
+
+        unmuteChat: (chatId) => {
+          const { [chatId]: _, ...rest } = get().mutedChats
+          set({ mutedChats: rest })
+          scheduleSettingsSync()
+        },
+
+        setDraft: (chatId, text) =>
+          set({ drafts: { ...get().drafts, [chatId]: text } }),
+
+        clearDraft: (chatId) => {
+          const { [chatId]: _, ...rest } = get().drafts
+          set({ drafts: rest })
+        },
+
+        updateSeenAt: (chatId, at) =>
+          set({ seenAt: { ...get().seenAt, [chatId]: at } }),
+      }
+    },
     {
       name: 'nostr-chat-storage',
       storage: createJSONStorage(() => dexieStorage),
@@ -539,6 +626,7 @@ export const useNostrStore = create<NostrState>()(
         notificationSettings: state.notificationSettings,
         mutedChats: state.mutedChats,
         seenAt: state.seenAt,
+        syncedSettingsAt: state.syncedSettingsAt,
       }),
     }
   )

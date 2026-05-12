@@ -32,6 +32,7 @@ export interface FileChunkPayload {
 export type FileTransferPayload = FileStartPayload | FileChunkPayload
 
 export interface IncomingTransfer {
+  transferId: string
   name: string
   mime: string
   size: number
@@ -152,6 +153,7 @@ export function handleFileStart(
   const orphans = orphanChunks.get(transferId) ?? {}
   orphanChunks.delete(transferId)
   transfers.set(transferId, {
+    transferId,
     name: payload.name,
     mime: payload.mime,
     size: payload.size,

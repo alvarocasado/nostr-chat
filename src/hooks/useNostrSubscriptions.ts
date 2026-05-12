@@ -232,7 +232,7 @@ function finishTransfer(t: IncomingTransfer) {
   const dataUrl = reconstructDataUrl(t.mime, t.chunks, t.totalChunks)
   const content = serializeMessage('', { name: t.name, type: t.mime, size: t.size, data: dataUrl })
   addMessage(t.chatId, {
-    id: `transfer-${t.senderPubkey}-${t.createdAt}`,
+    id: `transfer-${t.transferId}`,
     pubkey: t.senderPubkey,
     content,
     createdAt: t.createdAt,

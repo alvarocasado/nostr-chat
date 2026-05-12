@@ -468,6 +468,8 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
+const NEAR_BOTTOM_PX = 120
+
 function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp }: {
   messages: Message[]
   myPubkey: string
@@ -478,19 +480,30 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const dividerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(false)
+  const atBottomRef = useRef(true)
+
+  const handleScroll = () => {
+    const el = containerRef.current
+    if (!el) return
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+  }
 
   useEffect(() => {
     if (!mountedRef.current) {
       mountedRef.current = true
       if (dividerRef.current) {
         dividerRef.current.scrollIntoView({ block: 'start' })
+        atBottomRef.current = false
       } else {
         bottomRef.current?.scrollIntoView()
       }
       return
     }
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (atBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages.length])
 
   if (messages.length === 0) {
@@ -536,7 +549,11 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
   }
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5"
+    >
       {elements}
       <div ref={bottomRef} />
     </div>
