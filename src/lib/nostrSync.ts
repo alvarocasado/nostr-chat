@@ -76,10 +76,17 @@ export async function publishChannelBookmarks(
 
 const SETTINGS_D_TAG = 'nostr-chat-settings'
 
+export interface CallsSyncedSettings {
+  turnMode: 'none' | 'metered' | 'custom'
+  turnMetered?: { subdomain: string; apiKey: string }
+  turnCustom?: { url: string; username: string; credential: string }
+}
+
 export interface SyncedSettings {
   notificationSettings?: NotificationSettings
   mutedChats?: Record<string, number | null>
   relays?: string[]
+  callsSettings?: CallsSyncedSettings
 }
 
 async function buildAppSettingsEvent(
