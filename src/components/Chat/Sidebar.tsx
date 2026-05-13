@@ -315,8 +315,8 @@ export function Sidebar() {
   } = useNostrStore()
 
   const relayHealth = useRelayHealth(relays)
-  const { connected: relaysConnected, total: relaysTotal } = aggregateRelayHealth(relayHealth)
-  const relaysDegraded = relaysTotal > 0 && relaysConnected < relaysTotal
+  const { connected: relaysConnected, resolved: relaysResolved, total: relaysTotal } = aggregateRelayHealth(relayHealth)
+  const relaysDegraded = Object.values(relayHealth).some(s => s === 'disconnected')
 
   const myProfile = profile || profiles[publicKey || '']
   const myName = publicKey ? getDisplayName(myProfile, publicKey) : 'You'
@@ -373,6 +373,9 @@ export function Sidebar() {
   }, [searchQuery, messages, channels, contacts, profiles, publicKey, profile])
 
   const isSearching = searchQuery.trim().length >= 2
+
+  const totalUnreadDMs = useMemo(() => contacts.reduce((sum, c) => sum + (c.unread || 0), 0), [contacts])
+  const hasUnreadDMs = totalUnreadDMs > 0
 
   // ── Section panel bodies ─────────────────────────────────────
   const searchSection = (
@@ -490,7 +493,7 @@ export function Sidebar() {
         {(
           [
             { tab: 'profile',       label: 'Profile',       icon: <User  size={16} />, badge: null },
-            { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysTotal > 0 ? `${relaysConnected}/${relaysTotal}` : null },
+            { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysResolved > 0 ? `${relaysConnected}/${relaysTotal}` : null },
             { tab: 'keys',          label: 'Keys',          icon: <Key   size={16} />, badge: null },
             { tab: 'calls',         label: 'Calls',         icon: <Phone size={16} />, badge: null },
             { tab: 'notifications', label: 'Notifications', icon: <Bell  size={16} />, badge: null },
@@ -558,7 +561,12 @@ export function Sidebar() {
           </div>
 
           <NavRailButton icon={<Search size={18} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
-          <NavRailButton icon={<MessageCircle size={18} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+          <div className="relative">
+            <NavRailButton icon={<MessageCircle size={18} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+            {hasUnreadDMs && activeSection !== 'messages' && (
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-400 pointer-events-none" />
+            )}
+          </div>
           <NavRailButton icon={<Hash size={18} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
           <NavRailButton icon={<Users size={18} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
 
@@ -657,7 +665,19 @@ export function Sidebar() {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <BottomNavButton icon={<Search size={20} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
-        <BottomNavButton icon={<MessageCircle size={20} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+        <BottomNavButton
+          icon={
+            <div className="relative">
+              <MessageCircle size={20} />
+              {hasUnreadDMs && activeSection !== 'messages' && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 pointer-events-none" />
+              )}
+            </div>
+          }
+          label="Messages"
+          active={activeSection === 'messages'}
+          onClick={() => toggleSection('messages')}
+        />
         <BottomNavButton icon={<Hash size={20} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
         <BottomNavButton icon={<Users size={20} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
         <BottomNavButton icon={<Settings size={20} />}      label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />
