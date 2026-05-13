@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
 import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2 } from 'lucide-react'
 import { Avatar } from './Avatar'
@@ -96,7 +97,7 @@ function ImageAttachment({ attachment }: { attachment: AttachmentData }) {
           </div>
         </div>
       </div>
-      {open && <ImageLightbox src={attachment.data} name={attachment.name} onClose={() => setOpen(false)} />}
+      {open && createPortal(<ImageLightbox src={attachment.data} name={attachment.name} onClose={() => setOpen(false)} />, document.body)}
     </>
   )
 }
