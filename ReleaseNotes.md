@@ -1,5 +1,25 @@
 # Release Notes
 
+## 1.0.0-alpha.10 — 2026-05-12
+
+### Features
+
+#### Mobile Bottom Nav Always Visible
+The bottom navigation bar on mobile is now always accessible, even when a section sheet (Messages, Channels, etc.) is open.
+- Bottom nav raised to `z-[60]`, sitting above the section sheet (`z-50`) at all times
+- Sheet height shortened so it stops at the nav's top edge instead of extending behind it
+- All true overlays (modals, lightboxes, call overlay, toasts) raised to `z-[70]` so they correctly cover the nav when active
+
+#### TURN Server Cross-Device Sync
+TURN server configuration (Settings → Calls) now syncs across devices via NIP-78 (kind 30078) Nostr events, encrypted to the user's own key.
+- Save your TURN config on one device and it's available when you log in with the same key on another
+- Media device preferences (microphone/camera) remain local-only
+
+### Changes
+- Log out moved from the navigation rail (desktop) and sheet footer (mobile) into the Settings section, as the last item below a divider
+
+---
+
 ## 1.0.0-alpha.9 — 2026-05-11
 
 ### Features
