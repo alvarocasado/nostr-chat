@@ -333,13 +333,17 @@ export const useNostrStore = create<NostrState>()(
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
               getSetting<string>('turn_mode', 'none'),
-              getSetting<{ subdomain: string; apiKey: string }>('turn_metered_config', { subdomain: '', apiKey: '' }),
-              getSetting<{ url: string; username: string; credential: string }>('turn_custom_config', { url: '', username: '', credential: '' }),
+              getSetting<{ subdomain: string; apiKey: string } | null>('turn_metered_config', null),
+              getSetting<{ url: string; username: string; credential: string } | null>('turn_custom_config', null),
             ])
+            const VALID_TURN_MODES = ['none', 'metered', 'custom'] as const
+            const safeMode: 'none' | 'metered' | 'custom' = (VALID_TURN_MODES as readonly string[]).includes(turnMode)
+              ? turnMode as 'none' | 'metered' | 'custom'
+              : 'none'
             const callsSettings: CallsSyncedSettings = {
-              turnMode: turnMode as 'none' | 'metered' | 'custom',
-              turnMetered,
-              turnCustom,
+              turnMode: safeMode,
+              ...(turnMetered ? { turnMetered } : {}),
+              ...(turnCustom  ? { turnCustom  } : {}),
             }
             void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings }, relays)
               .then(() => set({ syncedSettingsAt: now }))
