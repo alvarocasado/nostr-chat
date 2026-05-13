@@ -18,7 +18,7 @@ function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
   if (!iceConnFailed) return null
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)] bg-gray-900 border border-amber-500/40 rounded-2xl px-4 py-3 shadow-2xl flex items-start gap-3">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] max-w-lg w-[calc(100%-2rem)] bg-gray-900 border border-amber-500/40 rounded-2xl px-4 py-3 shadow-2xl flex items-start gap-3">
       <span className="text-amber-400 flex-shrink-0 text-base leading-5">⚠️</span>
       <p className="flex-1 text-sm text-white min-w-0">
         Call connection failed. If this keeps happening, try configuring a relay server in{' '}

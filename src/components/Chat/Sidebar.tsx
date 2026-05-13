@@ -612,7 +612,7 @@ export function Sidebar() {
       <div
         className="md:hidden fixed inset-x-0 top-0 z-50 bg-gray-900 rounded-t-2xl shadow-2xl flex flex-col transition-transform duration-300 ease-in-out"
         style={{
-          height: `calc(100vh - 4rem - env(safe-area-inset-bottom, 0px))`,
+          height: `calc(100vh - 4rem - 3.5rem - env(safe-area-inset-bottom, 0px))`,
           transform: activeSection ? 'translateY(4rem)' : 'translateY(100vh)',
         }}
       >
@@ -644,7 +644,7 @@ export function Sidebar() {
 
       {/* Bottom nav */}
       <div
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-gray-900 border-t border-gray-800 flex"
+        className="md:hidden fixed bottom-0 inset-x-0 z-[60] bg-gray-900 border-t border-gray-800 flex"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <BottomNavButton icon={<Search size={20} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
