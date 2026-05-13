@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
 import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2 } from 'lucide-react'
 import { Avatar } from './Avatar'
@@ -45,7 +46,7 @@ function ImageLightbox({ src, name, onClose }: { src: string; name: string; onCl
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
@@ -96,7 +97,7 @@ function ImageAttachment({ attachment }: { attachment: AttachmentData }) {
           </div>
         </div>
       </div>
-      {open && <ImageLightbox src={attachment.data} name={attachment.name} onClose={() => setOpen(false)} />}
+      {open && createPortal(<ImageLightbox src={attachment.data} name={attachment.name} onClose={() => setOpen(false)} />, document.body)}
     </>
   )
 }
@@ -271,14 +272,14 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
       <div ref={rowRef} className="flex flex-col items-end gap-1 group">
         <div className="flex items-end gap-2 max-w-[85%]">
           <StatusIndicator status={message.status} onRetry={onRetry} msgId={message.id} />
-          <span className="text-gray-600 text-xs mb-1">
+          <span className="text-gray-700 text-xs mb-1">
             {time}
           </span>
           {replyBtn}
           {swipeReplyIcon}
           <div
             style={bubbleSwipeStyle}
-            className="bg-purple-600 rounded-2xl rounded-br-md px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
+            className="bg-gradient-to-br from-violet-500 to-purple-700 rounded-[18px] rounded-br-[4px] px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden shadow-[0_4px_16px_rgba(124,58,237,0.35)]"
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
             {attachment && <AttachmentView attachment={attachment} isOwn />}
@@ -293,7 +294,11 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
     <div ref={rowRef} className="flex items-end gap-2 group">
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
-          <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" onClick={() => setViewingProfilePubkey(message.pubkey)} />
+          <div className="p-[1.5px] bg-gradient-to-br from-violet-500 to-cyan-400 rounded-full">
+            <div className="bg-gray-950 rounded-full">
+              <Avatar picture={profile?.picture} name={name} pubkey={message.pubkey} size="sm" onClick={() => setViewingProfilePubkey(message.pubkey)} />
+            </div>
+          </div>
         )}
       </div>
       <div className="flex flex-col gap-1 max-w-[75%]">
@@ -304,14 +309,14 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           {swipeReplyIcon}
           <div
             style={bubbleSwipeStyle}
-            className="bg-gray-800 rounded-2xl rounded-bl-md px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
+            className="bg-[#13131f] border border-[#1e1e30] rounded-[18px] rounded-bl-[4px] px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
             <MarkdownMessage content={text} isOwn={false} />
           </div>
           {replyBtn}
-          <span className="text-gray-600 text-xs mb-1 flex-shrink-0">
+          <span className="text-gray-700 text-xs mb-1 flex-shrink-0">
             {time}
           </span>
         </div>

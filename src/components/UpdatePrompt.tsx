@@ -10,7 +10,7 @@ export function UpdatePrompt() {
   if (!needRefresh) return null
 
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-gray-800 border border-purple-500/40 rounded-2xl px-4 py-3 shadow-2xl max-w-sm w-[calc(100%-2rem)]">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-3 bg-gray-800 border border-purple-500/40 rounded-2xl px-4 py-3 shadow-2xl max-w-sm w-[calc(100%-2rem)]">
       <RefreshCw size={18} className="text-purple-400 flex-shrink-0" />
       <p className="flex-1 text-sm text-white">New version available</p>
       <button

@@ -14,7 +14,7 @@ export function IncomingCall() {
   const name = getDisplayName(profile, peer.pubkey)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="w-full max-w-sm bg-gray-900 border border-gray-700 rounded-3xl shadow-2xl overflow-hidden">
         <div className="flex flex-col items-center gap-4 px-8 py-8">
           <Avatar picture={profile?.picture} name={name} pubkey={peer.pubkey} size="lg" />

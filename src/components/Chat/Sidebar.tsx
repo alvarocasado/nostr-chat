@@ -159,12 +159,12 @@ function ChannelItem({ channel, isActive, onSelect }: { channel: Channel; isActi
         onClick={handleClick}
         className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
           isActive
-            ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+            ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
             : 'hover:bg-white/5 text-gray-300 hover:text-white'
         }`}
       >
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-          isActive ? 'bg-purple-600' : 'bg-gray-800'
+          isActive ? 'bg-gradient-to-br from-violet-500 to-purple-700' : 'bg-gray-800'
         }`}>
           <Hash size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
         </div>
@@ -208,7 +208,7 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { setActiveChat(contact.pubkey, 'dm'); onSelect() } }}
         className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left cursor-pointer ${
           isActive
-            ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+            ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
             : 'hover:bg-white/5 text-gray-300 hover:text-white'
         }`}
       >
@@ -269,10 +269,10 @@ function NavRailButton({
       aria-label={label}
       className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
         active
-          ? 'bg-purple-600 text-white'
+          ? 'bg-gradient-to-br from-violet-500/20 to-purple-700/20 text-white border border-violet-500/40 shadow-[0_0_8px_rgba(124,58,237,0.15)]'
           : danger
           ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10'
-          : 'text-gray-500 hover:text-white hover:bg-white/10'
+          : 'text-gray-500 hover:text-white hover:bg-white/[0.08]'
       }`}
     >
       {icon}
@@ -315,8 +315,8 @@ export function Sidebar() {
   } = useNostrStore()
 
   const relayHealth = useRelayHealth(relays)
-  const { connected: relaysConnected, total: relaysTotal } = aggregateRelayHealth(relayHealth)
-  const relaysDegraded = relaysTotal > 0 && relaysConnected < relaysTotal
+  const { connected: relaysConnected, resolved: relaysResolved, total: relaysTotal } = aggregateRelayHealth(relayHealth)
+  const relaysDegraded = Object.values(relayHealth).some(s => s === 'disconnected')
 
   const myProfile = profile || profiles[publicKey || '']
   const myName = publicKey ? getDisplayName(myProfile, publicKey) : 'You'
@@ -373,6 +373,9 @@ export function Sidebar() {
   }, [searchQuery, messages, channels, contacts, profiles, publicKey, profile])
 
   const isSearching = searchQuery.trim().length >= 2
+
+  const totalUnreadDMs = useMemo(() => contacts.reduce((sum, c) => sum + (c.unread || 0), 0), [contacts])
+  const hasUnreadDMs = totalUnreadDMs > 0
 
   // ── Section panel bodies ─────────────────────────────────────
   const searchSection = (
@@ -490,7 +493,7 @@ export function Sidebar() {
         {(
           [
             { tab: 'profile',       label: 'Profile',       icon: <User  size={16} />, badge: null },
-            { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysTotal > 0 ? `${relaysConnected}/${relaysTotal}` : null },
+            { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysResolved > 0 ? `${relaysConnected}/${relaysTotal}` : null },
             { tab: 'keys',          label: 'Keys',          icon: <Key   size={16} />, badge: null },
             { tab: 'calls',         label: 'Calls',         icon: <Phone size={16} />, badge: null },
             { tab: 'notifications', label: 'Notifications', icon: <Bell  size={16} />, badge: null },
@@ -501,7 +504,7 @@ export function Sidebar() {
             onClick={() => { setActiveSettingsTab(tab); closePanelOnly() }}
             className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm transition-colors ${
               activeSettingsTab === tab
-                ? 'bg-purple-600/20 border border-purple-500/30 text-white'
+                ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
                 : 'text-gray-300 hover:bg-white/5 hover:text-white'
             }`}
           >
@@ -518,32 +521,18 @@ export function Sidebar() {
             )}
           </button>
         ))}
+        <div className="mt-2 pt-2 border-t border-gray-800">
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+          >
+            <span className="text-purple-400"><LogOut size={16} /></span>
+            <span>Log out</span>
+          </button>
+        </div>
       </div>
     ),
   }
-
-  // ── Profile footer (shared between desktop panel and mobile sheet) ──
-  const profileFooter = (
-    <div
-      className="px-3 py-3 border-t border-gray-800 flex-shrink-0"
-      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
-    >
-      <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
-        <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white truncate">{myName}</p>
-          <p className="text-xs text-gray-500 truncate">{publicKey?.slice(0, 16)}...</p>
-        </div>
-        <button
-          onClick={logout}
-          title="Logout"
-          className="p-2 text-gray-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
-        >
-          <LogOut size={16} />
-        </button>
-      </div>
-    </div>
-  )
 
   return (
     <>
@@ -553,12 +542,17 @@ export function Sidebar() {
         {/* Icon rail */}
         <div className="w-14 flex flex-col items-center py-3 gap-1 bg-gray-900 border-r border-gray-800 flex-shrink-0">
           {/* Logo */}
-          <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center mb-3 flex-shrink-0">
+          <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center mb-3 flex-shrink-0 shadow-[0_2px_10px_rgba(124,58,237,0.35)]">
             <Zap size={18} className="text-white" />
           </div>
 
           <NavRailButton icon={<Search size={18} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
-          <NavRailButton icon={<MessageCircle size={18} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+          <div className="relative">
+            <NavRailButton icon={<MessageCircle size={18} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+            {hasUnreadDMs && activeSection !== 'messages' && (
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-amber-400 pointer-events-none" />
+            )}
+          </div>
           <NavRailButton icon={<Hash size={18} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
           <NavRailButton icon={<Users size={18} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
 
@@ -572,11 +566,12 @@ export function Sidebar() {
           </div>
 
           {/* User avatar */}
-          <div className="my-1">
-            <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
+          <div className="my-1 p-[1.5px] bg-gradient-to-br from-violet-500 to-cyan-400 rounded-full flex-shrink-0">
+            <div className="bg-gray-900 rounded-full">
+              <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
+            </div>
           </div>
 
-          <NavRailButton icon={<LogOut size={18} />} label="Logout" danger onClick={logout} />
         </div>
 
         {/* Section panel — slides in by revealing fixed-width inner content */}
@@ -617,7 +612,7 @@ export function Sidebar() {
       <div
         className="md:hidden fixed inset-x-0 top-0 z-50 bg-gray-900 rounded-t-2xl shadow-2xl flex flex-col transition-transform duration-300 ease-in-out"
         style={{
-          height: `calc(100vh - 4rem - env(safe-area-inset-bottom, 0px))`,
+          height: `calc(100vh - 4rem - 3.5rem - env(safe-area-inset-bottom, 0px))`,
           transform: activeSection ? 'translateY(4rem)' : 'translateY(100vh)',
         }}
       >
@@ -645,17 +640,27 @@ export function Sidebar() {
           {activeSection && sectionBody[activeSection]}
         </div>
 
-        {/* Profile footer inside sheet */}
-        {profileFooter}
       </div>
 
       {/* Bottom nav */}
       <div
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-gray-900 border-t border-gray-800 flex"
+        className="md:hidden fixed bottom-0 inset-x-0 z-[60] bg-gray-900 border-t border-gray-800 flex"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <BottomNavButton icon={<Search size={20} />}        label="Search"   active={activeSection === 'search'}   onClick={() => toggleSection('search')} />
-        <BottomNavButton icon={<MessageCircle size={20} />} label="Messages" active={activeSection === 'messages'} onClick={() => toggleSection('messages')} />
+        <BottomNavButton
+          icon={
+            <div className="relative">
+              <MessageCircle size={20} />
+              {hasUnreadDMs && activeSection !== 'messages' && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 pointer-events-none" />
+              )}
+            </div>
+          }
+          label="Messages"
+          active={activeSection === 'messages'}
+          onClick={() => toggleSection('messages')}
+        />
         <BottomNavButton icon={<Hash size={20} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
         <BottomNavButton icon={<Users size={20} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
         <BottomNavButton icon={<Settings size={20} />}      label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />

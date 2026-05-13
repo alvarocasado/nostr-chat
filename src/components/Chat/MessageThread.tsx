@@ -269,7 +269,7 @@ function MessageInput({
 
   return (
     <div
-      className="px-3 py-3 border-t border-gray-800 bg-gray-900"
+      className="px-3 py-3 bg-gray-950"
       style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
     >
       {/* Reply banner */}
@@ -354,7 +354,7 @@ function MessageInput({
 
       {/* Recording row */}
       {isRecording ? (
-        <div className="flex items-center gap-3 bg-gray-800 rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-[#10101c] rounded-[28px] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.45),0_0_0_1px_rgba(255,255,255,0.05)]">
           <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
           <span className="text-sm text-white flex-1 tabular-nums">
             {recorder.state === 'requesting' ? 'Waiting for mic…' : `Recording  ${formatDuration(recorder.elapsed)} / ${formatDuration(MAX_RECORDING_SECONDS)}`}
@@ -362,7 +362,7 @@ function MessageInput({
           <button
             onClick={handleStopRecording}
             disabled={recorder.state === 'requesting'}
-            className="w-9 h-9 bg-red-600 hover:bg-red-500 disabled:opacity-40 rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+            className="w-9 h-9 bg-red-600 hover:bg-red-500 disabled:opacity-40 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
             title="Stop recording"
           >
             <Square size={14} className="text-white fill-white" />
@@ -377,7 +377,7 @@ function MessageInput({
         </div>
       ) : (
         /* Normal input row */
-        <div className="flex items-end gap-2 bg-gray-800 rounded-2xl px-3 py-2.5">
+        <div className="flex items-end gap-2 bg-[#10101c] rounded-[28px] px-4 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.45),0_0_0_1px_rgba(255,255,255,0.05)]">
           <button
             onClick={() => fileInputRef.current?.click()}
             className="text-gray-500 hover:text-purple-400 transition-colors flex-shrink-0 mb-0.5"
@@ -415,7 +415,7 @@ function MessageInput({
             </button>
           ) : isLimited ? (
             <div
-              className="w-10 h-10 bg-amber-600/30 border border-amber-600/50 rounded-xl flex items-center justify-center flex-shrink-0"
+              className="w-10 h-10 bg-amber-600/30 border border-amber-600/50 rounded-full flex items-center justify-center flex-shrink-0"
               title={`Slow down — wait ${cooldownSec}s`}
             >
               <span className="text-amber-400 text-xs font-bold tabular-nums">{cooldownSec}s</span>
@@ -424,7 +424,7 @@ function MessageInput({
             <button
               onClick={handleSend}
               disabled={!canSend}
-              className="w-10 h-10 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl flex items-center justify-center transition-colors flex-shrink-0"
+              className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-700 hover:from-violet-400 hover:to-purple-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-all flex-shrink-0 shadow-[0_4px_12px_rgba(124,58,237,0.45)]"
             >
               <Send size={16} className="text-white" />
             </button>

@@ -13,23 +13,29 @@ export function useRelayHealth(relays: string[]): Record<string, RelayStatus> {
 
     const pool = getPool()
 
-    // Proactively open connections so the pool knows about each relay.
-    // Safe to call multiple times — the pool deduplicates by URL.
+    // Try to connect each relay; record the outcome.
     for (const url of relays) {
-      pool.ensureRelay(url).catch(() => {})
+      pool.ensureRelay(url)
+        .then(() => setStatus(prev => ({ ...prev, [url]: 'connected' })))
+        .catch(() => setStatus(prev => ({ ...prev, [url]: 'disconnected' })))
     }
 
     function refresh() {
       const map = pool.listConnectionStatus()
-      const next: Record<string, RelayStatus> = {}
-      for (const url of relays) {
-        if (!map.has(url)) next[url] = 'pending'
-        else next[url] = map.get(url) ? 'connected' : 'disconnected'
-      }
-      setStatus(next)
+      setStatus(prev => {
+        const next = { ...prev }
+        for (const url of relays) {
+          if (map.has(url)) {
+            // Relay is actively tracked by the pool — use its live state.
+            next[url] = map.get(url) ? 'connected' : 'disconnected'
+          }
+          // Not in pool (idle/pruned): keep the last known state so a
+          // temporarily idle relay doesn't flip back to 'pending'.
+        }
+        return next
+      })
     }
 
-    refresh()
     const id = setInterval(refresh, POLL_MS)
     return () => clearInterval(id)
   }, [relays.join(',')])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -40,10 +46,12 @@ export function useRelayHealth(relays: string[]): Record<string, RelayStatus> {
 export function aggregateRelayHealth(status: Record<string, RelayStatus>): {
   connected: number
   total: number
+  resolved: number
 } {
   const values = Object.values(status)
   return {
     connected: values.filter(s => s === 'connected').length,
     total: values.length,
+    resolved: values.filter(s => s !== 'pending').length,
   }
 }

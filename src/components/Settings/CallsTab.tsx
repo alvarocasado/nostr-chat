@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Loader2, Check, Save, Mic, Video, ChevronDown, AlertCircle, Wifi } from 'lucide-react'
 import { getIceServers } from '../../lib/webrtc'
 import { getSetting, setSetting, deleteSetting } from '../../lib/userDb'
+import { useNostrStore } from '../../store/nostrStore'
 
 type TurnMode = 'none' | 'metered' | 'custom'
 type TestStatus = 'idle' | 'testing' | 'ok' | 'fail'
@@ -129,6 +130,8 @@ function DeviceSelect({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function CallsTab() {
+  const triggerSettingsSync = useNostrStore(s => s.triggerSettingsSync)
+
   const [mode, setMode]                     = useState<TurnMode>('none')
   const [meteredSubdomain, setMeteredSubdomain] = useState('')
   const [meteredApiKey, setMeteredApiKey]       = useState('')
@@ -253,6 +256,7 @@ export function CallsTab() {
       }
 
       setSaved(true)
+      triggerSettingsSync()
       setTimeout(() => setSaved(false), 2000)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed.')

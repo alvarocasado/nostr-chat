@@ -6,6 +6,8 @@ import {
   openUserDb,
   closeUserDb,
   getUserDb,
+  getSetting,
+  setSetting,
   setActivePubkey,
   clearActivePubkey,
 } from '../lib/userDb'
@@ -16,6 +18,7 @@ import {
   publishChannelBookmarks,
   publishAppSettings,
   debounce,
+  type CallsSyncedSettings,
 } from '../lib/nostrSync'
 
 export type ChatType = 'channel' | 'dm'
@@ -180,6 +183,7 @@ interface NostrState {
   clearDraft: (chatId: string) => void
 
   updateSeenAt: (chatId: string, at: number) => void
+  triggerSettingsSync: () => void
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -266,6 +270,11 @@ async function completeLogin(
           ...(s.relays !== undefined ? { relays: s.relays } : {}),
           syncedSettingsAt: result.settings.createdAt,
         })
+        if (s.callsSettings) {
+          void setSetting('turn_mode', s.callsSettings.turnMode)
+          if (s.callsSettings.turnMetered) void setSetting('turn_metered_config', s.callsSettings.turnMetered)
+          if (s.callsSettings.turnCustom) void setSetting('turn_custom_config', s.callsSettings.turnCustom)
+        }
       }
     }
   }).catch(() => {}) // non-fatal
@@ -317,13 +326,29 @@ export const useNostrStore = create<NostrState>()(
 
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
-          const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey } = get()
-          const sk = getPrivateKey()
-          if (!sk || !publicKey) return
-          const now = Math.floor(Date.now() / 1000)
-          void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays }, relays)
-            .then(() => set({ syncedSettingsAt: now }))
-            .catch(() => {})
+          void (async () => {
+            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey } = get()
+            const sk = getPrivateKey()
+            if (!sk || !publicKey) return
+            const now = Math.floor(Date.now() / 1000)
+            const [turnMode, turnMetered, turnCustom] = await Promise.all([
+              getSetting<string>('turn_mode', 'none'),
+              getSetting<{ subdomain: string; apiKey: string } | null>('turn_metered_config', null),
+              getSetting<{ url: string; username: string; credential: string } | null>('turn_custom_config', null),
+            ])
+            const VALID_TURN_MODES = ['none', 'metered', 'custom'] as const
+            const safeMode: 'none' | 'metered' | 'custom' = (VALID_TURN_MODES as readonly string[]).includes(turnMode)
+              ? turnMode as 'none' | 'metered' | 'custom'
+              : 'none'
+            const callsSettings: CallsSyncedSettings = {
+              turnMode: safeMode,
+              ...(turnMetered ? { turnMetered } : {}),
+              ...(turnCustom  ? { turnCustom  } : {}),
+            }
+            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings }, relays)
+              .then(() => set({ syncedSettingsAt: now }))
+              .catch(() => {})
+          })()
         })
       }
 
@@ -587,6 +612,8 @@ export const useNostrStore = create<NostrState>()(
           set({ mutedChats: rest })
           scheduleSettingsSync()
         },
+
+        triggerSettingsSync: () => scheduleSettingsSync(),
 
         setDraft: (chatId, text) =>
           set({ drafts: { ...get().drafts, [chatId]: text } }),

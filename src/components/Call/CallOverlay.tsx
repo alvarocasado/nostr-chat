@@ -52,7 +52,7 @@ export function CallOverlay() {
       : 'Connecting…'
 
   return (
-    <div className="fixed inset-0 z-40 bg-gray-950 flex flex-col">
+    <div className="fixed inset-0 z-[70] bg-gray-950 flex flex-col">
       {/* Hidden audio element plays remote audio for both call types.
           Video calls also get audio through this; VideoEl handles the visuals. */}
       <RemoteAudio stream={remoteStream} />
