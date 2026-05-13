@@ -320,3 +320,11 @@ describe('loginFromHex', () => {
     expect(ok).toBe(false)
   })
 })
+
+describe('triggerSettingsSync', () => {
+  it('is a callable action on the store', () => {
+    const state = useNostrStore.getState()
+    expect(typeof state.triggerSettingsSync).toBe('function')
+    expect(() => state.triggerSettingsSync()).not.toThrow()
+  })
+})
