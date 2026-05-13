@@ -521,32 +521,18 @@ export function Sidebar() {
             )}
           </button>
         ))}
+        <div className="mt-2 pt-2 border-t border-gray-800">
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+          >
+            <span className="text-purple-400"><LogOut size={16} /></span>
+            <span>Log out</span>
+          </button>
+        </div>
       </div>
     ),
   }
-
-  // ── Profile footer (shared between desktop panel and mobile sheet) ──
-  const profileFooter = (
-    <div
-      className="px-3 py-3 border-t border-gray-800 flex-shrink-0"
-      style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
-    >
-      <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 transition-colors">
-        <Avatar picture={myProfile?.picture} name={myName} pubkey={publicKey || ''} size="sm" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white truncate">{myName}</p>
-          <p className="text-xs text-gray-500 truncate">{publicKey?.slice(0, 16)}...</p>
-        </div>
-        <button
-          onClick={logout}
-          title="Logout"
-          className="p-2 text-gray-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
-        >
-          <LogOut size={16} />
-        </button>
-      </div>
-    </div>
-  )
 
   return (
     <>
@@ -586,7 +572,6 @@ export function Sidebar() {
             </div>
           </div>
 
-          <NavRailButton icon={<LogOut size={18} />} label="Logout" danger onClick={logout} />
         </div>
 
         {/* Section panel — slides in by revealing fixed-width inner content */}
@@ -655,8 +640,6 @@ export function Sidebar() {
           {activeSection && sectionBody[activeSection]}
         </div>
 
-        {/* Profile footer inside sheet */}
-        {profileFooter}
       </div>
 
       {/* Bottom nav */}
