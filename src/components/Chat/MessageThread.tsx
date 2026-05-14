@@ -3,7 +3,7 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images } from 'lucide-react'
+import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, ChevronDown } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, publishEvent } from '../../lib/nostr'
@@ -483,11 +483,18 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
   const containerRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(false)
   const atBottomRef = useRef(true)
+  const [showScrollButton, setShowScrollButton] = useState(false)
 
   const handleScroll = () => {
     const el = containerRef.current
     if (!el) return
-    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+    atBottomRef.current = isAtBottom
+    setShowScrollButton(!isAtBottom)
+  }
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
   useEffect(() => {
@@ -549,13 +556,24 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
   }
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5"
-    >
-      {elements}
-      <div ref={bottomRef} />
+    <div className="flex-1 relative min-h-0">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5"
+      >
+        {elements}
+        <div ref={bottomRef} />
+      </div>
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-4 right-4 w-10 h-10 bg-gray-800/90 hover:bg-gray-700 border border-gray-700/50 rounded-full flex items-center justify-center shadow-lg transition-colors"
+          aria-label="Scroll to bottom"
+        >
+          <ChevronDown size={20} className="text-white" />
+        </button>
+      )}
     </div>
   )
 }
