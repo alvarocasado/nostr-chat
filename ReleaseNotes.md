@@ -1,5 +1,14 @@
 # Release Notes
 
+## 1.0.0-alpha.11 — 2026-05-13
+
+### Features
+
+#### Scroll-to-Bottom Button
+Floating circular button in the bottom-right corner of the chat that appears when scrolled up and disappears when at the bottom. Tapping scrolls smoothly to the latest message.
+
+---
+
 ## 1.0.0-alpha.10 — 2026-05-12
 
 ### Features
