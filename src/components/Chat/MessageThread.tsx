@@ -522,7 +522,7 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
     el.scrollIntoView({ block: 'center' })
     el.classList.add('message-highlight')
     clearTargetMessage()
-  }, [targetMessageId, clearTargetMessage])
+  }, [targetMessageId, messages.length, clearTargetMessage])
 
   if (messages.length === 0) {
     return (
