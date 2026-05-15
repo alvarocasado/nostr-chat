@@ -141,7 +141,7 @@ export async function fetchEvents(relays: string[], filter: Filter): Promise<Eve
   const p = getPool()
   const events: Event[] = []
   await new Promise<void>(resolve => {
-    const sub = p.subscribeMany(relays, [filter], {
+    const sub = p.subscribeMany(relays, filter, {
       onevent: (e) => events.push(e),
       oneose: () => { sub.close(); resolve() },
     })
