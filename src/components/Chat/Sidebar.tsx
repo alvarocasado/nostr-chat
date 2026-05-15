@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone } from 'lucide-react'
-import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
+import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone } from 'lucide-react'
+import { useNostrStore, type Channel, type Contact, type Message, type ChatType, type Group } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
 import { formatDistanceToNowStrict } from 'date-fns'
@@ -245,15 +245,62 @@ function ContactItem({ contact, isActive, onSelect }: { contact: Contact; isActi
   )
 }
 
+function GroupItem({ group, isActive, onSelect }: { group: Group; isActive: boolean; onSelect: () => void }) {
+  const { setActiveChat } = useNostrStore()
+
+  const hasMention = (group.mentions || 0) > 0
+  const hasUnread = (group.unread || 0) > 0
+
+  return (
+    <div className="group relative">
+      <button
+        onClick={() => { setActiveChat(group.id, 'group'); onSelect() }}
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all text-left ${
+          isActive
+            ? 'bg-gradient-to-br from-violet-500/15 to-purple-700/15 border border-violet-500/40 text-white shadow-[0_0_8px_rgba(124,58,237,0.10)]'
+            : 'hover:bg-white/5 text-gray-300 hover:text-white'
+        }`}
+      >
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+          isActive ? 'bg-gradient-to-br from-violet-500 to-purple-700' : 'bg-gray-800'
+        }`}>
+          <Users size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-1">
+            <span className={`font-medium truncate text-sm ${hasMention ? 'text-white' : ''}`}>{group.name}</span>
+            <span className="text-gray-500 text-xs flex-shrink-0">{formatTime(group.lastMessageAt)}</span>
+          </div>
+          {group.lastMessage ? (
+            <p className="text-xs text-gray-500 truncate mt-0.5">{group.lastMessage}</p>
+          ) : (
+            <p className="text-xs text-gray-600 truncate mt-0.5">{group.memberPubkeys.length} members</p>
+          )}
+        </div>
+        {hasUnread && (
+          <span className={`flex-shrink-0 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center ${
+            hasMention ? 'bg-amber-500' : 'bg-gray-600'
+          }`}>
+            {hasMention ? (group.mentions! > 9 ? '9+' : group.mentions) : (group.unread! > 9 ? '9+' : group.unread)}
+          </span>
+        )}
+      </button>
+      <div className="absolute right-2 top-1/2 -translate-y-1/2">
+        <MuteButton chatId={group.id} />
+      </div>
+    </div>
+  )
+}
+
 const MAX_SEARCH_RESULTS = 50
 
-type SidebarSection = 'search' | 'messages' | 'channels' | 'contacts' | 'settings'
+type SidebarSection = 'search' | 'messages' | 'channels' | 'groups' | 'settings'
 
 const SECTION_LABELS: Record<SidebarSection, string> = {
   search: 'Search',
   messages: 'Messages',
   channels: 'Channels',
-  contacts: 'Contacts',
+  groups: 'Groups',
   settings: 'Settings',
 }
 
@@ -314,12 +361,13 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [dmSearchQuery, setDmSearchQuery] = useState('')
   const [channelSearchQuery, setChannelSearchQuery] = useState('')
+  const [groupSearchQuery, setGroupSearchQuery] = useState('')
 
   const {
-    publicKey, profile, channels, joinedChannelIds, contacts,
+    publicKey, profile, channels, joinedChannelIds, contacts, groups,
     activeChatId, activeChatType, messages, profiles,
     activeSettingsTab, setActiveSettingsTab,
-    setShowAddChannel, setShowAddContact,
+    setShowAddChannel, setShowAddContact, setShowAddGroup,
     logout, relays,
   } = useNostrStore()
 
@@ -336,6 +384,7 @@ export function Sidebar() {
       if (prev !== 'search' && section !== 'search') setSearchQuery('')
       setDmSearchQuery('')
       setChannelSearchQuery('')
+      setGroupSearchQuery('')
       if (prev === section && section === 'settings') setActiveSettingsTab(null)
       if (prev !== section && prev === 'settings') setActiveSettingsTab(null)
       return prev === section ? null : section
@@ -347,6 +396,7 @@ export function Sidebar() {
     setSearchQuery('')
     setDmSearchQuery('')
     setChannelSearchQuery('')
+    setGroupSearchQuery('')
   }
 
   const closePanel = () => {
@@ -432,18 +482,6 @@ export function Sidebar() {
           </>
         )}
       </div>
-    </div>
-  )
-
-  const actionButton = (label: string, onClick: () => void) => (
-    <div className="px-3 pt-3 pb-2 flex-shrink-0">
-      <button
-        onClick={onClick}
-        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold transition-colors"
-      >
-        <Plus size={16} />
-        {label}
-      </button>
     </div>
   )
 
@@ -624,13 +662,44 @@ export function Sidebar() {
     </div>
   )
 
-  const contactsSection = (
+  const filteredGroups = groupSearchQuery.trim()
+    ? groups.filter(g => g.name.toLowerCase().includes(groupSearchQuery.trim().toLowerCase()))
+    : groups
+
+  const groupsSection = (
     <div className="flex flex-col h-full">
-      {actionButton('Add Contact', () => { setShowAddContact(true); closePanel() })}
-      <div className="flex-1 flex items-start justify-center px-6 pt-6">
-        <p className="text-gray-600 text-xs text-center leading-relaxed">
-          Search by public key or Nostr address to start a private conversation.
-        </p>
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2 border border-gray-700 focus-within:border-purple-500/50 transition-colors">
+          <Search size={14} className="text-gray-500 flex-shrink-0" />
+          <input
+            type="text"
+            value={groupSearchQuery}
+            onChange={e => setGroupSearchQuery(e.target.value)}
+            placeholder="Search groups…"
+            className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none min-w-0"
+          />
+          {groupSearchQuery && (
+            <button aria-label="clear" onClick={() => setGroupSearchQuery('')} className="text-gray-500 hover:text-gray-300 flex-shrink-0">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {filteredGroups.length === 0 && groupSearchQuery.trim() ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No groups matching "{groupSearchQuery.trim()}"</p>
+        ) : filteredGroups.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No groups yet. Use the + button above to create one.</p>
+        ) : (
+          filteredGroups.map(g => (
+            <GroupItem
+              key={g.id}
+              group={g}
+              isActive={activeChatId === g.id && activeChatType === 'group'}
+              onSelect={closePanel}
+            />
+          ))
+        )}
       </div>
     </div>
   )
@@ -639,7 +708,7 @@ export function Sidebar() {
     search: searchSection,
     messages: messagesSection,
     channels: channelsSection,
-    contacts: contactsSection,
+    groups: groupsSection,
     settings: (
       <div className="flex flex-col h-full py-2 px-2">
         {(
@@ -706,7 +775,7 @@ export function Sidebar() {
             )}
           </div>
           <NavRailButton icon={<Hash size={18} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
-          <NavRailButton icon={<Users size={18} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
+          <NavRailButton icon={<Users size={18} />}         label="Groups"   active={activeSection === 'groups'}   onClick={() => toggleSection('groups')} />
 
           <div className="flex-1" />
 
@@ -750,6 +819,16 @@ export function Sidebar() {
                     onClick={() => { setShowAddChannel(true); closePanel() }}
                     aria-label="Add / Discover Channels"
                     title="Add / Discover Channels"
+                    className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
+                  >
+                    <SquarePlus size={16} />
+                  </button>
+                )}
+                {activeSection === 'groups' && (
+                  <button
+                    onClick={() => { setShowAddGroup(true); closePanel() }}
+                    aria-label="New Group"
+                    title="New Group"
                     className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
                   >
                     <SquarePlus size={16} />
@@ -820,6 +899,16 @@ export function Sidebar() {
                 <SquarePlus size={16} />
               </button>
             )}
+            {!isDesktop && activeSection === 'groups' && (
+              <button
+                onClick={() => { setShowAddGroup(true); closePanel() }}
+                aria-label="New Group"
+                title="New Group"
+                className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
+              >
+                <SquarePlus size={16} />
+              </button>
+            )}
             <button
               onClick={closePanel}
               className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
@@ -856,7 +945,7 @@ export function Sidebar() {
           onClick={() => toggleSection('messages')}
         />
         <BottomNavButton icon={<Hash size={20} />}          label="Channels" active={activeSection === 'channels'} onClick={() => toggleSection('channels')} />
-        <BottomNavButton icon={<Users size={20} />}         label="Contacts" active={activeSection === 'contacts'} onClick={() => toggleSection('contacts')} />
+        <BottomNavButton icon={<Users size={20} />}         label="Groups"   active={activeSection === 'groups'}   onClick={() => toggleSection('groups')} />
         <BottomNavButton icon={<Settings size={20} />}      label="Settings" active={activeSection === 'settings'} onClick={() => toggleSection('settings')} />
       </div>
     </>
