@@ -9,9 +9,11 @@ import {
   buildDMEvent,
   buildProfileEvent,
   fetchEvent,
+  buildGroupKeyBackupEvent,
   type NostrProfile,
 } from '../lib/nostr'
-import { useNostrStore, type Channel, type Message } from '../store/nostrStore'
+import { useNostrStore, type Channel, type Message, type Group } from '../store/nostrStore'
+import { decryptWithGroupKey } from '../lib/groupCrypto'
 import { fireNotification } from '../lib/notifications'
 import {
   parseTransferPayload,
@@ -220,6 +222,105 @@ export function useChannelDiscovery() {
     )
     return () => sub.close()
   }, [relays.join(',')])
+}
+
+// Hook to subscribe to encrypted group messages
+export function useGroupMessages(groupId: string | null) {
+  const { relays, groupKeys, addMessage, updateGroupLastMessage, setProfile, profiles, publicKey } = useNostrStore()
+  const groupKey = groupId ? groupKeys[groupId] : null
+
+  useEffect(() => {
+    if (!groupId || !groupKey) return
+
+    const sub = subscribeEvents(
+      relays,
+      { kinds: [10042], '#e': [groupId], limit: 200 },
+      async (event) => {
+        try {
+          const plaintext = await decryptWithGroupKey(event.content, groupKey)
+          if (plaintext.length > MAX_CONTENT_LEN) return
+
+          const msg: Message = {
+            id: event.id,
+            pubkey: event.pubkey,
+            content: plaintext,
+            createdAt: event.created_at,
+            tags: event.tags,
+            kind: event.kind,
+          }
+          addMessage(groupId, msg)
+
+          const { publicKey: pk, groups } = useNostrStore.getState()
+          const isMention = !!(pk && plaintext.includes(pk))
+          updateGroupLastMessage(groupId, getPreviewText(plaintext), event.created_at, isMention)
+
+          if (event.pubkey !== pk) {
+            const groupName = groups.find((g: Group) => g.id === groupId)?.name || 'Group'
+            const { profiles: p } = useNostrStore.getState()
+            fireNotification(groupId, 'channel', groupName, `${getDisplayName(p[event.pubkey], event.pubkey)}: ${getPreviewText(plaintext)}`)
+          }
+
+          if (!profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
+            fetchingProfiles.add(event.pubkey)
+            fetchEvent(relays, { kinds: [0], authors: [event.pubkey] })
+              .then(e => { if (e) setProfile(e.pubkey, parseProfile(e)) })
+              .finally(() => fetchingProfiles.delete(event.pubkey))
+          }
+        } catch {
+          // decryption failed — skip
+        }
+      },
+    )
+    return () => sub.close()
+  }, [groupId, groupKey, relays.join(',')])
+}
+
+// Hook to detect incoming group invites from kind-4 DMs addressed to the local user.
+// Mount once at app level (inside App component when logged in).
+export function useGroupInviteListener() {
+  const { relays, publicKey, getPrivateKey, addGroup, setGroupKey } = useNostrStore()
+
+  useEffect(() => {
+    if (!publicKey) return
+    const sk = getPrivateKey()
+    if (!sk) return
+
+    const sub = subscribeEvents(
+      relays,
+      { kinds: [4], '#p': [publicKey], limit: 100 },
+      async (event) => {
+        try {
+          const decrypted = await decryptDM(sk, event.pubkey, event.content)
+          const payload = JSON.parse(decrypted) as { type?: string; groupId?: string; groupKeyHex?: string; groupName?: string }
+          if (payload?.type !== 'group_invite') return
+          const { groupId, groupKeyHex, groupName } = payload
+          if (!groupId || !groupKeyHex || !groupName) return
+          if (useNostrStore.getState().groups.find((g: Group) => g.id === groupId)) return
+
+          addGroup({
+            id: groupId,
+            name: groupName,
+            creatorPubkey: event.pubkey,
+            memberPubkeys: [publicKey],
+            relayUrl: relays[0],
+            lastMessage: 'Joined via invite',
+            lastMessageAt: event.created_at,
+          })
+          setGroupKey(groupId, groupKeyHex)
+
+          // Publish own key backup so cross-device recovery works
+          const mySk = useNostrStore.getState().getPrivateKey()
+          if (mySk) {
+            const backup = await buildGroupKeyBackupEvent(mySk, groupId, groupKeyHex)
+            publishEvent(relays, backup).catch(() => {})
+          }
+        } catch {
+          // not a group invite or decryption failed
+        }
+      },
+    )
+    return () => sub.close()
+  }, [publicKey, relays.join(',')])
 }
 
 // ─── File transfer helpers ───────────────────────────────────────────────────
