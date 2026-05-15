@@ -539,12 +539,30 @@ export function Sidebar() {
   )
 
   const filteredChannels = channelSearchQuery.trim()
-    ? joinedChannels.filter(ch => {
-        const q = channelSearchQuery.trim().toLowerCase()
-        if (ch.name.toLowerCase().includes(q)) return true
-        return (messages[ch.id] || []).some(m => m.content.toLowerCase().includes(q))
-      })
+    ? joinedChannels.filter(ch =>
+        ch.name.toLowerCase().includes(channelSearchQuery.trim().toLowerCase())
+      )
     : joinedChannels
+
+  const channelMessageResults = useMemo(() => {
+    const q = channelSearchQuery.trim().toLowerCase()
+    if (q.length < 2) return []
+    const results: SearchResult[] = []
+    for (const ch of joinedChannels) {
+      const msgs = messages[ch.id] || []
+      for (const msg of msgs) {
+        if (!msg.content.toLowerCase().includes(q)) continue
+        results.push({
+          chatId: ch.id,
+          chatType: 'channel',
+          chatName: ch.name,
+          message: msg,
+          senderName: getDisplayName(profiles[msg.pubkey], msg.pubkey),
+        })
+      }
+    }
+    return results.sort((a, b) => b.message.createdAt - a.message.createdAt).slice(0, 20)
+  }, [channelSearchQuery, joinedChannels, messages, profiles])
 
   const channelsSection = (
     <div className="flex flex-col h-full">
@@ -570,6 +588,9 @@ export function Sidebar() {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {channelSearchQuery.trim().length >= 2 && (
+          <p className="text-gray-600 text-[10px] uppercase tracking-wide px-2 py-1">Channels</p>
+        )}
         {filteredChannels.length === 0 && channelSearchQuery.trim() ? (
           <p className="text-gray-500 text-xs text-center px-4 py-6">No channels matching "{channelSearchQuery.trim()}"</p>
         ) : filteredChannels.length === 0 ? (
@@ -583,6 +604,21 @@ export function Sidebar() {
               onSelect={closePanel}
             />
           ))
+        )}
+        {channelMessageResults.length > 0 && (
+          <>
+            <div className="h-px bg-gray-800 my-1 mx-2" />
+            <p className="text-gray-600 text-[10px] uppercase tracking-wide px-2 py-1">Messages · {channelMessageResults.length}</p>
+            {channelMessageResults.map(result => (
+              <SearchResultItem
+                key={result.message.id}
+                result={result}
+                query={channelSearchQuery.trim()}
+                onSelect={closePanel}
+                targetMessageId={result.message.id}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>

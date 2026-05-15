@@ -140,6 +140,20 @@ describe('Sidebar — Channels panel scoped search', () => {
     await user.click(screen.getByRole('button', { name: 'Add / Discover Channels' }))
     expect(useNostrStore.getState().setShowAddChannel).toHaveBeenCalled()
   })
+
+  it('shows message results when query matches channel message content', async () => {
+    useNostrStore.setState({
+      messages: {
+        ch1: [{ id: 'cmsg1', pubkey: 'testpubkey', content: 'hello world', createdAt: 1000, status: 'sent', chatId: 'ch1' }],
+      },
+    })
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    await openPanel('Channels')
+    await user.type(screen.getByPlaceholderText('Search channels…'), 'hello')
+    expect(screen.getByText(/Messages ·/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /hello world/i })).toBeInTheDocument()
+  })
 })
 
 describe('SearchResultItem — jumpToMessage', () => {
