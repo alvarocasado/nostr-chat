@@ -1,6 +1,6 @@
 import { finalizeEvent, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
-import { fetchEvent, publishEvent } from './nostr'
+import { fetchEvent, fetchEvents, publishEvent } from './nostr'
 import type { Contact, NotificationSettings } from '../store/nostrStore'
 
 // ── Kind 3 – NIP-02 contact list ─────────────────────────────────────────────
@@ -132,6 +132,27 @@ export async function publishAppSettings(
   await publishEvent(relays, await buildAppSettingsEvent(sk, pubkey, settings))
 }
 
+// ── Kind 30041 – self-encrypted group key backups ─────────────────────────────
+
+export async function fetchGroupKeys(
+  relays: string[],
+  sk: Uint8Array,
+  pubkey: string,
+): Promise<Record<string, string>> {
+  const events = await fetchEvents(relays, { kinds: [30041], authors: [pubkey] })
+  const keys: Record<string, string> = {}
+  for (const event of events) {
+    const groupId = event.tags.find(t => t[0] === 'd')?.[1]
+    if (!groupId) continue
+    try {
+      keys[groupId] = await nip04.decrypt(sk, pubkey, event.content)
+    } catch {
+      // corrupt or unrecognised — skip
+    }
+  }
+  return keys
+}
+
 // ── Debounce ──────────────────────────────────────────────────────────────────
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -147,6 +168,7 @@ export interface SyncResult {
   contacts: { pubkeys: string[]; createdAt: number } | null
   channels: { channelIds: string[]; createdAt: number } | null
   settings: { settings: SyncedSettings; createdAt: number } | null
+  groupKeys: Record<string, string>
 }
 
 export async function syncFromRelays(
@@ -154,14 +176,16 @@ export async function syncFromRelays(
   pubkey: string,
   relays: string[],
 ): Promise<SyncResult> {
-  const [contacts, channels, settings] = await Promise.allSettled([
+  const [contacts, channels, settings, groupKeysResult] = await Promise.allSettled([
     fetchContactList(relays, pubkey),
     fetchChannelBookmarks(relays, pubkey),
     fetchAppSettings(relays, sk, pubkey),
+    fetchGroupKeys(relays, sk, pubkey),
   ])
   return {
     contacts: contacts.status === 'fulfilled' ? contacts.value : null,
     channels: channels.status === 'fulfilled' ? channels.value : null,
     settings: settings.status === 'fulfilled' ? settings.value : null,
+    groupKeys: groupKeysResult.status === 'fulfilled' ? groupKeysResult.value : {},
   }
 }
