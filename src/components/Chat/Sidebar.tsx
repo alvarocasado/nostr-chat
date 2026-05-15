@@ -38,11 +38,15 @@ interface SearchResult {
   senderName: string
 }
 
-function SearchResultItem({ result, query, onSelect }: { result: SearchResult; query: string; onSelect: () => void }) {
-  const { setActiveChat } = useNostrStore()
+function SearchResultItem({ result, query, onSelect, targetMessageId }: { result: SearchResult; query: string; onSelect: () => void; targetMessageId?: string }) {
+  const { setActiveChat, jumpToMessage } = useNostrStore()
 
   const handleClick = () => {
-    setActiveChat(result.chatId, result.chatType)
+    if (targetMessageId) {
+      jumpToMessage(result.chatId, result.chatType, targetMessageId)
+    } else {
+      setActiveChat(result.chatId, result.chatType)
+    }
     onSelect()
   }
 
@@ -445,8 +449,10 @@ export function Sidebar() {
 
   const filteredContacts = dmSearchQuery.trim()
     ? contacts.filter(c => {
+        const q = dmSearchQuery.trim().toLowerCase()
         const p = c.profile || profiles[c.pubkey]
-        return getDisplayName(p, c.pubkey, 10).toLowerCase().includes(dmSearchQuery.trim().toLowerCase())
+        if (getDisplayName(p, c.pubkey, 10).toLowerCase().includes(q)) return true
+        return (messages[c.pubkey] || []).some(m => m.content.toLowerCase().includes(q))
       })
     : contacts
 
@@ -493,9 +499,11 @@ export function Sidebar() {
   )
 
   const filteredChannels = channelSearchQuery.trim()
-    ? joinedChannels.filter(ch =>
-        ch.name.toLowerCase().includes(channelSearchQuery.trim().toLowerCase())
-      )
+    ? joinedChannels.filter(ch => {
+        const q = channelSearchQuery.trim().toLowerCase()
+        if (ch.name.toLowerCase().includes(q)) return true
+        return (messages[ch.id] || []).some(m => m.content.toLowerCase().includes(q))
+      })
     : joinedChannels
 
   const channelsSection = (

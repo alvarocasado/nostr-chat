@@ -49,6 +49,9 @@ beforeEach(() => {
     muteChatUntil: vi.fn(),
     unmuteChat: vi.fn(),
     setViewingProfilePubkey: vi.fn(),
+    jumpToMessage: vi.fn(),
+    clearTargetMessage: vi.fn(),
+    targetMessageId: null,
   })
 })
 
@@ -136,5 +139,27 @@ describe('Sidebar — Channels panel scoped search', () => {
     await openPanel('Channels')
     await user.click(screen.getByRole('button', { name: 'Add / Discover Channels' }))
     expect(useNostrStore.getState().setShowAddChannel).toHaveBeenCalled()
+  })
+})
+
+describe('SearchResultItem — jumpToMessage', () => {
+  beforeEach(() => {
+    useNostrStore.setState({
+      jumpToMessage: vi.fn(),
+      clearTargetMessage: vi.fn(),
+      messages: {
+        aaa: [{ id: 'msg1', pubkey: 'aaa', content: 'hello world', createdAt: 1000, status: 'sent', chatId: 'aaa' }],
+      },
+    })
+  })
+
+  it('calls jumpToMessage when a message result row is clicked', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar />)
+    await openPanel('Messages')
+    await user.type(screen.getByPlaceholderText('Search conversations…'), 'hello')
+    const resultBtn = screen.getByRole('button', { name: /hello world/i })
+    await user.click(resultBtn)
+    expect(useNostrStore.getState().jumpToMessage).toHaveBeenCalledWith('aaa', 'dm', 'msg1')
   })
 })
