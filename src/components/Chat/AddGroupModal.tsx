@@ -34,7 +34,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
         if (decoded.type !== 'npub') { setError('Invalid npub'); return }
         pubkey = decoded.data as string
       } catch { setError('Invalid npub format'); return }
-    } else if (!/^[0-9a-f]{64}$/.test(input)) {
+    } else if (!/^[0-9a-fA-F]{64}$/.test(input)) {
       setError('Enter a valid npub or 64-char hex pubkey')
       return
     }
@@ -95,7 +95,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
             <label className="block text-sm font-medium text-gray-300 mb-1.5">Group name *</label>
             <input
               value={name}
-              onChange={e => setName(e.target.value)}
+              onChange={e => { setName(e.target.value); setError('') }}
               placeholder="e.g. Team Alpha"
               className="w-full bg-gray-800 border border-gray-700 focus:border-purple-500/60 rounded-xl px-3 py-2.5 text-white text-sm outline-none transition-colors"
             />
@@ -104,7 +104,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
             <label className="block text-sm font-medium text-gray-300 mb-1.5">Description</label>
             <input
               value={about}
-              onChange={e => setAbout(e.target.value)}
+              onChange={e => { setAbout(e.target.value); setError('') }}
               placeholder="Optional"
               className="w-full bg-gray-800 border border-gray-700 focus:border-purple-500/60 rounded-xl px-3 py-2.5 text-white text-sm outline-none transition-colors"
             />
