@@ -7,12 +7,14 @@ import { MessageThread } from './components/Chat/MessageThread'
 import { SettingsScreen } from './components/Settings/SettingsScreen'
 import { AddChannelModal } from './components/Chat/AddChannelModal'
 import { AddContactModal } from './components/Chat/AddContactModal'
+import { AddGroupModal } from './components/Chat/AddGroupModal'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, openUserDb, evictOldMessages } from './lib/userDb'
+import { useGroupInviteListener } from './hooks/useNostrSubscriptions'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -62,7 +64,10 @@ function App() {
     activeSettingsTab, setActiveSettingsTab,
     showAddChannel, setShowAddChannel,
     showAddContact, setShowAddContact,
+    showAddGroup, setShowAddGroup,
   } = useNostrStore()
+
+  useGroupInviteListener()
 
   const openCallSettings = useCallback(() => {
     setActiveSettingsTab('calls')
@@ -118,6 +123,9 @@ await evictOldMessages()
             initialNpub={contactLinkNpub ?? undefined}
             onClose={() => { setShowAddContact(false); setContactLinkNpub(null) }}
           />
+        )}
+        {showAddGroup && (
+          <AddGroupModal onClose={() => setShowAddGroup(false)} />
         )}
         <UpdatePrompt />
       </div>
