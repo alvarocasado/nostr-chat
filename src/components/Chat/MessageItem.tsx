@@ -269,7 +269,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
 
   if (isOwn) {
     return (
-      <div ref={rowRef} className="flex flex-col items-end gap-1 group">
+      <div ref={rowRef} data-message-id={message.id} className="flex flex-col items-end gap-1 group">
         <div className="flex items-end gap-2 max-w-[85%]">
           <StatusIndicator status={message.status} onRetry={onRetry} msgId={message.id} />
           <span className="text-gray-700 text-xs mb-1">
@@ -291,7 +291,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
   }
 
   return (
-    <div ref={rowRef} className="flex items-end gap-2 group">
+    <div ref={rowRef} data-message-id={message.id} className="flex items-end gap-2 group">
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
           <div className="p-[1.5px] bg-gradient-to-br from-violet-500 to-cyan-400 rounded-full">
