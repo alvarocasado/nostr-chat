@@ -160,6 +160,11 @@ interface NostrState {
   setActiveChat: (id: string, type: ChatType) => void
   clearActiveChat: () => void
 
+  targetMessageId: string | null
+
+  jumpToMessage: (chatId: string, type: ChatType, messageId: string) => void
+  clearTargetMessage: () => void
+
   addMessage: (chatId: string, message: Message) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
@@ -364,6 +369,7 @@ export const useNostrStore = create<NostrState>()(
         contacts: [],
         activeChatId: null,
         activeChatType: null,
+        targetMessageId: null,
         messages: {},
         profiles: {},
         sidebarTab: 'channels',
@@ -509,6 +515,13 @@ export const useNostrStore = create<NostrState>()(
         clearActiveChat: () => {
           set({ activeChatId: null, activeChatType: null })
         },
+
+        jumpToMessage: (chatId, type, messageId) => {
+          get().setActiveChat(chatId, type)
+          set({ targetMessageId: messageId })
+        },
+
+        clearTargetMessage: () => set({ targetMessageId: null }),
 
         addMessage: (chatId, message) => {
           const existing = get().messages[chatId] || []

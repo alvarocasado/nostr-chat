@@ -328,3 +328,23 @@ describe('triggerSettingsSync', () => {
     expect(() => state.triggerSettingsSync()).not.toThrow()
   })
 })
+
+describe('jumpToMessage / clearTargetMessage', () => {
+  beforeEach(() => {
+    useNostrStore.setState({ activeChatId: null, activeChatType: null, targetMessageId: null })
+  })
+
+  it('jumpToMessage sets activeChatId, activeChatType, and targetMessageId', () => {
+    useNostrStore.getState().jumpToMessage('aaa', 'dm', 'msg-42')
+    const s = useNostrStore.getState()
+    expect(s.activeChatId).toBe('aaa')
+    expect(s.activeChatType).toBe('dm')
+    expect(s.targetMessageId).toBe('msg-42')
+  })
+
+  it('clearTargetMessage sets targetMessageId to null', () => {
+    useNostrStore.setState({ targetMessageId: 'msg-42' })
+    useNostrStore.getState().clearTargetMessage()
+    expect(useNostrStore.getState().targetMessageId).toBeNull()
+  })
+})
