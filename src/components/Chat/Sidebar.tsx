@@ -449,12 +449,31 @@ export function Sidebar() {
 
   const filteredContacts = dmSearchQuery.trim()
     ? contacts.filter(c => {
-        const q = dmSearchQuery.trim().toLowerCase()
         const p = c.profile || profiles[c.pubkey]
-        if (getDisplayName(p, c.pubkey, 10).toLowerCase().includes(q)) return true
-        return (messages[c.pubkey] || []).some(m => m.content.toLowerCase().includes(q))
+        return getDisplayName(p, c.pubkey, 10).toLowerCase().includes(dmSearchQuery.trim().toLowerCase())
       })
     : contacts
+
+  const dmMessageResults = useMemo(() => {
+    const q = dmSearchQuery.trim().toLowerCase()
+    if (q.length < 2) return []
+    const results: SearchResult[] = []
+    for (const contact of contacts) {
+      const msgs = messages[contact.pubkey] || []
+      for (const msg of msgs) {
+        if (!msg.content.toLowerCase().includes(q)) continue
+        const p = contact.profile || profiles[contact.pubkey]
+        results.push({
+          chatId: contact.pubkey,
+          chatType: 'dm',
+          chatName: getDisplayName(p, contact.pubkey, 10),
+          message: msg,
+          senderName: getDisplayName(profiles[msg.pubkey] || p, msg.pubkey),
+        })
+      }
+    }
+    return results.sort((a, b) => b.message.createdAt - a.message.createdAt).slice(0, 20)
+  }, [dmSearchQuery, contacts, messages, profiles])
 
   const messagesSection = (
     <div className="flex flex-col h-full">
@@ -480,6 +499,9 @@ export function Sidebar() {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {dmSearchQuery.trim().length >= 2 && (
+          <p className="text-gray-600 text-[10px] uppercase tracking-wide px-2 py-1">Conversations</p>
+        )}
         {filteredContacts.length === 0 && dmSearchQuery.trim() ? (
           <p className="text-gray-500 text-xs text-center px-4 py-6">No conversations matching "{dmSearchQuery.trim()}"</p>
         ) : filteredContacts.length === 0 ? (
@@ -493,6 +515,21 @@ export function Sidebar() {
               onSelect={closePanel}
             />
           ))
+        )}
+        {dmMessageResults.length > 0 && (
+          <>
+            <div className="h-px bg-gray-800 my-1 mx-2" />
+            <p className="text-gray-600 text-[10px] uppercase tracking-wide px-2 py-1">Messages · {dmMessageResults.length}</p>
+            {dmMessageResults.map(result => (
+              <SearchResultItem
+                key={result.message.id}
+                result={result}
+                query={dmSearchQuery.trim()}
+                onSelect={closePanel}
+                targetMessageId={result.message.id}
+              />
+            ))}
+          </>
         )}
       </div>
     </div>
