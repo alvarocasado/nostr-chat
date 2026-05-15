@@ -463,17 +463,20 @@ export function Sidebar() {
       for (const msg of msgs) {
         if (!msg.content.toLowerCase().includes(q)) continue
         const p = contact.profile || profiles[contact.pubkey]
+        const sp = msg.pubkey === publicKey
+          ? (profile || profiles[publicKey || ''])
+          : (profiles[msg.pubkey] || p)
         results.push({
           chatId: contact.pubkey,
           chatType: 'dm',
           chatName: getDisplayName(p, contact.pubkey, 10),
           message: msg,
-          senderName: getDisplayName(profiles[msg.pubkey] || p, msg.pubkey),
+          senderName: getDisplayName(sp, msg.pubkey),
         })
       }
     }
     return results.sort((a, b) => b.message.createdAt - a.message.createdAt).slice(0, 20)
-  }, [dmSearchQuery, contacts, messages, profiles])
+  }, [dmSearchQuery, contacts, messages, profiles, publicKey, profile])
 
   const messagesSection = (
     <div className="flex flex-col h-full">
