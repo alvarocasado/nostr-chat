@@ -913,7 +913,7 @@ function GroupThread({ groupId }: { groupId: string }) {
           <MessageInput
             chatId={groupId}
             onSend={handleSend}
-            onSendChunked={async () => {}}
+            onSendChunked={async () => { throw new Error('File attachments are not yet supported in groups.') }}
             onTyping={() => {}}
             placeholder="Message group…"
             replyTo={replyTo}

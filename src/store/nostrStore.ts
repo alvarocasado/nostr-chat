@@ -465,6 +465,8 @@ export const useNostrStore = create<NostrState>()(
             activeChatId: null,
             activeChatType: null,
             messages: {},
+            groups: [],
+            groupKeys: {},
           })
           closeUserDb()
           clearActivePubkey()

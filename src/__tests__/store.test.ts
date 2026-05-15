@@ -68,6 +68,20 @@ describe('logout', () => {
     expect(state.privateKeyHex).toBeNull()
     expect(state.messages).toEqual({})
   })
+
+  it('clears groups and groupKeys on logout', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    useNostrStore.setState({
+      groups: [{ id: 'g1', name: 'Secret', creatorPubkey: 'pk', memberPubkeys: ['pk'], relayUrl: 'wss://r.com' }],
+      groupKeys: { g1: 'deadbeef' },
+    })
+
+    useNostrStore.getState().logout()
+    const state = useNostrStore.getState()
+
+    expect(state.groups).toEqual([])
+    expect(state.groupKeys).toEqual({})
+  })
 })
 
 describe('relay management', () => {

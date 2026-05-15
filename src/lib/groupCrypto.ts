@@ -11,7 +11,12 @@ export async function encryptWithGroupKey(plaintext: string, keyHex: string): Pr
   const combined = new Uint8Array(12 + ciphertext.byteLength)
   combined.set(iv)
   combined.set(new Uint8Array(ciphertext), 12)
-  return btoa(String.fromCharCode(...combined))
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < combined.length; i += chunkSize) {
+    binary += String.fromCharCode(...combined.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
 }
 
 export async function decryptWithGroupKey(ciphertext: string, keyHex: string): Promise<string> {
