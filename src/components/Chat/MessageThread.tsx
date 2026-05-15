@@ -517,11 +517,15 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
 
   useEffect(() => {
     if (!targetMessageId) return
-    const el = containerRef.current?.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
-    if (!el) return
-    el.scrollIntoView({ block: 'center' })
-    el.classList.add('message-highlight')
-    clearTargetMessage()
+    const tryScroll = () => {
+      const el = containerRef.current?.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
+      if (!el) return
+      el.scrollIntoView({ block: 'center' })
+      el.classList.add('message-highlight')
+      el.addEventListener('animationend', () => el.classList.remove('message-highlight'), { once: true })
+      clearTargetMessage()
+    }
+    requestAnimationFrame(tryScroll)
   }, [targetMessageId, messages.length, clearTargetMessage])
 
   if (messages.length === 0) {
