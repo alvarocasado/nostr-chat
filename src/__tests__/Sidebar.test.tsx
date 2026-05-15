@@ -34,8 +34,8 @@ beforeEach(() => {
     activeChatType: null,
     messages: {},
     profiles: {
-      aaa: { name: 'Alice', picture: undefined, about: undefined, nip05: undefined },
-      bbb: { name: 'Bob',   picture: undefined, about: undefined, nip05: undefined },
+      aaa: { name: 'Alice', picture: undefined, about: undefined, nip05: undefined, pubkey: 'aaa' },
+      bbb: { name: 'Bob',   picture: undefined, about: undefined, nip05: undefined, pubkey: 'bbb' },
     },
     relays: [],
     mutedChats: {},
@@ -103,8 +103,8 @@ describe('Sidebar — Channels panel scoped search', () => {
   beforeEach(() => {
     useNostrStore.setState({
       channels: [
-        { id: 'ch1', name: 'General', lastMessage: '', lastMessageAt: 1000, unread: 0, mentions: 0 },
-        { id: 'ch2', name: 'Random',  lastMessage: '', lastMessageAt: 900,  unread: 0, mentions: 0 },
+        { id: 'ch1', name: 'General', lastMessage: '', lastMessageAt: 1000, unread: 0, mentions: 0, creatorPubkey: '', relayUrl: '' },
+        { id: 'ch2', name: 'Random',  lastMessage: '', lastMessageAt: 900,  unread: 0, mentions: 0, creatorPubkey: '', relayUrl: '' },
       ],
       joinedChannelIds: ['ch1', 'ch2'],
     })
@@ -144,7 +144,7 @@ describe('Sidebar — Channels panel scoped search', () => {
   it('shows message results when query matches channel message content', async () => {
     useNostrStore.setState({
       messages: {
-        ch1: [{ id: 'cmsg1', pubkey: 'testpubkey', content: 'hello world', createdAt: 1000, status: 'sent', chatId: 'ch1' }],
+        ch1: [{ id: 'cmsg1', pubkey: 'testpubkey', content: 'hello world', createdAt: 1000, status: 'sent', tags: [], kind: 42 }],
       },
     })
     const user = userEvent.setup()
@@ -162,7 +162,7 @@ describe('SearchResultItem — jumpToMessage', () => {
       jumpToMessage: vi.fn(),
       clearTargetMessage: vi.fn(),
       messages: {
-        aaa: [{ id: 'msg1', pubkey: 'aaa', content: 'hello world', createdAt: 1000, status: 'sent', chatId: 'aaa' }],
+        aaa: [{ id: 'msg1', pubkey: 'aaa', content: 'hello world', createdAt: 1000, status: 'sent', tags: [], kind: 4 }],
       },
     })
   })
