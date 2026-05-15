@@ -330,6 +330,8 @@ export function Sidebar() {
   const toggleSection = (section: SidebarSection) => {
     setActiveSection(prev => {
       if (prev !== 'search' && section !== 'search') setSearchQuery('')
+      setDmSearchQuery('')
+      setChannelSearchQuery('')
       if (prev === section && section === 'settings') setActiveSettingsTab(null)
       if (prev !== section && prev === 'settings') setActiveSettingsTab(null)
       return prev === section ? null : section
@@ -523,7 +525,7 @@ export function Sidebar() {
         {filteredChannels.length === 0 && channelSearchQuery.trim() ? (
           <p className="text-gray-500 text-xs text-center px-4 py-6">No channels matching "{channelSearchQuery.trim()}"</p>
         ) : filteredChannels.length === 0 ? (
-          <p className="text-gray-500 text-xs text-center px-4 py-6">No channels yet. Discover or create one above.</p>
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No channels yet. Use the + button above to discover or create one.</p>
         ) : (
           filteredChannels.map(ch => (
             <ChannelItem
