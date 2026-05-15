@@ -22,6 +22,22 @@ Object.assign(navigator, {
   share: vi.fn().mockResolvedValue(undefined),
 })
 
+// Make jsdom behave as a desktop viewport so CSS-based show/hide (md:flex, md:hidden)
+// renders only the desktop Sidebar layout in tests.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({
+    matches: query.includes('min-width'),
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }),
+})
+
 // Silence nostr-tools WebSocket noise in tests
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()

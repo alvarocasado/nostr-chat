@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Hash, MessageCircle, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone } from 'lucide-react'
+import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, Plus, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
@@ -303,8 +303,13 @@ function BottomNavButton({
 }
 
 export function Sidebar() {
+  const [isDesktop] = useState(() =>
+    typeof window !== 'undefined' && !!window.matchMedia?.('(min-width: 768px)').matches
+  )
   const [activeSection, setActiveSection] = useState<SidebarSection | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [dmSearchQuery, setDmSearchQuery] = useState('')
+  const [channelSearchQuery, setChannelSearchQuery] = useState('')
 
   const {
     publicKey, profile, channels, joinedChannelIds, contacts,
@@ -334,6 +339,8 @@ export function Sidebar() {
   const closePanelOnly = () => {
     setActiveSection(null)
     setSearchQuery('')
+    setDmSearchQuery('')
+    setChannelSearchQuery('')
   }
 
   const closePanel = () => {
@@ -434,40 +441,99 @@ export function Sidebar() {
     </div>
   )
 
+  const filteredContacts = dmSearchQuery.trim()
+    ? contacts.filter(c => {
+        const p = c.profile || profiles[c.pubkey]
+        return getDisplayName(p, c.pubkey, 10).toLowerCase().includes(dmSearchQuery.trim().toLowerCase())
+      })
+    : contacts
+
   const messagesSection = (
     <div className="flex flex-col h-full">
-      {actionButton('New Message', () => { setShowAddContact(true); closePanel() })}
-      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
-        {contacts.length === 0 && (
-          <p className="text-gray-500 text-xs text-center px-4 py-6">No conversations yet.</p>
-        )}
-        {contacts.map(c => (
-          <ContactItem
-            key={c.pubkey}
-            contact={c}
-            isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
-            onSelect={closePanel}
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2 border border-gray-700 focus-within:border-purple-500/50 transition-colors">
+          <Search size={14} className="text-gray-500 flex-shrink-0" />
+          <input
+            type="text"
+            value={dmSearchQuery}
+            onChange={e => setDmSearchQuery(e.target.value)}
+            placeholder="Search conversations…"
+            className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none min-w-0"
           />
-        ))}
+          {dmSearchQuery && (
+            <button
+              aria-label="clear"
+              onClick={() => setDmSearchQuery('')}
+              className="text-gray-500 hover:text-gray-300 flex-shrink-0"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {filteredContacts.length === 0 && dmSearchQuery.trim() ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No conversations matching "{dmSearchQuery.trim()}"</p>
+        ) : filteredContacts.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No conversations yet.</p>
+        ) : (
+          filteredContacts.map(c => (
+            <ContactItem
+              key={c.pubkey}
+              contact={c}
+              isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
+              onSelect={closePanel}
+            />
+          ))
+        )}
       </div>
     </div>
   )
 
+  const filteredChannels = channelSearchQuery.trim()
+    ? joinedChannels.filter(ch =>
+        ch.name.toLowerCase().includes(channelSearchQuery.trim().toLowerCase())
+      )
+    : joinedChannels
+
   const channelsSection = (
     <div className="flex flex-col h-full">
-      {actionButton('Add / Discover Channels', () => { setShowAddChannel(true); closePanel() })}
-      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
-        {joinedChannels.length === 0 && (
-          <p className="text-gray-500 text-xs text-center px-4 py-6">No channels yet. Discover or create one above.</p>
-        )}
-        {joinedChannels.map(ch => (
-          <ChannelItem
-            key={ch.id}
-            channel={ch}
-            isActive={activeChatId === ch.id && activeChatType === 'channel'}
-            onSelect={closePanel}
+      <div className="px-3 pt-3 pb-2 flex-shrink-0">
+        <div className="flex items-center gap-2 bg-gray-800 rounded-xl px-3 py-2 border border-gray-700 focus-within:border-purple-500/50 transition-colors">
+          <Search size={14} className="text-gray-500 flex-shrink-0" />
+          <input
+            type="text"
+            value={channelSearchQuery}
+            onChange={e => setChannelSearchQuery(e.target.value)}
+            placeholder="Search channels…"
+            className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none min-w-0"
           />
-        ))}
+          {channelSearchQuery && (
+            <button
+              aria-label="clear"
+              onClick={() => setChannelSearchQuery('')}
+              className="text-gray-500 hover:text-gray-300 flex-shrink-0"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {filteredChannels.length === 0 && channelSearchQuery.trim() ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No channels matching "{channelSearchQuery.trim()}"</p>
+        ) : filteredChannels.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center px-4 py-6">No channels yet. Discover or create one above.</p>
+        ) : (
+          filteredChannels.map(ch => (
+            <ChannelItem
+              key={ch.id}
+              channel={ch}
+              isActive={activeChatId === ch.id && activeChatType === 'channel'}
+              onSelect={closePanel}
+            />
+          ))
+        )}
       </div>
     </div>
   )
@@ -582,17 +648,38 @@ export function Sidebar() {
               <h2 className="font-bold text-white text-base">
                 {activeSection ? SECTION_LABELS[activeSection] : ''}
               </h2>
-              <button
-                onClick={closePanel}
-                className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-                aria-label="Close"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                {activeSection === 'messages' && (
+                  <button
+                    onClick={() => { setShowAddContact(true); closePanel() }}
+                    aria-label="New Message"
+                    title="New Message"
+                    className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
+                  >
+                    <MessageCirclePlus size={16} />
+                  </button>
+                )}
+                {activeSection === 'channels' && (
+                  <button
+                    onClick={() => { setShowAddChannel(true); closePanel() }}
+                    aria-label="Add / Discover Channels"
+                    title="Add / Discover Channels"
+                    className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
+                  >
+                    <SquarePlus size={16} />
+                  </button>
+                )}
+                <button
+                  onClick={closePanel}
+                  className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
-            {/* Panel body */}
             <div className="flex-1 overflow-hidden">
-              {activeSection && sectionBody[activeSection]}
+              {isDesktop && activeSection && sectionBody[activeSection]}
             </div>
           </div>
         </div>
@@ -626,18 +713,39 @@ export function Sidebar() {
           <h2 className="font-bold text-white text-base">
             {activeSection ? SECTION_LABELS[activeSection] : ''}
           </h2>
-          <button
-            onClick={closePanel}
-            className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1">
+            {!isDesktop && activeSection === 'messages' && (
+              <button
+                onClick={() => { setShowAddContact(true); closePanel() }}
+                aria-label="New Message"
+                title="New Message"
+                className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
+              >
+                <MessageCirclePlus size={16} />
+              </button>
+            )}
+            {!isDesktop && activeSection === 'channels' && (
+              <button
+                onClick={() => { setShowAddChannel(true); closePanel() }}
+                aria-label="Add / Discover Channels"
+                title="Add / Discover Channels"
+                className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/[0.08] transition-colors"
+              >
+                <SquarePlus size={16} />
+              </button>
+            )}
+            <button
+              onClick={closePanel}
+              className="p-1.5 text-gray-500 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
-        {/* Sheet body */}
         <div className="flex-1 overflow-hidden">
-          {activeSection && sectionBody[activeSection]}
+          {!isDesktop && activeSection && sectionBody[activeSection]}
         </div>
 
       </div>
