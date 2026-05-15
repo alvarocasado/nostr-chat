@@ -470,19 +470,21 @@ function DateSeparator({ date }: { date: Date }) {
 
 const NEAR_BOTTOM_PX = 120
 
-function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp }: {
+function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
   onReply: (msg: Message) => void
   onRetry: (msgId: string) => void
   dividerTimestamp?: number
+  targetMessageId?: string
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const dividerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(false)
   const atBottomRef = useRef(true)
+  const { clearTargetMessage } = useNostrStore()
   const [showScrollButton, setShowScrollButton] = useState(false)
 
   const handleScroll = () => {
@@ -512,6 +514,15 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages.length])
+
+  useEffect(() => {
+    if (!targetMessageId) return
+    const el = containerRef.current?.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
+    if (!el) return
+    el.scrollIntoView({ block: 'center' })
+    el.classList.add('message-highlight')
+    clearTargetMessage()
+  }, [targetMessageId, clearTargetMessage])
 
   if (messages.length === 0) {
     return (
@@ -579,7 +590,7 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -662,7 +673,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
+          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
@@ -672,7 +683,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -756,7 +767,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
+          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
