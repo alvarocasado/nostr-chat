@@ -13,6 +13,8 @@ beforeEach(() => {
     channels: [],
     joinedChannelIds: [],
     contacts: [],
+    groups: [],          // add
+    groupKeys: {},       // add
     activeChatId: null,
     activeChatType: null,
     messages: {},
@@ -65,6 +67,20 @@ describe('logout', () => {
     expect(state.publicKey).toBeNull()
     expect(state.privateKeyHex).toBeNull()
     expect(state.messages).toEqual({})
+  })
+
+  it('clears groups and groupKeys on logout', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    useNostrStore.setState({
+      groups: [{ id: 'g1', name: 'Secret', creatorPubkey: 'pk', memberPubkeys: ['pk'], relayUrl: 'wss://r.com' }],
+      groupKeys: { g1: 'deadbeef' },
+    })
+
+    useNostrStore.getState().logout()
+    const state = useNostrStore.getState()
+
+    expect(state.groups).toEqual([])
+    expect(state.groupKeys).toEqual({})
   })
 })
 
@@ -326,5 +342,74 @@ describe('triggerSettingsSync', () => {
     const state = useNostrStore.getState()
     expect(typeof state.triggerSettingsSync).toBe('function')
     expect(() => state.triggerSettingsSync()).not.toThrow()
+  })
+})
+
+describe('jumpToMessage / clearTargetMessage', () => {
+  beforeEach(() => {
+    useNostrStore.setState({ activeChatId: null, activeChatType: null, targetMessageId: null })
+  })
+
+  it('jumpToMessage sets activeChatId, activeChatType, and targetMessageId', () => {
+    useNostrStore.getState().jumpToMessage('aaa', 'dm', 'msg-42')
+    const s = useNostrStore.getState()
+    expect(s.activeChatId).toBe('aaa')
+    expect(s.activeChatType).toBe('dm')
+    expect(s.targetMessageId).toBe('msg-42')
+  })
+
+  it('clearTargetMessage sets targetMessageId to null', () => {
+    useNostrStore.setState({ targetMessageId: 'msg-42' })
+    useNostrStore.getState().clearTargetMessage()
+    expect(useNostrStore.getState().targetMessageId).toBeNull()
+  })
+})
+
+describe('group store actions', () => {
+  const group = {
+    id: 'group-1',
+    name: 'Team Alpha',
+    creatorPubkey: 'creator-pk',
+    memberPubkeys: ['creator-pk', 'member-pk'],
+    relayUrl: 'wss://relay.example.com',
+  }
+
+  it('addGroup adds a group', () => {
+    useNostrStore.getState().addGroup(group)
+    expect(useNostrStore.getState().groups).toHaveLength(1)
+    expect(useNostrStore.getState().groups[0].name).toBe('Team Alpha')
+  })
+
+  it('addGroup is idempotent', () => {
+    useNostrStore.getState().addGroup(group)
+    useNostrStore.getState().addGroup(group)
+    expect(useNostrStore.getState().groups).toHaveLength(1)
+  })
+
+  it('removeGroup removes by id', () => {
+    useNostrStore.getState().addGroup(group)
+    useNostrStore.getState().removeGroup('group-1')
+    expect(useNostrStore.getState().groups).toHaveLength(0)
+  })
+
+  it('setGroupKey stores key by groupId', () => {
+    useNostrStore.getState().setGroupKey('group-1', 'aabbcc')
+    expect(useNostrStore.getState().groupKeys['group-1']).toBe('aabbcc')
+  })
+
+  it('updateGroupLastMessage updates the group', () => {
+    useNostrStore.getState().addGroup(group)
+    useNostrStore.getState().updateGroupLastMessage('group-1', 'hello', 100)
+    const g = useNostrStore.getState().groups[0]
+    expect(g.lastMessage).toBe('hello')
+    expect(g.lastMessageAt).toBe(100)
+    expect(g.unread).toBe(1)
+  })
+
+  it('markRead clears unread on groups', () => {
+    useNostrStore.getState().addGroup(group)
+    useNostrStore.getState().updateGroupLastMessage('group-1', 'hello', 100)
+    useNostrStore.getState().markRead('group-1')
+    expect(useNostrStore.getState().groups[0].unread).toBe(0)
   })
 })

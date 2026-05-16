@@ -8,6 +8,7 @@ import {
   type Event,
   type Filter,
 } from 'nostr-tools'
+import { encryptWithGroupKey } from './groupCrypto'
 
 export const DEFAULT_RELAYS = [
   'wss://relay.damus.io',
@@ -133,6 +134,69 @@ export function subscribeEvents(
 export async function publishEvent(relays: string[], event: Event): Promise<void> {
   const p = getPool()
   await Promise.any(p.publish(relays, event))
+}
+
+// Fetch multiple events matching a filter (collects until EOSE)
+export async function fetchEvents(relays: string[], filter: Filter): Promise<Event[]> {
+  const p = getPool()
+  const events: Event[] = []
+  await new Promise<void>(resolve => {
+    const sub = p.subscribeMany(relays, filter, {
+      onevent: (e) => events.push(e),
+      oneose: () => { sub.close(); resolve() },
+    })
+  })
+  return events
+}
+
+// Build kind-10042 group message event (content is pre-encrypted by caller)
+export function buildGroupMessageEvent(
+  sk: Uint8Array,
+  encryptedContent: string,
+  groupId: string,
+  relayUrl: string,
+  replyEventId?: string,
+): Event {
+  const tags: string[][] = [['e', groupId, relayUrl, 'root']]
+  if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
+  return finalizeEvent({ kind: 10042, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent }, sk)
+}
+
+// Build kind-30040 group metadata event (content encrypted with group key)
+export async function buildGroupMetadataEvent(
+  sk: Uint8Array,
+  groupKeyHex: string,
+  groupId: string,
+  name: string,
+  about: string,
+  memberPubkeys: string[],
+): Promise<Event> {
+  const encrypted = await encryptWithGroupKey(JSON.stringify({ name, about, memberPubkeys }), groupKeyHex)
+  return finalizeEvent({ kind: 30040, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted }, sk)
+}
+
+// Build kind-30041 self-encrypted key backup (NIP-04 with own pubkey as recipient)
+export async function buildGroupKeyBackupEvent(
+  sk: Uint8Array,
+  groupId: string,
+  groupKeyHex: string,
+): Promise<Event> {
+  const ownPubkey = getPublicKey(sk)
+  const encrypted = await nip04.encrypt(sk, ownPubkey, groupKeyHex)
+  return finalizeEvent({ kind: 30041, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted }, sk)
+}
+
+// Build group invite as NIP-04 DM carrying { type: 'group_invite', groupId, groupKeyHex, groupName }
+export async function buildGroupInviteEvent(
+  sk: Uint8Array,
+  recipientPubkey: string,
+  groupId: string,
+  groupKeyHex: string,
+  groupName: string,
+): Promise<Event> {
+  const payload = JSON.stringify({ type: 'group_invite', groupId, groupKeyHex, groupName })
+  const encrypted = await nip04.encrypt(sk, recipientPubkey, payload)
+  return finalizeEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipientPubkey]], content: encrypted }, sk)
 }
 
 // Shorten pubkey for display

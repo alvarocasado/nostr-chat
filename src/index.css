@@ -55,4 +55,14 @@
   .pb-safe {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
+
+  @keyframes msg-highlight {
+    0%   { box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.8); }
+    100% { box-shadow: 0 0 0 2px rgba(167, 139, 250, 0); }
+  }
+
+  .message-highlight {
+    border-radius: 10px;
+    animation: msg-highlight 1.5s ease-out forwards;
+  }
 }

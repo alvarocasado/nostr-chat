@@ -3,10 +3,11 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, ChevronDown } from 'lucide-react'
-import { useNostrStore, type Message } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
-import { buildChannelMessageEvent, buildDMEvent, publishEvent } from '../../lib/nostr'
+import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, ChevronDown, Users } from 'lucide-react'
+import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
+import { useChannelMessages, useDMMessages, useGroupMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
+import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import type { Event as NostrEvent } from 'nostr-tools'
 import { MessageItem } from './MessageItem'
 import { MediaGallery } from './MediaGallery'
@@ -103,6 +104,42 @@ function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: ()
           <Video size={18} />
         </button>
       </div>
+    </div>
+  )
+}
+
+function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGallery: () => void }) {
+  const { groups, clearActiveChat } = useNostrStore()
+  const group = groups.find((g: Group) => g.id === groupId)
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
+      <button
+        onClick={clearActiveChat}
+        className="md:hidden p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+        aria-label="Back"
+      >
+        <ArrowLeft size={20} />
+      </button>
+      <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
+        <Users size={18} className="text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h2 className="font-semibold text-white truncate">{group?.name || 'Group'}</h2>
+        <div className="flex items-center gap-1 mt-0.5">
+          <Lock size={11} className="text-green-400 flex-shrink-0" />
+          <span className="text-xs text-gray-500">
+            {group ? `${group.memberPubkeys.length} members · encrypted` : 'Encrypted group'}
+          </span>
+        </div>
+      </div>
+      <button
+        onClick={onOpenGallery}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+        title="Shared media"
+      >
+        <Images size={18} />
+      </button>
     </div>
   )
 }
@@ -470,19 +507,21 @@ function DateSeparator({ date }: { date: Date }) {
 
 const NEAR_BOTTOM_PX = 120
 
-function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp }: {
+function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
   onReply: (msg: Message) => void
   onRetry: (msgId: string) => void
   dividerTimestamp?: number
+  targetMessageId?: string
 }) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const dividerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mountedRef = useRef(false)
   const atBottomRef = useRef(true)
+  const { clearTargetMessage } = useNostrStore()
   const [showScrollButton, setShowScrollButton] = useState(false)
 
   const handleScroll = () => {
@@ -512,6 +551,19 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
   }, [messages.length])
+
+  useEffect(() => {
+    if (!targetMessageId) return
+    const tryScroll = () => {
+      const el = containerRef.current?.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
+      if (!el) return
+      el.scrollIntoView({ block: 'center' })
+      el.classList.add('message-highlight')
+      el.addEventListener('animationend', () => el.classList.remove('message-highlight'), { once: true })
+      clearTargetMessage()
+    }
+    requestAnimationFrame(tryScroll)
+  }, [targetMessageId, messages.length, clearTargetMessage])
 
   if (messages.length === 0) {
     return (
@@ -579,7 +631,7 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -662,7 +714,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
+          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
@@ -672,7 +724,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -756,9 +808,117 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} />
+          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+        </>
+      )}
+    </>
+  )
+}
+
+function GroupThread({ groupId }: { groupId: string }) {
+  const {
+    publicKey, messages, profiles, relays, getPrivateKey, groupKeys,
+    addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+  } = useNostrStore()
+  useGroupMessages(groupId)
+  const [replyTo, setReplyTo] = useState<Message | null>(null)
+  const [showGallery, setShowGallery] = useState(false)
+  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
+  const dividerTimestampRef = useRef<number | undefined>(seenAt[groupId])
+  const groupKey = groupKeys[groupId]
+
+  useEffect(() => {
+    return () => {
+      const latest = useNostrStore.getState().messages[groupId]?.at(-1)?.createdAt
+      if (latest !== undefined) updateSeenAt(groupId, latest)
+    }
+  }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSend = async (content: string) => {
+    const sk = getPrivateKey()
+    if (!sk || !publicKey || !groupKey) return
+
+    const encryptedContent = await encryptWithGroupKey(content, groupKey)
+    const event = buildGroupMessageEvent(sk, encryptedContent, groupId, relays[0], replyTo?.id)
+
+    addMessage(groupId, {
+      id: event.id,
+      pubkey: publicKey,
+      content, // store plaintext locally
+      createdAt: event.created_at,
+      tags: event.tags,
+      kind: 10042,
+      status: 'sending',
+      ...(replyTo && {
+        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
+      }),
+    })
+    pendingEventsRef.current.set(event.id, event)
+    setReplyTo(null)
+
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(groupId, event.id, 'sent')
+      pendingEventsRef.current.delete(event.id)
+    } catch {
+      updateMessageStatus(groupId, event.id, 'failed')
+    }
+  }
+
+  const handleRetry = async (msgId: string) => {
+    const event = pendingEventsRef.current.get(msgId)
+    if (!event) return
+    updateMessageStatus(groupId, msgId, 'sending')
+    try {
+      await publishEvent(relays, event)
+      updateMessageStatus(groupId, msgId, 'sent')
+      pendingEventsRef.current.delete(msgId)
+    } catch {
+      updateMessageStatus(groupId, msgId, 'failed')
+    }
+  }
+
+  if (!groupKey) {
+    return (
+      <>
+        <GroupHeader groupId={groupId} onOpenGallery={() => {}} />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center px-6">
+            <WifiOff size={40} className="text-gray-700 mx-auto mb-3" />
+            <p className="text-gray-500 text-sm">Group key unavailable. Try logging out and back in.</p>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <GroupHeader groupId={groupId} onOpenGallery={() => setShowGallery(true)} />
+      {showGallery ? (
+        <MediaGallery messages={messages[groupId] || []} onClose={() => setShowGallery(false)} />
+      ) : (
+        <>
+          <MessageList
+            messages={messages[groupId] || []}
+            myPubkey={publicKey || ''}
+            profiles={profiles}
+            onReply={setReplyTo}
+            onRetry={handleRetry}
+            dividerTimestamp={dividerTimestampRef.current}
+            targetMessageId={targetMessageId ?? undefined}
+          />
+          <MessageInput
+            chatId={groupId}
+            onSend={handleSend}
+            onSendChunked={async () => { throw new Error('File attachments are not yet supported in groups.') }}
+            onTyping={() => {}}
+            placeholder="Message group…"
+            replyTo={replyTo}
+            onCancelReply={() => setReplyTo(null)}
+          />
         </>
       )}
     </>
@@ -790,6 +950,8 @@ export function MessageThread() {
     <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden">
       {activeChatType === 'channel' ? (
         <ChannelThread channelId={activeChatId} />
+      ) : activeChatType === 'group' ? (
+        <GroupThread groupId={activeChatId} />
       ) : (
         <DMThread theirPubkey={activeChatId} />
       )}

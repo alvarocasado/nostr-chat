@@ -21,7 +21,7 @@ import {
   type CallsSyncedSettings,
 } from '../lib/nostrSync'
 
-export type ChatType = 'channel' | 'dm'
+export type ChatType = 'channel' | 'dm' | 'group'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
 
 export interface NotificationSettings {
@@ -69,6 +69,19 @@ export interface Contact {
   unread?: number
 }
 
+export interface Group {
+  id: string
+  name: string
+  about?: string
+  creatorPubkey: string
+  memberPubkeys: string[]
+  relayUrl: string
+  lastMessage?: string
+  lastMessageAt?: number
+  unread?: number
+  mentions?: number
+}
+
 export interface Message {
   id: string
   pubkey: string
@@ -106,6 +119,10 @@ interface NostrState {
   // Contacts / DMs
   contacts: Contact[]
 
+  // Groups
+  groups: Group[]
+  groupKeys: Record<string, string>
+
   // Active chat
   activeChatId: string | null
   activeChatType: ChatType | null
@@ -123,6 +140,7 @@ interface NostrState {
   viewingProfilePubkey: string | null
   showAddChannel: boolean
   showAddContact: boolean
+  showAddGroup: boolean
 
   // Notifications
   notificationSettings: NotificationSettings
@@ -160,6 +178,11 @@ interface NostrState {
   setActiveChat: (id: string, type: ChatType) => void
   clearActiveChat: () => void
 
+  targetMessageId: string | null
+
+  jumpToMessage: (chatId: string, type: ChatType, messageId: string) => void
+  clearTargetMessage: () => void
+
   addMessage: (chatId: string, message: Message) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
@@ -173,6 +196,11 @@ interface NostrState {
   setActiveSettingsTab: (tab: SettingsTab | null) => void
   setShowAddChannel: (show: boolean) => void
   setShowAddContact: (show: boolean) => void
+  addGroup: (group: Group) => void
+  removeGroup: (id: string) => void
+  updateGroupLastMessage: (groupId: string, content: string, at: number, isMention?: boolean) => void
+  setGroupKey: (groupId: string, keyHex: string) => void
+  setShowAddGroup: (show: boolean) => void
   setViewingProfilePubkey: (pubkey: string | null) => void
 
   updateNotificationSettings: (s: Partial<NotificationSettings>) => void
@@ -257,6 +285,13 @@ async function completeLogin(
       if (incoming.length > 0) {
         set({ joinedChannelIds: [...get().joinedChannelIds, ...incoming] })
       }
+    }
+
+    // Group keys: relay backup takes priority for keys we don't have locally
+    if (result.groupKeys && Object.keys(result.groupKeys).length > 0) {
+      const current = get().groupKeys
+      const merged = { ...result.groupKeys, ...current } // local keys take precedence
+      set({ groupKeys: merged })
     }
 
     // Settings: apply only when the relay event is newer than the last one we synced
@@ -362,8 +397,11 @@ export const useNostrStore = create<NostrState>()(
         channels: [],
         joinedChannelIds: [],
         contacts: [],
+        groups: [],
+        groupKeys: {},
         activeChatId: null,
         activeChatType: null,
+        targetMessageId: null,
         messages: {},
         profiles: {},
         sidebarTab: 'channels',
@@ -371,6 +409,7 @@ export const useNostrStore = create<NostrState>()(
         activeSettingsTab: null,
         showAddChannel: false,
         showAddContact: false,
+        showAddGroup: false,
         viewingProfilePubkey: null,
         notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
         mutedChats: {},
@@ -426,6 +465,8 @@ export const useNostrStore = create<NostrState>()(
             activeChatId: null,
             activeChatType: null,
             messages: {},
+            groups: [],
+            groupKeys: {},
           })
           closeUserDb()
           clearActivePubkey()
@@ -472,6 +513,40 @@ export const useNostrStore = create<NostrState>()(
           scheduleChannelsSync()
         },
 
+        addGroup: (group) => {
+          if (!get().groups.find(g => g.id === group.id)) {
+            set({ groups: [group, ...get().groups] })
+          }
+        },
+
+        removeGroup: (id) => {
+          set({
+            groups: get().groups.filter(g => g.id !== id),
+            activeChatId: get().activeChatId === id ? null : get().activeChatId,
+          })
+        },
+
+        updateGroupLastMessage: (groupId, content, at, isMention = false) => {
+          const isActive = get().activeChatId === groupId
+          set({
+            groups: get().groups.map(g =>
+              g.id === groupId
+                ? {
+                    ...g,
+                    lastMessage: content,
+                    lastMessageAt: at,
+                    unread: isActive ? 0 : (g.unread || 0) + 1,
+                    mentions: isActive ? 0 : isMention ? (g.mentions || 0) + 1 : (g.mentions || 0),
+                  }
+                : g
+            ),
+          })
+        },
+
+        setGroupKey: (groupId, keyHex) => {
+          set({ groupKeys: { ...get().groupKeys, [groupId]: keyHex } })
+        },
+
         addContact: (pubkey) => {
           const existing = get().contacts.find(c => c.pubkey === pubkey)
           if (!existing) {
@@ -510,6 +585,13 @@ export const useNostrStore = create<NostrState>()(
           set({ activeChatId: null, activeChatType: null })
         },
 
+        jumpToMessage: (chatId, type, messageId) => {
+          get().setActiveChat(chatId, type)
+          set({ targetMessageId: messageId })
+        },
+
+        clearTargetMessage: () => set({ targetMessageId: null }),
+
         addMessage: (chatId, message) => {
           const existing = get().messages[chatId] || []
           if (existing.find(m => m.id === message.id)) return
@@ -537,7 +619,10 @@ export const useNostrStore = create<NostrState>()(
           const channels = get().channels.map(ch =>
             ch.id === chatId ? { ...ch, unread: 0, mentions: 0 } : ch
           )
-          set({ contacts, channels })
+          const groups = get().groups.map(g =>
+            g.id === chatId ? { ...g, unread: 0, mentions: 0 } : g
+          )
+          set({ contacts, channels, groups })
         },
 
         updateContactLastMessage: (pubkey, content, at) => {
@@ -595,6 +680,7 @@ export const useNostrStore = create<NostrState>()(
         setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
         setShowAddChannel: (show) => set({ showAddChannel: show }),
         setShowAddContact: (show) => set({ showAddContact: show }),
+        setShowAddGroup: (show) => set({ showAddGroup: show }),
         setViewingProfilePubkey: (pubkey) => set({ viewingProfilePubkey: pubkey }),
 
         updateNotificationSettings: (s) => {
@@ -649,6 +735,8 @@ export const useNostrStore = create<NostrState>()(
         channels: state.channels,
         joinedChannelIds: state.joinedChannelIds,
         contacts: state.contacts,
+        groups: state.groups,
+        groupKeys: state.groupKeys,
         profiles: state.profiles,
         notificationSettings: state.notificationSettings,
         mutedChats: state.mutedChats,
