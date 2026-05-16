@@ -1,5 +1,20 @@
 # Release Notes
 
+## 1.0.0-alpha.12 — 2026-05-15
+
+### Features
+
+#### Encrypted Private Group Chats
+Create groups with AES-256-GCM symmetric encryption; group keys distributed via NIP-04 DMs and backed up to relays via self-encrypted kind-30041 events for cross-device recovery; Contacts section replaced by Groups in the sidebar.
+
+#### Scoped Search Bars in Messages and Channels
+Filter conversations or channels by name in the Messages and Channels sidebar panels, with individual message results shown below; clicking a result jumps directly to that message with a highlight animation; queries reset automatically when switching panels.
+
+#### Icon Action Buttons
+New message and add channel icon buttons replace the previous text-only action buttons in sidebar panels.
+
+---
+
 ## 1.0.0-alpha.11 — 2026-05-13
 
 ### Features
