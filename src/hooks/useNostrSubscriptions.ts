@@ -226,7 +226,7 @@ export function useChannelDiscovery() {
 
 // Hook to subscribe to encrypted group messages
 export function useGroupMessages(groupId: string | null) {
-  const { relays, groupKeys, addMessage, updateGroupLastMessage, setProfile, profiles, publicKey } = useNostrStore()
+  const { relays, groupKeys, addMessage, updateGroupLastMessage, setProfile, profiles } = useNostrStore()
   const groupKey = groupId ? groupKeys[groupId] : null
 
   useEffect(() => {
