@@ -5,6 +5,11 @@ import {
   encodePubkey,
   parseProfile,
   shortPubkey,
+  buildGroupMessageEvent,
+  buildTypingEvent,
+  GROUP_MESSAGE_KIND,
+  LEGACY_GROUP_MESSAGE_KIND,
+  TYPING_INDICATOR_KIND,
 } from '../lib/nostr'
 import type { Event } from 'nostr-tools'
 
@@ -41,6 +46,32 @@ describe('shortPubkey', () => {
   it('returns first 8 chars + ellipsis + last 4 chars', () => {
     const pk = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'
     expect(shortPubkey(pk)).toBe('abcdef12...7890')
+  })
+})
+
+describe('event kinds', () => {
+  it('group messages use a regular-range kind (1000-9999) so relays store full history', () => {
+    // Kinds 10000-19999 are replaceable per NIP-01: relays keep only the
+    // latest event per pubkey, collapsing group history to one message per member.
+    const { sk } = generateKeys()
+    const event = buildGroupMessageEvent(sk, 'ciphertext', 'group-id', 'wss://relay.example')
+    expect(event.kind).toBeGreaterThanOrEqual(1000)
+    expect(event.kind).toBeLessThan(10000)
+    expect(event.kind).toBe(GROUP_MESSAGE_KIND)
+  })
+
+  it('keeps the legacy replaceable kind exported for read back-compat', () => {
+    expect(LEGACY_GROUP_MESSAGE_KIND).toBe(10042)
+    expect(GROUP_MESSAGE_KIND).not.toBe(LEGACY_GROUP_MESSAGE_KIND)
+  })
+
+  it('typing indicators use an ephemeral kind that does not collide with NIP-46 (24133)', () => {
+    const { sk } = generateKeys()
+    const event = buildTypingEvent(sk, 'channel', 'channel-id')
+    expect(event.kind).toBeGreaterThanOrEqual(20000)
+    expect(event.kind).toBeLessThan(30000)
+    expect(event.kind).not.toBe(24133)
+    expect(event.kind).toBe(TYPING_INDICATOR_KIND)
   })
 })
 

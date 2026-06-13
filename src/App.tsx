@@ -14,7 +14,7 @@ import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, openUserDb, evictOldMessages } from './lib/userDb'
-import { useGroupInviteListener } from './hooks/useNostrSubscriptions'
+import { useGroupInviteListener, useGlobalInbox } from './hooks/useNostrSubscriptions'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -68,6 +68,7 @@ function App() {
   } = useNostrStore()
 
   useGroupInviteListener()
+  useGlobalInbox()
 
   const openCallSettings = useCallback(() => {
     setActiveSettingsTab('calls')
