@@ -313,6 +313,8 @@ async function completeLogin(
           ...(s.notificationSettings !== undefined ? { notificationSettings: s.notificationSettings } : {}),
           ...(s.mutedChats !== undefined ? { mutedChats: s.mutedChats } : {}),
           ...(s.relays !== undefined ? { relays: s.relays } : {}),
+          ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
+          ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
           syncedSettingsAt: result.settings.createdAt,
         })
         if (s.callsSettings) {
@@ -372,7 +374,7 @@ export const useNostrStore = create<NostrState>()(
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey } = get()
+            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey, blockedPubkeys, dismissedRequests } = get()
             const sk = getPrivateKey()
             if (!sk || !publicKey) return
             const now = Math.floor(Date.now() / 1000)
@@ -390,7 +392,7 @@ export const useNostrStore = create<NostrState>()(
               ...(turnMetered ? { turnMetered } : {}),
               ...(turnCustom  ? { turnCustom  } : {}),
             }
-            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings }, relays)
+            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings, blockedPubkeys, dismissedRequests }, relays)
               .then(() => set({ syncedSettingsAt: now }))
               .catch(() => {})
           })()
@@ -802,6 +804,8 @@ export const useNostrStore = create<NostrState>()(
         mutedChats: state.mutedChats,
         seenAt: state.seenAt,
         syncedSettingsAt: state.syncedSettingsAt,
+        blockedPubkeys: state.blockedPubkeys,
+        dismissedRequests: state.dismissedRequests,
       }),
     }
   )

@@ -87,6 +87,8 @@ export interface SyncedSettings {
   mutedChats?: Record<string, number | null>
   relays?: string[]
   callsSettings?: CallsSyncedSettings
+  blockedPubkeys?: string[]
+  dismissedRequests?: Record<string, number>
 }
 
 async function buildAppSettingsEvent(

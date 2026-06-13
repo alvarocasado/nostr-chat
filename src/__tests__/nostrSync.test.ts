@@ -58,4 +58,28 @@ describe('fetchAppSettings', () => {
     expect(result).not.toBeNull()
     expect(result!.settings.callsSettings).toBeUndefined()
   })
+
+  it('returns blockedPubkeys and dismissedRequests when present in the event', async () => {
+    const payload = {
+      blockedPubkeys: ['aa', 'bb'],
+      dismissedRequests: { cc: 1000 },
+    }
+    vi.mocked(fetchEvent).mockResolvedValueOnce({
+      id: 'abc123',
+      pubkey: 'aabbcc',
+      created_at: 1000,
+      kind: 30078,
+      tags: [['d', 'nostr-chat-settings']],
+      content: 'encrypted-blob',
+      sig: 'sig',
+    })
+    vi.mocked(nip04.decrypt).mockResolvedValueOnce(JSON.stringify(payload))
+
+    const sk = new Uint8Array(32)
+    const result = await fetchAppSettings(['wss://relay.example.com'], sk, 'aabbcc')
+
+    expect(result).not.toBeNull()
+    expect(result!.settings.blockedPubkeys).toEqual(['aa', 'bb'])
+    expect(result!.settings.dismissedRequests).toEqual({ cc: 1000 })
+  })
 })
