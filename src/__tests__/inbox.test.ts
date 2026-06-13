@@ -204,6 +204,13 @@ describe('processDMEvent — request gate', () => {
     expect(fireNotification).not.toHaveBeenCalled()
   })
 
+  it('drops a dismissed sender message exactly at the dismissal timestamp', async () => {
+    const at = await incomingDM('boundary', 1000)
+    useNostrStore.setState({ dismissedRequests: { [at.senderPk]: 1000 }, contacts: [], messages: {} })
+    await processDMEvent(at.event, at.mySk, at.myPk, RELAYS, { live: false })
+    expect(useNostrStore.getState().contacts.find(c => c.pubkey === at.senderPk)).toBeUndefined()
+  })
+
   it('notifies for an already-accepted contact', async () => {
     vi.mocked(fireNotification).mockClear()
     const { event, senderPk, mySk, myPk } = await incomingDM('hey again')

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { fetchAppSettings } from '../lib/nostrSync'
+import { fetchAppSettings, buildContactListEvent } from '../lib/nostrSync'
 import { fetchEvent } from '../lib/nostr'
-import { nip04 } from 'nostr-tools'
+import { nip04, generateSecretKey } from 'nostr-tools'
 
 vi.mock('nostr-tools', async (importOriginal) => {
   const actual = await importOriginal<typeof import('nostr-tools')>()
@@ -9,6 +9,20 @@ vi.mock('nostr-tools', async (importOriginal) => {
     ...actual,
     nip04: { ...actual.nip04, decrypt: vi.fn(), encrypt: vi.fn() },
   }
+})
+
+describe('buildContactListEvent', () => {
+  it('excludes pending contacts from p tags', () => {
+    const sk = generateSecretKey()
+    const contacts = [
+      { pubkey: 'a'.repeat(64) },
+      { pubkey: 'b'.repeat(64), pending: true },
+    ]
+    const event = buildContactListEvent(sk, contacts)
+    const pTags = event.tags.filter(t => t[0] === 'p').map(t => t[1])
+    expect(pTags).toContain('a'.repeat(64))
+    expect(pTags).not.toContain('b'.repeat(64))
+  })
 })
 
 describe('fetchAppSettings', () => {

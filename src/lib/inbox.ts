@@ -227,9 +227,11 @@ export async function processDMEvent(
   const existingContact = useNostrStore.getState().contacts.find(c => c.pubkey === peer)
   const isPending = incoming && (!existingContact || existingContact.pending === true)
   if (incoming && !existingContact) {
-    useNostrStore.setState({
-      contacts: [{ pubkey: peer, pending: true }, ...useNostrStore.getState().contacts],
-    })
+    useNostrStore.setState(state =>
+      state.contacts.some(c => c.pubkey === peer)
+        ? state
+        : { contacts: [{ pubkey: peer, pending: true }, ...state.contacts] }
+    )
   }
 
   const msg: Message = {
