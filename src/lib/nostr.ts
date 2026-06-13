@@ -10,6 +10,17 @@ import {
 } from 'nostr-tools'
 import { encryptWithGroupKey } from './groupCrypto'
 
+// Group messages: regular-range kind so relays store full history.
+// The previous kind (10042) sits in NIP-01's replaceable range (10000-19999),
+// where relays keep only the latest event per pubkey — collapsing group
+// history to one message per member. Still read for back-compat.
+export const GROUP_MESSAGE_KIND = 1042
+export const LEGACY_GROUP_MESSAGE_KIND = 10042
+
+// Typing indicators: ephemeral range, in the app's 241xx block next to the
+// call-signal kind (24100). The previous kind (24133) collides with NIP-46.
+export const TYPING_INDICATOR_KIND = 24101
+
 export const DEFAULT_RELAYS = [
   'wss://relay.damus.io',
   'wss://relay.nostr.band',
@@ -76,11 +87,11 @@ export function buildChannelCreateEvent(sk: Uint8Array, name: string, about: str
   }, sk)
 }
 
-// Build kind-24133 (ephemeral typing indicator — not stored by relays)
+// Build ephemeral typing indicator (not stored by relays)
 export function buildTypingEvent(sk: Uint8Array, chatType: 'dm' | 'channel', chatId: string): Event {
   const tags = chatType === 'dm' ? [['p', chatId]] : [['e', chatId]]
   return finalizeEvent({
-    kind: 24133,
+    kind: TYPING_INDICATOR_KIND,
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content: 'typing',
@@ -149,7 +160,7 @@ export async function fetchEvents(relays: string[], filter: Filter): Promise<Eve
   return events
 }
 
-// Build kind-10042 group message event (content is pre-encrypted by caller)
+// Build group message event (content is pre-encrypted by caller)
 export function buildGroupMessageEvent(
   sk: Uint8Array,
   encryptedContent: string,
@@ -159,7 +170,7 @@ export function buildGroupMessageEvent(
 ): Event {
   const tags: string[][] = [['e', groupId, relayUrl, 'root']]
   if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
-  return finalizeEvent({ kind: 10042, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent }, sk)
+  return finalizeEvent({ kind: GROUP_MESSAGE_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent }, sk)
 }
 
 // Build kind-30040 group metadata event (content encrypted with group key)

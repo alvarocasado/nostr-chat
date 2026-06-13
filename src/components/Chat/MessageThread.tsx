@@ -725,8 +725,10 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+    contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
+  const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
@@ -743,6 +745,8 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   const handleSend = async (content: string) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
+
+    if (isPending) acceptMessageRequest(theirPubkey)
 
     const event = await buildDMEvent(sk, theirPubkey, content)
 
@@ -792,6 +796,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   ) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
+    if (isPending) acceptMessageRequest(theirPubkey)
     await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
     addMessage(theirPubkey, {
       id: `local-${Date.now()}`,
@@ -805,6 +810,29 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   return (
     <>
       <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
+      {isPending && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-b border-gray-800">
+          <p className="flex-1 text-sm text-gray-300">This person isn't in your contacts.</p>
+          <button
+            onClick={() => acceptMessageRequest(theirPubkey)}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-purple-600 hover:bg-purple-500 text-white transition-colors"
+          >
+            Accept
+          </button>
+          <button
+            onClick={() => { dismissMessageRequest(theirPubkey); clearActiveChat() }}
+            className="px-3 py-1.5 rounded-lg text-sm text-gray-300 hover:bg-white/5 transition-colors"
+          >
+            Dismiss
+          </button>
+          <button
+            onClick={() => { blockPubkey(theirPubkey); clearActiveChat() }}
+            className="px-3 py-1.5 rounded-lg text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            Block
+          </button>
+        </div>
+      )}
       {showGallery ? (
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
@@ -850,7 +878,7 @@ function GroupThread({ groupId }: { groupId: string }) {
       content, // store plaintext locally
       createdAt: event.created_at,
       tags: event.tags,
-      kind: 10042,
+      kind: event.kind,
       status: 'sending',
       ...(replyTo && {
         replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },

@@ -251,6 +251,23 @@ describe('updateContactLastMessage', () => {
     expect(c).toBeDefined()
     expect(c!.unread).toBe(1)
   })
+
+  it('does not regress the preview for an older message but still counts it unread', () => {
+    useNostrStore.setState({ contacts: [{ pubkey: 'pk1', lastMessage: 'newest', lastMessageAt: 3000, unread: 0 }], activeChatId: null })
+    useNostrStore.getState().updateContactLastMessage('pk1', 'older', 2000)
+    const c = useNostrStore.getState().contacts[0]
+    expect(c.lastMessage).toBe('newest')
+    expect(c.lastMessageAt).toBe(3000)
+    expect(c.unread).toBe(1)
+  })
+
+  it('skips the unread increment when incrementUnread is false', () => {
+    useNostrStore.setState({ contacts: [{ pubkey: 'pk1', unread: 0 }], activeChatId: null })
+    useNostrStore.getState().updateContactLastMessage('pk1', 'hello', 2000, { incrementUnread: false })
+    const c = useNostrStore.getState().contacts[0]
+    expect(c.lastMessage).toBe('hello')
+    expect(c.unread).toBe(0)
+  })
 })
 
 describe('updateChannelLastMessage', () => {
@@ -272,6 +289,22 @@ describe('updateChannelLastMessage', () => {
     useNostrStore.setState({ channels: [ch], activeChatId: 'ch1' })
     useNostrStore.getState().updateChannelLastMessage('ch1', 'hi', 1000)
     expect(useNostrStore.getState().channels[0].unread).toBe(0)
+  })
+
+  it('does not regress the preview for an older message', () => {
+    useNostrStore.setState({ channels: [{ ...ch, lastMessage: 'newest', lastMessageAt: 3000 }], activeChatId: null })
+    useNostrStore.getState().updateChannelLastMessage('ch1', 'older', 2000)
+    const c = useNostrStore.getState().channels[0]
+    expect(c.lastMessage).toBe('newest')
+    expect(c.lastMessageAt).toBe(3000)
+  })
+
+  it('skips unread and mention increments when incrementUnread is false', () => {
+    useNostrStore.setState({ channels: [ch], activeChatId: null })
+    useNostrStore.getState().updateChannelLastMessage('ch1', 'hi @me', 1000, true, { incrementUnread: false })
+    const c = useNostrStore.getState().channels[0]
+    expect(c.unread).toBe(0)
+    expect(c.mentions).toBe(0)
   })
 })
 
@@ -365,6 +398,63 @@ describe('jumpToMessage / clearTargetMessage', () => {
   })
 })
 
+describe('message request actions', () => {
+  const reqContact = { pubkey: 'req1', pending: true, unread: 1, lastMessage: 'hi' }
+
+  it('acceptMessageRequest clears pending', () => {
+    useNostrStore.setState({ contacts: [{ ...reqContact }] })
+    useNostrStore.getState().acceptMessageRequest('req1')
+    expect(useNostrStore.getState().contacts[0].pending).toBe(false)
+  })
+
+  it('dismissMessageRequest removes the contact and records a timestamp without blocking', () => {
+    useNostrStore.setState({ contacts: [{ ...reqContact }], messages: { req1: [] }, blockedPubkeys: [], dismissedRequests: {} })
+    useNostrStore.getState().dismissMessageRequest('req1')
+    const s = useNostrStore.getState()
+    expect(s.contacts.find(c => c.pubkey === 'req1')).toBeUndefined()
+    expect(s.messages['req1']).toBeUndefined()
+    expect(s.dismissedRequests['req1']).toBeGreaterThan(0)
+    expect(s.blockedPubkeys).not.toContain('req1')
+  })
+
+  it('blockPubkey removes the contact and adds to the blocklist', () => {
+    useNostrStore.setState({ contacts: [{ ...reqContact }], messages: { req1: [] }, blockedPubkeys: [], dismissedRequests: {} })
+    useNostrStore.getState().blockPubkey('req1')
+    const s = useNostrStore.getState()
+    expect(s.contacts.find(c => c.pubkey === 'req1')).toBeUndefined()
+    expect(s.messages['req1']).toBeUndefined()
+    expect(s.blockedPubkeys).toContain('req1')
+  })
+
+  it('unblockPubkey removes from blocklist and clears the dismissal', () => {
+    useNostrStore.setState({ blockedPubkeys: ['req1'], dismissedRequests: { req1: 1000 } })
+    useNostrStore.getState().unblockPubkey('req1')
+    const s = useNostrStore.getState()
+    expect(s.blockedPubkeys).not.toContain('req1')
+    expect(s.dismissedRequests['req1']).toBeUndefined()
+  })
+
+  it('addContact unblocks, clears dismissal, and never marks pending', () => {
+    useNostrStore.setState({ contacts: [], blockedPubkeys: ['req1'], dismissedRequests: { req1: 1000 } })
+    useNostrStore.getState().addContact('req1')
+    const s = useNostrStore.getState()
+    expect(s.blockedPubkeys).not.toContain('req1')
+    expect(s.dismissedRequests['req1']).toBeUndefined()
+    expect(s.contacts[0].pending).toBeFalsy()
+  })
+
+  it('acceptMessageRequest clears a stale dismissedRequests entry', () => {
+    useNostrStore.setState({
+      contacts: [{ pubkey: 'req1', pending: true }],
+      dismissedRequests: { req1: 1000 },
+    })
+    useNostrStore.getState().acceptMessageRequest('req1')
+    const s = useNostrStore.getState()
+    expect(s.contacts[0].pending).toBe(false)
+    expect(s.dismissedRequests['req1']).toBeUndefined()
+  })
+})
+
 describe('group store actions', () => {
   const group = {
     id: 'group-1',
@@ -411,5 +501,15 @@ describe('group store actions', () => {
     useNostrStore.getState().updateGroupLastMessage('group-1', 'hello', 100)
     useNostrStore.getState().markRead('group-1')
     expect(useNostrStore.getState().groups[0].unread).toBe(0)
+  })
+
+  it('updateGroupLastMessage does not regress preview and honors incrementUnread=false', () => {
+    useNostrStore.getState().addGroup(group)
+    useNostrStore.getState().updateGroupLastMessage('group-1', 'newest', 300)
+    useNostrStore.getState().updateGroupLastMessage('group-1', 'older', 200, false, { incrementUnread: false })
+    const g = useNostrStore.getState().groups[0]
+    expect(g.lastMessage).toBe('newest')
+    expect(g.lastMessageAt).toBe(300)
+    expect(g.unread).toBe(1)
   })
 })

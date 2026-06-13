@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { subscribeEvents, publishEvent, buildTypingEvent } from '../lib/nostr'
+import { subscribeEvents, publishEvent, buildTypingEvent, TYPING_INDICATOR_KIND } from '../lib/nostr'
 import { useNostrStore } from '../store/nostrStore'
 import { useStableArray } from './useStableArray'
 
@@ -30,8 +30,8 @@ export function useTypingIndicator(
 
     const filter =
       chatType === 'dm' && theirPubkey
-        ? { kinds: [24133], authors: [theirPubkey], '#p': [publicKey] }
-        : { kinds: [24133], '#e': [chatId] }
+        ? { kinds: [TYPING_INDICATOR_KIND], authors: [theirPubkey], '#p': [publicKey] }
+        : { kinds: [TYPING_INDICATOR_KIND], '#e': [chatId] }
 
     const timersMap = timers.current
     const sub = subscribeEvents(stableRelays, filter as Parameters<typeof subscribeEvents>[1], (event) => {

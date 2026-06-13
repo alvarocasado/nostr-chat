@@ -9,7 +9,7 @@ export function buildContactListEvent(sk: Uint8Array, contacts: Contact[]): Even
   return finalizeEvent({
     kind: 3,
     created_at: Math.floor(Date.now() / 1000),
-    tags: contacts.map(c => ['p', c.pubkey]),
+    tags: contacts.filter(c => !c.pending).map(c => ['p', c.pubkey]),
     content: '',
   }, sk)
 }
@@ -87,6 +87,8 @@ export interface SyncedSettings {
   mutedChats?: Record<string, number | null>
   relays?: string[]
   callsSettings?: CallsSyncedSettings
+  blockedPubkeys?: string[]
+  dismissedRequests?: Record<string, number>
 }
 
 async function buildAppSettingsEvent(

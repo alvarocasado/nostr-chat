@@ -22,7 +22,7 @@ import {
 } from '../lib/nostrSync'
 
 export type ChatType = 'channel' | 'dm' | 'group'
-export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
+export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications' | 'privacy'
 
 export interface NotificationSettings {
   dmEnabled: boolean
@@ -67,6 +67,7 @@ export interface Contact {
   lastMessage?: string
   lastMessageAt?: number
   unread?: number
+  pending?: boolean
 }
 
 export interface Group {
@@ -146,6 +147,10 @@ interface NostrState {
   notificationSettings: NotificationSettings
   mutedChats: Record<string, number | null>
 
+  // Message requests: unsolicited-DM gating
+  blockedPubkeys: string[]
+  dismissedRequests: Record<string, number>  // pubkey → unix-seconds of dismissal
+
   // Drafts (session-only, not persisted)
   drafts: Record<string, string>
 
@@ -175,6 +180,11 @@ interface NostrState {
   addContact: (pubkey: string) => void
   removeContact: (pubkey: string) => void
 
+  acceptMessageRequest: (pubkey: string) => void
+  dismissMessageRequest: (pubkey: string) => void
+  blockPubkey: (pubkey: string) => void
+  unblockPubkey: (pubkey: string) => void
+
   setActiveChat: (id: string, type: ChatType) => void
   clearActiveChat: () => void
 
@@ -186,8 +196,8 @@ interface NostrState {
   addMessage: (chatId: string, message: Message) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
-  updateContactLastMessage: (pubkey: string, content: string, at: number) => void
-  updateChannelLastMessage: (channelId: string, content: string, at: number, isMention?: boolean) => void
+  updateContactLastMessage: (pubkey: string, content: string, at: number, opts?: { incrementUnread?: boolean }) => void
+  updateChannelLastMessage: (channelId: string, content: string, at: number, isMention?: boolean, opts?: { incrementUnread?: boolean }) => void
 
   setProfile: (pubkey: string, profile: NostrProfile) => void
 
@@ -198,7 +208,7 @@ interface NostrState {
   setShowAddContact: (show: boolean) => void
   addGroup: (group: Group) => void
   removeGroup: (id: string) => void
-  updateGroupLastMessage: (groupId: string, content: string, at: number, isMention?: boolean) => void
+  updateGroupLastMessage: (groupId: string, content: string, at: number, isMention?: boolean, opts?: { incrementUnread?: boolean }) => void
   setGroupKey: (groupId: string, keyHex: string) => void
   setShowAddGroup: (show: boolean) => void
   setViewingProfilePubkey: (pubkey: string | null) => void
@@ -303,6 +313,8 @@ async function completeLogin(
           ...(s.notificationSettings !== undefined ? { notificationSettings: s.notificationSettings } : {}),
           ...(s.mutedChats !== undefined ? { mutedChats: s.mutedChats } : {}),
           ...(s.relays !== undefined ? { relays: s.relays } : {}),
+          ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
+          ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
           syncedSettingsAt: result.settings.createdAt,
         })
         if (s.callsSettings) {
@@ -362,7 +374,7 @@ export const useNostrStore = create<NostrState>()(
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey } = get()
+            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey, blockedPubkeys, dismissedRequests } = get()
             const sk = getPrivateKey()
             if (!sk || !publicKey) return
             const now = Math.floor(Date.now() / 1000)
@@ -380,7 +392,7 @@ export const useNostrStore = create<NostrState>()(
               ...(turnMetered ? { turnMetered } : {}),
               ...(turnCustom  ? { turnCustom  } : {}),
             }
-            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings }, relays)
+            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings, blockedPubkeys, dismissedRequests }, relays)
               .then(() => set({ syncedSettingsAt: now }))
               .catch(() => {})
           })()
@@ -413,6 +425,8 @@ export const useNostrStore = create<NostrState>()(
         viewingProfilePubkey: null,
         notificationSettings: DEFAULT_NOTIFICATION_SETTINGS,
         mutedChats: {},
+        blockedPubkeys: [],
+        dismissedRequests: {},
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
@@ -526,17 +540,18 @@ export const useNostrStore = create<NostrState>()(
           })
         },
 
-        updateGroupLastMessage: (groupId, content, at, isMention = false) => {
+        updateGroupLastMessage: (groupId, content, at, isMention = false, opts = {}) => {
           const isActive = get().activeChatId === groupId
+          const count = opts.incrementUnread !== false
           set({
             groups: get().groups.map(g =>
               g.id === groupId
                 ? {
                     ...g,
-                    lastMessage: content,
-                    lastMessageAt: at,
-                    unread: isActive ? 0 : (g.unread || 0) + 1,
-                    mentions: isActive ? 0 : isMention ? (g.mentions || 0) + 1 : (g.mentions || 0),
+                    // Keep the newest preview: relay backfill can arrive out of order
+                    ...(at >= (g.lastMessageAt ?? 0) ? { lastMessage: content, lastMessageAt: at } : {}),
+                    unread: isActive ? 0 : (g.unread || 0) + (count ? 1 : 0),
+                    mentions: isActive ? 0 : count && isMention ? (g.mentions || 0) + 1 : (g.mentions || 0),
                   }
                 : g
             ),
@@ -548,16 +563,68 @@ export const useNostrStore = create<NostrState>()(
         },
 
         addContact: (pubkey) => {
+          const { [pubkey]: _removed, ...restDismissed } = get().dismissedRequests
+          const blockedChanged = get().blockedPubkeys.includes(pubkey)
+          const hadDismissal = get().dismissedRequests[pubkey] !== undefined
+          set({
+            blockedPubkeys: get().blockedPubkeys.filter(p => p !== pubkey),
+            dismissedRequests: restDismissed,
+          })
           const existing = get().contacts.find(c => c.pubkey === pubkey)
-          if (!existing) {
+          if (existing) {
+            if (existing.pending) set({ contacts: get().contacts.map(c => c.pubkey === pubkey ? { ...c, pending: false } : c) })
+          } else {
             set({ contacts: [{ pubkey }, ...get().contacts] })
-            scheduleContactsSync()
           }
+          scheduleContactsSync()
+          if (blockedChanged || hadDismissal) scheduleSettingsSync()
         },
 
         removeContact: (pubkey) => {
           set({ contacts: get().contacts.filter(c => c.pubkey !== pubkey) })
           scheduleContactsSync()
+        },
+
+        acceptMessageRequest: (pubkey) => {
+          const hadDismissal = get().dismissedRequests[pubkey] !== undefined
+          const { [pubkey]: _removed, ...restDismissed } = get().dismissedRequests
+          set({
+            contacts: get().contacts.map(c => c.pubkey === pubkey ? { ...c, pending: false } : c),
+            dismissedRequests: restDismissed,
+          })
+          scheduleContactsSync()
+          if (hadDismissal) scheduleSettingsSync()
+        },
+
+        dismissMessageRequest: (pubkey) => {
+          const { [pubkey]: _removed, ...restMessages } = get().messages
+          set({
+            contacts: get().contacts.filter(c => c.pubkey !== pubkey),
+            messages: restMessages,
+            dismissedRequests: { ...get().dismissedRequests, [pubkey]: Math.floor(Date.now() / 1000) },
+            activeChatId: get().activeChatId === pubkey ? null : get().activeChatId,
+            activeChatType: get().activeChatId === pubkey ? null : get().activeChatType,
+          })
+          const db = getUserDb()
+          if (db) void db.messages.where('[chatId+createdAt]').between([pubkey, -Infinity], [pubkey, Infinity]).delete()
+          scheduleSettingsSync()
+        },
+
+        blockPubkey: (pubkey) => {
+          get().dismissMessageRequest(pubkey)
+          if (!get().blockedPubkeys.includes(pubkey)) {
+            set({ blockedPubkeys: [...get().blockedPubkeys, pubkey] })
+          }
+          scheduleSettingsSync()
+        },
+
+        unblockPubkey: (pubkey) => {
+          const { [pubkey]: _removed, ...restDismissed } = get().dismissedRequests
+          set({
+            blockedPubkeys: get().blockedPubkeys.filter(p => p !== pubkey),
+            dismissedRequests: restDismissed,
+          })
+          scheduleSettingsSync()
         },
 
         setActiveChat: (id, type) => {
@@ -625,15 +692,16 @@ export const useNostrStore = create<NostrState>()(
           set({ contacts, channels, groups })
         },
 
-        updateContactLastMessage: (pubkey, content, at) => {
+        updateContactLastMessage: (pubkey, content, at, opts = {}) => {
           const isActive = get().activeChatId === pubkey
+          const count = opts.incrementUnread !== false
           const contacts = get().contacts.map(c =>
             c.pubkey === pubkey
               ? {
                   ...c,
-                  lastMessage: content,
-                  lastMessageAt: at,
-                  unread: isActive ? 0 : (c.unread || 0) + 1,
+                  // Keep the newest preview: relay backfill can arrive out of order
+                  ...(at >= (c.lastMessageAt ?? 0) ? { lastMessage: content, lastMessageAt: at } : {}),
+                  unread: isActive ? 0 : (c.unread || 0) + (count ? 1 : 0),
                 }
               : c
           )
@@ -642,22 +710,23 @@ export const useNostrStore = create<NostrState>()(
               pubkey,
               lastMessage: content,
               lastMessageAt: at,
-              unread: isActive ? 0 : 1,
+              unread: isActive ? 0 : count ? 1 : 0,
             })
           }
           set({ contacts })
         },
 
-        updateChannelLastMessage: (channelId, content, at, isMention = false) => {
+        updateChannelLastMessage: (channelId, content, at, isMention = false, opts = {}) => {
           const isActive = get().activeChatId === channelId
+          const count = opts.incrementUnread !== false
           const channels = get().channels.map(ch =>
             ch.id === channelId
               ? {
                   ...ch,
-                  lastMessage: content,
-                  lastMessageAt: at,
-                  unread: isActive ? 0 : (ch.unread || 0) + 1,
-                  mentions: isActive ? 0 : isMention ? (ch.mentions || 0) + 1 : (ch.mentions || 0),
+                  // Keep the newest preview: relay backfill can arrive out of order
+                  ...(at >= (ch.lastMessageAt ?? 0) ? { lastMessage: content, lastMessageAt: at } : {}),
+                  unread: isActive ? 0 : (ch.unread || 0) + (count ? 1 : 0),
+                  mentions: isActive ? 0 : count && isMention ? (ch.mentions || 0) + 1 : (ch.mentions || 0),
                 }
               : ch
           )
@@ -742,6 +811,8 @@ export const useNostrStore = create<NostrState>()(
         mutedChats: state.mutedChats,
         seenAt: state.seenAt,
         syncedSettingsAt: state.syncedSettingsAt,
+        blockedPubkeys: state.blockedPubkeys,
+        dismissedRequests: state.dismissedRequests,
       }),
     }
   )

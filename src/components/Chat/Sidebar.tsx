@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone } from 'lucide-react'
+import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone, Shield } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType, type Group } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
@@ -437,7 +437,7 @@ export function Sidebar() {
 
   const isSearching = searchQuery.trim().length >= 2
 
-  const totalUnreadDMs = useMemo(() => contacts.reduce((sum, c) => sum + (c.unread || 0), 0), [contacts])
+  const totalUnreadDMs = useMemo(() => contacts.filter(c => !c.pending).reduce((sum, c) => sum + (c.unread || 0), 0), [contacts])
   const hasUnreadDMs = totalUnreadDMs > 0
 
   // ── Section panel bodies ─────────────────────────────────────
@@ -485,12 +485,14 @@ export function Sidebar() {
     </div>
   )
 
+  const acceptedContacts = contacts.filter(c => !c.pending)
+  const pendingRequests = contacts.filter(c => c.pending)
   const filteredContacts = dmSearchQuery.trim()
-    ? contacts.filter(c => {
+    ? acceptedContacts.filter(c => {
         const p = c.profile || profiles[c.pubkey]
         return getDisplayName(p, c.pubkey, 10).toLowerCase().includes(dmSearchQuery.trim().toLowerCase())
       })
-    : contacts
+    : acceptedContacts
 
   const dmMessageResults = useMemo(() => {
     const q = dmSearchQuery.trim().toLowerCase()
@@ -540,6 +542,22 @@ export function Sidebar() {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-thin py-1 px-2 space-y-0.5">
+        {!dmSearchQuery.trim() && pendingRequests.length > 0 && (
+          <>
+            <p className="text-gray-600 text-[10px] uppercase tracking-wide px-2 py-1">
+              Message requests · {pendingRequests.length}
+            </p>
+            {pendingRequests.map(c => (
+              <ContactItem
+                key={c.pubkey}
+                contact={c}
+                isActive={activeChatId === c.pubkey && activeChatType === 'dm'}
+                onSelect={closePanel}
+              />
+            ))}
+            <div className="h-px bg-gray-800 my-1 mx-2" />
+          </>
+        )}
         {dmSearchQuery.trim().length >= 2 && (
           <p className="text-gray-600 text-[10px] uppercase tracking-wide px-2 py-1">Conversations</p>
         )}
@@ -717,7 +735,8 @@ export function Sidebar() {
             { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysResolved > 0 ? `${relaysConnected}/${relaysTotal}` : null },
             { tab: 'keys',          label: 'Keys',          icon: <Key   size={16} />, badge: null },
             { tab: 'calls',         label: 'Calls',         icon: <Phone size={16} />, badge: null },
-            { tab: 'notifications', label: 'Notifications', icon: <Bell  size={16} />, badge: null },
+            { tab: 'notifications', label: 'Notifications', icon: <Bell   size={16} />, badge: null },
+            { tab: 'privacy',       label: 'Privacy',       icon: <Shield size={16} />, badge: null },
           ] as const
         ).map(({ tab, label, icon, badge }) => (
           <button
