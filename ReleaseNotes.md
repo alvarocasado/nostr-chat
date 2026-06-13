@@ -1,5 +1,27 @@
 # Release Notes
 
+## 1.0.0-alpha.14 — 2026-06-12
+
+### Features
+
+#### Global Message Inbox
+DMs, channel messages, and group messages now arrive while their chat is closed. App-level subscriptions keep unread badges, sidebar previews, and notifications current for every conversation — previously these only updated for the chat you had open. Relay backfill is distinguished from live messages (via EOSE), so logging in no longer floods you with notifications or inflated unread counts for old history, and shared event processors deduplicate side effects between the global and per-chat subscriptions.
+
+#### Message Requests
+Direct messages from people who aren't your contacts are held as message requests instead of landing directly in your conversation list. Requests appear in a dedicated "Message requests" section of the Messages panel and never trigger a notification (badge only). Opening one shows Accept, Dismiss, and Block actions; replying accepts automatically. Pending requests are never published to your public contact list — only accepting adds you.
+
+#### Blocking and Privacy Settings
+Block durably hides a sender across all your devices (synced via your relays); dismiss quietly drops a request and records a timestamp so old relay backfill can't resurrect it. A new Settings → Privacy tab lists everyone you've blocked with one-click Unblock.
+
+### Bug Fixes
+
+#### Nostr Event Kinds
+- Group messages moved off kind 10042, which sits in NIP-01's replaceable range where relays keep only the latest event per author — group history was at risk of collapsing to one message per member. They now use regular-range kind 1042, and both kinds are read for backward compatibility with messages already on relays.
+- Typing indicators moved off kind 24133, which collides with NIP-46 (Nostr Connect), to kind 24101.
+- Accepting a previously dismissed request now clears its dismissal record so the contact's earlier history is no longer silently filtered out.
+
+---
+
 ## 1.0.0-alpha.13 — 2026-06-12
 
 ### Changes
