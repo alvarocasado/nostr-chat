@@ -594,6 +594,7 @@ export const useNostrStore = create<NostrState>()(
             messages: restMessages,
             dismissedRequests: { ...get().dismissedRequests, [pubkey]: Math.floor(Date.now() / 1000) },
             activeChatId: get().activeChatId === pubkey ? null : get().activeChatId,
+            activeChatType: get().activeChatId === pubkey ? null : get().activeChatType,
           })
           const db = getUserDb()
           if (db) void db.messages.where('[chatId+createdAt]').between([pubkey, -Infinity], [pubkey, Infinity]).delete()

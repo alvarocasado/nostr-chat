@@ -422,6 +422,7 @@ describe('message request actions', () => {
     useNostrStore.getState().blockPubkey('req1')
     const s = useNostrStore.getState()
     expect(s.contacts.find(c => c.pubkey === 'req1')).toBeUndefined()
+    expect(s.messages['req1']).toBeUndefined()
     expect(s.blockedPubkeys).toContain('req1')
   })
 
