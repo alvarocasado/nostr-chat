@@ -796,6 +796,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   ) => {
     const sk = getPrivateKey()
     if (!sk || !publicKey) return
+    if (isPending) acceptMessageRequest(theirPubkey)
     await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
     addMessage(theirPubkey, {
       id: `local-${Date.now()}`,
