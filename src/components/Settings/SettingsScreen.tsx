@@ -6,6 +6,7 @@ import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
 import { CallsTab } from './CallsTab'
+import { PrivacyTab } from './PrivacyTab'
 
 const TAB_LABELS: Record<string, string> = {
   profile: 'Profile',
@@ -13,6 +14,7 @@ const TAB_LABELS: Record<string, string> = {
   keys: 'Keys',
   calls: 'Calls',
   notifications: 'Notifications',
+  privacy: 'Privacy',
 }
 
 export function SettingsScreen() {
@@ -279,6 +281,9 @@ export function SettingsScreen() {
 
           {/* Notifications */}
           {activeSettingsTab === 'notifications' && <NotificationsTab />}
+
+          {/* Privacy */}
+          {activeSettingsTab === 'privacy' && <PrivacyTab />}
 
         </div>
       </div>
