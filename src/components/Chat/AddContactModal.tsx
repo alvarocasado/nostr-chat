@@ -54,7 +54,7 @@ function QRScannerView({ onDetected, onCancel }: { onDetected: (pk: string) => v
   useEffect(() => {
     start()
     return () => stop()
-  }, [])
+  }, [start, stop])
 
   return (
     <div className="flex flex-col items-center gap-4">

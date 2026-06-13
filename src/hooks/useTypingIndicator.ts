@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { subscribeEvents, publishEvent, buildTypingEvent } from '../lib/nostr'
 import { useNostrStore } from '../store/nostrStore'
+import { useStableArray } from './useStableArray'
 
 const THROTTLE_MS   = 3_000  // send at most one typing event per 3 s
 const EXPIRY_MS     = 5_000  // remove typist label after 5 s of silence
@@ -18,6 +19,7 @@ export function useTypingIndicator(
   theirPubkey?: string,    // only used for DM subscription filter
 ) {
   const { publicKey, relays, getPrivateKey } = useNostrStore()
+  const stableRelays = useStableArray(relays)
   const [typists, setTypists] = useState<string[]>([])
   const timers    = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const lastSent  = useRef(0)
@@ -31,29 +33,30 @@ export function useTypingIndicator(
         ? { kinds: [24133], authors: [theirPubkey], '#p': [publicKey] }
         : { kinds: [24133], '#e': [chatId] }
 
-    const sub = subscribeEvents(relays, filter as Parameters<typeof subscribeEvents>[1], (event) => {
+    const timersMap = timers.current
+    const sub = subscribeEvents(stableRelays, filter as Parameters<typeof subscribeEvents>[1], (event) => {
       if (event.pubkey === publicKey) return  // ignore own echoes
 
       const pk = event.pubkey
-      const existing = timers.current.get(pk)
+      const existing = timersMap.get(pk)
       if (existing) clearTimeout(existing)
 
       setTypists(prev => prev.includes(pk) ? prev : [...prev, pk])
 
       const t = setTimeout(() => {
-        timers.current.delete(pk)
+        timersMap.delete(pk)
         setTypists(prev => prev.filter(p => p !== pk))
       }, EXPIRY_MS)
-      timers.current.set(pk, t)
+      timersMap.set(pk, t)
     })
 
     return () => {
       sub.close()
-      timers.current.forEach(clearTimeout)
-      timers.current.clear()
+      timersMap.forEach(clearTimeout)
+      timersMap.clear()
       setTypists([])
     }
-  }, [chatType, chatId, theirPubkey, publicKey, relays.join(',')])
+  }, [chatType, chatId, theirPubkey, publicKey, stableRelays])
 
   // ── send side (throttled) ────────────────────────────────────────────────
   const notifyTyping = useCallback(() => {
@@ -65,8 +68,8 @@ export function useTypingIndicator(
     if (!sk || !publicKey) return
 
     const event = buildTypingEvent(sk, chatType, chatId)
-    void publishEvent(relays, event)
-  }, [chatType, chatId, publicKey, relays, getPrivateKey])
+    void publishEvent(stableRelays, event)
+  }, [chatType, chatId, publicKey, stableRelays, getPrivateKey])
 
   return { typists, notifyTyping }
 }

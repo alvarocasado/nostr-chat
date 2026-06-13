@@ -40,6 +40,7 @@ interface CallContextValue {
 
 const CallContext = createContext<CallContextValue | null>(null)
 
+// eslint-disable-next-line react-refresh/only-export-components -- co-locating the consumer hook with its provider; HMR falls back to a full reload for this file
 export function useCallContext() {
   const ctx = useContext(CallContext)
   if (!ctx) throw new Error('useCallContext must be within CallProvider')
@@ -397,10 +398,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [publicKey, relays, getPrivateKey, handleSignal])
 
   // Ringtone + browser banner while the incoming call modal is showing
+  const peerPubkey = peer?.pubkey
   useEffect(() => {
-    if (callState !== 'incoming' || !peer) return
-    return fireCallNotification(peer.pubkey)
-  }, [callState, peer?.pubkey])
+    if (callState !== 'incoming' || !peerPubkey) return
+    return fireCallNotification(peerPubkey)
+  }, [callState, peerPubkey])
 
   // Cleanup on unmount
   useEffect(() => () => { cleanup() }, [cleanup])

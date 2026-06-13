@@ -24,6 +24,7 @@ import {
   type IncomingTransfer,
 } from '../lib/fileTransfer'
 import { serializeMessage, getDisplayName, getPreviewText } from '../lib/fileUtils'
+import { useStableArray } from './useStableArray'
 
 // Module-level set to deduplicate concurrent in-flight profile fetches
 const fetchingProfiles = new Set<string>()
@@ -37,15 +38,17 @@ const MAX_ENCRYPTED_CONTENT_LEN = 300_000
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
-  const { relays, setProfile, profiles } = useNostrStore()
+  const { relays, setProfile } = useNostrStore()
+  const stablePubkeys = useStableArray(pubkeys)
+  const stableRelays = useStableArray(relays)
 
   useEffect(() => {
-    if (!pubkeys.length) return
-    const missing = pubkeys.filter(pk => !profiles[pk])
+    if (!stablePubkeys.length) return
+    const missing = stablePubkeys.filter(pk => !useNostrStore.getState().profiles[pk])
     if (!missing.length) return
 
     const sub = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [0], authors: missing },
       (event) => {
         const profile = parseProfile(event)
@@ -53,18 +56,19 @@ export function useProfileLoader(pubkeys: string[]) {
       }
     )
     return () => sub.close()
-  }, [pubkeys.join(','), relays.join(',')])
+  }, [stablePubkeys, stableRelays, setProfile])
 }
 
 // Hook to subscribe to public channel messages
 export function useChannelMessages(channelId: string | null) {
-  const { relays, addMessage, updateChannelLastMessage, setProfile, profiles } = useNostrStore()
+  const { relays, addMessage, updateChannelLastMessage, setProfile } = useNostrStore()
+  const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     if (!channelId) return
 
     const sub = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [42], '#e': [channelId], limit: 200 },
       (event) => {
         if (event.content.length > MAX_CONTENT_LEN) return
@@ -104,21 +108,22 @@ export function useChannelMessages(channelId: string | null) {
           fireNotification(channelId, isMention ? 'mention' : 'channel', `#${channelName}`, `${senderName}: ${preview}`)
         }
 
-        if (!profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
+        if (!p[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
           fetchingProfiles.add(event.pubkey)
-          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] })
+          fetchEvent(stableRelays, { kinds: [0], authors: [event.pubkey] })
             .then(profileEvent => { if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent)) })
             .finally(() => fetchingProfiles.delete(event.pubkey))
         }
       }
     )
     return () => sub.close()
-  }, [channelId, relays.join(',')])
+  }, [channelId, stableRelays, addMessage, updateChannelLastMessage, setProfile])
 }
 
 // Hook to subscribe to DMs (two separate subscriptions: sent + received)
 export function useDMMessages(myPubkey: string | null, theirPubkey: string | null) {
-  const { relays, getPrivateKey, addMessage, updateContactLastMessage, setProfile, profiles } = useNostrStore()
+  const { relays, getPrivateKey, addMessage, updateContactLastMessage, setProfile } = useNostrStore()
+  const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     if (!myPubkey || !theirPubkey) return
@@ -165,9 +170,9 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
           fireNotification(chatId, 'dm', senderName, preview, p[event.pubkey]?.picture)
         }
 
-        if (!profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
+        if (!useNostrStore.getState().profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
           fetchingProfiles.add(event.pubkey)
-          fetchEvent(relays, { kinds: [0], authors: [event.pubkey] })
+          fetchEvent(stableRelays, { kinds: [0], authors: [event.pubkey] })
             .then(profileEvent => { if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent)) })
             .finally(() => fetchingProfiles.delete(event.pubkey))
         }
@@ -178,13 +183,13 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
 
     // Messages I sent to them
     const sub1 = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [4], authors: [myPubkey], '#p': [theirPubkey], limit: 200 },
       handleEvent,
     )
     // Messages they sent to me
     const sub2 = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [4], authors: [theirPubkey], '#p': [myPubkey], limit: 200 },
       handleEvent,
     )
@@ -192,16 +197,17 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
       sub1.close()
       sub2.close()
     }
-  }, [myPubkey, theirPubkey, relays.join(',')])
+  }, [myPubkey, theirPubkey, stableRelays, getPrivateKey, addMessage, updateContactLastMessage, setProfile])
 }
 
 // Hook to discover public channels
 export function useChannelDiscovery() {
   const { relays, addChannel } = useNostrStore()
+  const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     const sub = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [40], limit: 50 },
       (event) => {
         try {
@@ -212,7 +218,7 @@ export function useChannelDiscovery() {
             about: meta.about,
             picture: meta.picture,
             creatorPubkey: event.pubkey,
-            relayUrl: relays[0],
+            relayUrl: stableRelays[0],
           }
           addChannel(channel)
         } catch {
@@ -221,19 +227,20 @@ export function useChannelDiscovery() {
       }
     )
     return () => sub.close()
-  }, [relays.join(',')])
+  }, [stableRelays, addChannel])
 }
 
 // Hook to subscribe to encrypted group messages
 export function useGroupMessages(groupId: string | null) {
-  const { relays, groupKeys, addMessage, updateGroupLastMessage, setProfile, profiles } = useNostrStore()
+  const { relays, groupKeys, addMessage, updateGroupLastMessage, setProfile } = useNostrStore()
   const groupKey = groupId ? groupKeys[groupId] : null
+  const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     if (!groupId || !groupKey) return
 
     const sub = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [10042], '#e': [groupId], limit: 200 },
       async (event) => {
         try {
@@ -260,9 +267,9 @@ export function useGroupMessages(groupId: string | null) {
             fireNotification(groupId, 'channel', groupName, `${getDisplayName(p[event.pubkey], event.pubkey)}: ${getPreviewText(plaintext)}`)
           }
 
-          if (!profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
+          if (!useNostrStore.getState().profiles[event.pubkey] && !fetchingProfiles.has(event.pubkey)) {
             fetchingProfiles.add(event.pubkey)
-            fetchEvent(relays, { kinds: [0], authors: [event.pubkey] })
+            fetchEvent(stableRelays, { kinds: [0], authors: [event.pubkey] })
               .then(e => { if (e) setProfile(e.pubkey, parseProfile(e)) })
               .finally(() => fetchingProfiles.delete(event.pubkey))
           }
@@ -272,13 +279,14 @@ export function useGroupMessages(groupId: string | null) {
       },
     )
     return () => sub.close()
-  }, [groupId, groupKey, relays.join(',')])
+  }, [groupId, groupKey, stableRelays, addMessage, updateGroupLastMessage, setProfile])
 }
 
 // Hook to detect incoming group invites from kind-4 DMs addressed to the local user.
 // Mount once at app level (inside App component when logged in).
 export function useGroupInviteListener() {
   const { relays, publicKey, getPrivateKey, addGroup, setGroupKey } = useNostrStore()
+  const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     if (!publicKey) return
@@ -286,7 +294,7 @@ export function useGroupInviteListener() {
     if (!sk) return
 
     const sub = subscribeEvents(
-      relays,
+      stableRelays,
       { kinds: [4], '#p': [publicKey], limit: 100 },
       async (event) => {
         try {
@@ -302,7 +310,7 @@ export function useGroupInviteListener() {
             name: groupName,
             creatorPubkey: event.pubkey,
             memberPubkeys: [publicKey],
-            relayUrl: relays[0],
+            relayUrl: stableRelays[0],
             lastMessage: 'Joined via invite',
             lastMessageAt: event.created_at,
           })
@@ -312,7 +320,7 @@ export function useGroupInviteListener() {
           const mySk = useNostrStore.getState().getPrivateKey()
           if (mySk) {
             const backup = await buildGroupKeyBackupEvent(mySk, groupId, groupKeyHex)
-            publishEvent(relays, backup).catch(() => {})
+            publishEvent(stableRelays, backup).catch(() => {})
           }
         } catch {
           // not a group invite or decryption failed
@@ -320,7 +328,7 @@ export function useGroupInviteListener() {
       },
     )
     return () => sub.close()
-  }, [publicKey, relays.join(',')])
+  }, [publicKey, stableRelays, getPrivateKey, addGroup, setGroupKey])
 }
 
 // ─── File transfer helpers ───────────────────────────────────────────────────
