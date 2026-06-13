@@ -1,5 +1,23 @@
 # Release Notes
 
+## 1.0.0-alpha.13 — 2026-06-12
+
+### Changes
+
+#### Public README
+New public-facing README with feature overview and screenshot.
+
+#### Code Quality
+Maintenance release reducing technical debt; no user-facing behavior changes.
+- Repaired the ESLint flat config (lint was failing to run at all) and resolved every lint error and warning: intentional empty `catch` blocks and `_`-prefixed unused vars are now configured, `coverage/` is ignored
+- Fixed stale-closure reads of profiles in relay subscription hooks; callbacks now read the latest profiles from the store
+- New `useStableArray` hook keys relay subscriptions on relay-list contents, preventing unnecessary teardown/resubscribe when settings sync rewrites the relay array with identical values
+- QR scanner `start`/`stop` callbacks are now referentially stable
+- Moved `formatDuration` out of the `AudioMessage` component into `src/lib/format.ts`
+- `package.json` version re-aligned with release tags (was stuck at 1.0.0-alpha.9)
+
+---
+
 ## 1.0.0-alpha.12.1 — 2026-05-15
 
 ### Bug Fixes
