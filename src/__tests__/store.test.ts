@@ -442,6 +442,17 @@ describe('message request actions', () => {
     expect(s.dismissedRequests['req1']).toBeUndefined()
     expect(s.contacts[0].pending).toBeFalsy()
   })
+
+  it('acceptMessageRequest clears a stale dismissedRequests entry', () => {
+    useNostrStore.setState({
+      contacts: [{ pubkey: 'req1', pending: true }],
+      dismissedRequests: { req1: 1000 },
+    })
+    useNostrStore.getState().acceptMessageRequest('req1')
+    const s = useNostrStore.getState()
+    expect(s.contacts[0].pending).toBe(false)
+    expect(s.dismissedRequests['req1']).toBeUndefined()
+  })
 })
 
 describe('group store actions', () => {

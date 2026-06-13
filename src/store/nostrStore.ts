@@ -565,6 +565,7 @@ export const useNostrStore = create<NostrState>()(
         addContact: (pubkey) => {
           const { [pubkey]: _removed, ...restDismissed } = get().dismissedRequests
           const blockedChanged = get().blockedPubkeys.includes(pubkey)
+          const hadDismissal = get().dismissedRequests[pubkey] !== undefined
           set({
             blockedPubkeys: get().blockedPubkeys.filter(p => p !== pubkey),
             dismissedRequests: restDismissed,
@@ -576,7 +577,7 @@ export const useNostrStore = create<NostrState>()(
             set({ contacts: [{ pubkey }, ...get().contacts] })
           }
           scheduleContactsSync()
-          if (blockedChanged) scheduleSettingsSync()
+          if (blockedChanged || hadDismissal) scheduleSettingsSync()
         },
 
         removeContact: (pubkey) => {
@@ -585,8 +586,14 @@ export const useNostrStore = create<NostrState>()(
         },
 
         acceptMessageRequest: (pubkey) => {
-          set({ contacts: get().contacts.map(c => c.pubkey === pubkey ? { ...c, pending: false } : c) })
+          const hadDismissal = get().dismissedRequests[pubkey] !== undefined
+          const { [pubkey]: _removed, ...restDismissed } = get().dismissedRequests
+          set({
+            contacts: get().contacts.map(c => c.pubkey === pubkey ? { ...c, pending: false } : c),
+            dismissedRequests: restDismissed,
+          })
           scheduleContactsSync()
+          if (hadDismissal) scheduleSettingsSync()
         },
 
         dismissMessageRequest: (pubkey) => {
