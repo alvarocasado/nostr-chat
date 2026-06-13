@@ -18,7 +18,8 @@ import {
 } from '../../lib/fileUtils'
 import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
-import { AudioMessage, formatDuration } from './AudioMessage'
+import { AudioMessage } from './AudioMessage'
+import { formatDuration } from '../../lib/format'
 
 
 function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {

@@ -11,6 +11,26 @@ export function useQRScanner(onResult: (data: string) => void) {
   const [state, setState] = useState<ScanState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
 
+  // Latest-ref so `tick` (and thus `start`/`stop`) stay referentially stable
+  // even when callers pass an inline `onResult`.
+  const onResultRef = useRef(onResult)
+  onResultRef.current = onResult
+
+  const stop = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop())
+      streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+    setState('idle')
+  }, [])
+
   const tick = useCallback(() => {
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -31,12 +51,12 @@ export function useQRScanner(onResult: (data: string) => void) {
 
     if (code?.data) {
       stop()
-      onResult(code.data)
+      onResultRef.current(code.data)
       return
     }
 
     rafRef.current = requestAnimationFrame(tick)
-  }, [onResult])
+  }, [stop])
 
   const start = useCallback(async () => {
     setErrorMsg('')
@@ -57,21 +77,6 @@ export function useQRScanner(onResult: (data: string) => void) {
       setState('error')
     }
   }, [tick])
-
-  const stop = useCallback(() => {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null
-    }
-    setState('idle')
-  }, [])
 
   return { videoRef, canvasRef, state, errorMsg, start, stop }
 }

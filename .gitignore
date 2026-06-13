@@ -27,3 +27,4 @@ coverage
 .playwright-mcp/
 .superpowers/
 *.png
+!docs/screenshot.png

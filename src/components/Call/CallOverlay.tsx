@@ -4,7 +4,7 @@ import { useCallContext } from '../../contexts/CallContext'
 import { useNostrStore } from '../../store/nostrStore'
 import { Avatar } from '../Chat/Avatar'
 import { getDisplayName } from '../../lib/fileUtils'
-import { formatDuration } from '../Chat/AudioMessage'
+import { formatDuration } from '../../lib/format'
 
 function VideoEl({ stream, muted, className }: { stream: MediaStream | null; muted?: boolean; className?: string }) {
   const ref = useRef<HTMLVideoElement>(null)
