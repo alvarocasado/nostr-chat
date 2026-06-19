@@ -52,9 +52,15 @@ export function recordToMessage(r: MessageRecord): Message {
   }
 }
 
+export interface CryptoRecord {
+  id: string
+  key: CryptoKey
+}
+
 export class UserDatabase extends Dexie {
   settings!: Table<SettingRecord, string>
   messages!: Table<MessageRecord, string>
+  crypto!: Table<CryptoRecord, string>
 
   constructor(pubkey: string) {
     super(`nostr-chat-${pubkey}`)
@@ -64,6 +70,11 @@ export class UserDatabase extends Dexie {
     this.version(2).stores({
       settings: 'key',
       messages: 'id, [chatId+createdAt], createdAt',
+    })
+    this.version(3).stores({
+      settings: 'key',
+      messages: 'id, [chatId+createdAt], createdAt',
+      crypto: 'id',
     })
   }
 }
