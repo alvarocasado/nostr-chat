@@ -5,6 +5,7 @@ import {
 import { subscribeEvents, publishEvent } from '../lib/nostr'
 import { getSetting } from '../lib/userDb'
 import { useNostrStore } from '../store/nostrStore'
+import { getSigner } from '../lib/signer'
 import { fireCallNotification } from '../lib/notifications'
 import {
   buildCallSignalEvent, decryptCallSignal,
@@ -48,7 +49,7 @@ export function useCallContext() {
 }
 
 export function CallProvider({ children }: { children: ReactNode }) {
-  const { publicKey, relays, getPrivateKey } = useNostrStore()
+  const { publicKey, relays } = useNostrStore()
 
   const [callState, setCallState]       = useState<CallState>('idle')
   const [peer, setPeer]                 = useState<CallPeer | null>(null)
@@ -78,11 +79,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const sendSignal = useCallback(async (peerPubkey: string, signal: CallSignal) => {
-    const sk = getPrivateKey()
-    if (!sk) return
-    const event = await buildCallSignalEvent(sk, peerPubkey, signal)
+    if (!getSigner()) return
+    const event = await buildCallSignalEvent(peerPubkey, signal)
     await publishEvent(relays, event)
-  }, [relays, getPrivateKey])
+  }, [relays])
 
   const stopLocalStream = useCallback(() => {
     localStreamRef.current?.getTracks().forEach(t => t.stop())
@@ -322,8 +322,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // ── Incoming signal handler ───────────────────────────────────────────────
 
   const handleSignal = useCallback(async (senderPubkey: string, signal: CallSignal) => {
-    const sk = getPrivateKey()
-    if (!sk) return
+    if (!getSigner()) return
 
     if (signal.type === 'call-offer') {
       if (callStateRef.current !== 'idle') {
@@ -377,25 +376,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (signal.type === 'call-end') {
       cleanup()
     }
-  }, [getPrivateKey, sendSignal, flushPendingCandidates, cleanup])
+  }, [sendSignal, flushPendingCandidates, cleanup])
 
   // ── Nostr subscription for call signals ──────────────────────────────────
 
   useEffect(() => {
-    if (!publicKey) return
-    const sk = getPrivateKey()
-    if (!sk) return
-
+    if (!publicKey || !getSigner()) return
     const sub = subscribeEvents(
       relays,
       { kinds: [CALL_SIGNAL_KIND], '#p': [publicKey] } as Parameters<typeof subscribeEvents>[1],
       async (event) => {
-        const signal = await decryptCallSignal(sk, event.pubkey, event.content)
+        const signal = await decryptCallSignal(event.pubkey, event.content)
         if (signal) await handleSignal(event.pubkey, signal)
       },
     )
     return () => sub.close()
-  }, [publicKey, relays, getPrivateKey, handleSignal])
+  }, [publicKey, relays, handleSignal])
 
   // Ringtone + browser banner while the incoming call modal is showing
   const peerPubkey = peer?.pubkey
