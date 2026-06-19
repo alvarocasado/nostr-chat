@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage, type StorageValue } from 'zustand/middleware'
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools'
 import { encodeNsec, encodePubkey, type NostrProfile, DEFAULT_RELAYS } from '../lib/nostr'
+import { LocalSigner, setSigner, clearSigner, getSigner } from '../lib/signer'
 import {
   openUserDb,
   closeUserDb,
@@ -259,6 +260,7 @@ async function completeLogin(
   set: (s: Partial<NostrState>) => void,
   get: () => NostrState,
 ): Promise<void> {
+  setSigner(new LocalSigner(sk))
   openUserDb(pk)
   const existing = await loadExistingUserState(pk)
   if (existing.publicKey === pk) {
@@ -275,7 +277,7 @@ async function completeLogin(
 
   // Relay sync runs in background — never blocks login
   const relays = get().relays
-  syncFromRelays(sk, pk, relays).then(result => {
+  syncFromRelays(relays).then(result => {
     // Contacts: additive merge — relay contacts added to local, never removed here
     if (result.contacts) {
       const current = get().contacts
@@ -357,26 +359,23 @@ export const useNostrStore = create<NostrState>()(
       // Debounced relay publish helpers — read fresh state at publish time
       const scheduleContactsSync = () => {
         debounce('contacts', () => {
-          const { contacts, relays, getPrivateKey } = get()
-          const sk = getPrivateKey()
-          if (sk) void publishContactList(sk, contacts, relays).catch(() => {})
+          const { contacts, relays } = get()
+          if (getSigner()) void publishContactList(contacts, relays).catch(() => {})
         })
       }
 
       const scheduleChannelsSync = () => {
         debounce('channels', () => {
-          const { joinedChannelIds, relays, getPrivateKey } = get()
-          const sk = getPrivateKey()
-          if (sk) void publishChannelBookmarks(sk, joinedChannelIds, relays).catch(() => {})
+          const { joinedChannelIds, relays } = get()
+          if (getSigner()) void publishChannelBookmarks(joinedChannelIds, relays).catch(() => {})
         })
       }
 
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey, blockedPubkeys, dismissedRequests } = get()
-            const sk = getPrivateKey()
-            if (!sk || !publicKey) return
+            const { notificationSettings, mutedChats, relays, blockedPubkeys, dismissedRequests } = get()
+            if (!getSigner()) return
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
               getSetting<string>('turn_mode', 'none'),
@@ -392,7 +391,7 @@ export const useNostrStore = create<NostrState>()(
               ...(turnMetered ? { turnMetered } : {}),
               ...(turnCustom  ? { turnCustom  } : {}),
             }
-            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings, blockedPubkeys, dismissedRequests }, relays)
+            void publishAppSettings({ notificationSettings, mutedChats, relays, callsSettings, blockedPubkeys, dismissedRequests }, relays)
               .then(() => set({ syncedSettingsAt: now }))
               .catch(() => {})
           })()
@@ -482,6 +481,7 @@ export const useNostrStore = create<NostrState>()(
             groups: [],
             groupKeys: {},
           })
+          clearSigner()
           closeUserDb()
           clearActivePubkey()
         },
@@ -786,8 +786,9 @@ export const useNostrStore = create<NostrState>()(
       name: 'nostr-chat-storage',
       storage: createJSONStorage(() => dexieStorage),
       onRehydrateStorage: () => (state) => {
-        if (state?.privateKeyHex && !state.nsec) {
-          state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
+        if (state?.privateKeyHex) {
+          setSigner(new LocalSigner(hexToBytes(state.privateKeyHex)))
+          if (!state.nsec) state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
         }
         if (state?.notificationSettings) {
           const ns = state.notificationSettings

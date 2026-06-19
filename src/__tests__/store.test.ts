@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useNostrStore } from '../store/nostrStore'
+import { getSigner } from '../lib/signer'
 
 // Reset store state before each test
 beforeEach(() => {
@@ -33,6 +34,15 @@ describe('generateAndLogin', () => {
     expect(state.npub).toBe(npub)
     expect(nsec).toMatch(/^nsec1/)
     expect(npub).toMatch(/^npub1/)
+  })
+})
+
+describe('signer installation', () => {
+  it('installs a LocalSigner on login', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    const signer = getSigner()
+    expect(signer?.type).toBe('local')
+    expect(signer?.pubkey).toBe(useNostrStore.getState().publicKey)
   })
 })
 
