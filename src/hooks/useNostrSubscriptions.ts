@@ -22,6 +22,7 @@ import {
 } from '../lib/inbox'
 import { sendChunkedFile as sendChunkedFileUtil } from '../lib/fileTransfer'
 import { useStableArray } from './useStableArray'
+import { getSigner } from '../lib/signer'
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
@@ -67,20 +68,19 @@ export function useChannelMessages(channelId: string | null) {
 
 // Hook to subscribe to DMs (two separate subscriptions: sent + received)
 export function useDMMessages(myPubkey: string | null, theirPubkey: string | null) {
-  const { relays, getPrivateKey } = useNostrStore()
+  const { relays } = useNostrStore()
   const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     if (!myPubkey || !theirPubkey) return
-    const sk = getPrivateKey()
-    if (!sk) return
+    if (!getSigner()) return
 
     // Messages I sent to them
     let live1 = false
     const sub1 = subscribeEvents(
       stableRelays,
       { kinds: [4], authors: [myPubkey], '#p': [theirPubkey], limit: 200 },
-      (event) => { void processDMEvent(event, sk, myPubkey, stableRelays, { live: live1 }) },
+      (event) => { void processDMEvent(event, myPubkey, stableRelays, { live: live1 }) },
       () => { live1 = true },
     )
     // Messages they sent to me
@@ -88,14 +88,14 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
     const sub2 = subscribeEvents(
       stableRelays,
       { kinds: [4], authors: [theirPubkey], '#p': [myPubkey], limit: 200 },
-      (event) => { void processDMEvent(event, sk, myPubkey, stableRelays, { live: live2 }) },
+      (event) => { void processDMEvent(event, myPubkey, stableRelays, { live: live2 }) },
       () => { live2 = true },
     )
     return () => {
       sub1.close()
       sub2.close()
     }
-  }, [myPubkey, theirPubkey, stableRelays, getPrivateKey])
+  }, [myPubkey, theirPubkey, stableRelays])
 }
 
 // Hook to discover public channels
@@ -160,14 +160,13 @@ export function useGlobalInbox() {
   // All DMs addressed to me
   useEffect(() => {
     if (!publicKey) return
-    const sk = useNostrStore.getState().getPrivateKey()
-    if (!sk) return
+    if (!getSigner()) return
 
     let live = false
     const sub = subscribeEvents(
       stableRelays,
       { kinds: [4], '#p': [publicKey], limit: 100 },
-      (event) => { void processDMEvent(event, sk, publicKey, stableRelays, { live }) },
+      (event) => { void processDMEvent(event, publicKey, stableRelays, { live }) },
       () => { live = true },
     )
     return () => sub.close()
@@ -216,20 +215,19 @@ export function useGlobalInbox() {
 // Hook to detect incoming group invites from kind-4 DMs addressed to the local user.
 // Mount once at app level (inside App component when logged in).
 export function useGroupInviteListener() {
-  const { relays, publicKey, getPrivateKey, addGroup, setGroupKey } = useNostrStore()
+  const { relays, publicKey, addGroup, setGroupKey } = useNostrStore()
   const stableRelays = useStableArray(relays)
 
   useEffect(() => {
     if (!publicKey) return
-    const sk = getPrivateKey()
-    if (!sk) return
+    if (!getSigner()) return
 
     const sub = subscribeEvents(
       stableRelays,
       { kinds: [4], '#p': [publicKey], limit: 100 },
       async (event) => {
         try {
-          const decrypted = await decryptDM(sk, event.pubkey, event.content)
+          const decrypted = await decryptDM(event.pubkey, event.content)
           const payload = JSON.parse(decrypted) as { type?: string; groupId?: string; groupKeyHex?: string; groupName?: string }
           if (payload?.type !== 'group_invite') return
           const { groupId, groupKeyHex, groupName } = payload
@@ -248,26 +246,21 @@ export function useGroupInviteListener() {
           setGroupKey(groupId, groupKeyHex)
 
           // Publish own key backup so cross-device recovery works
-          const mySk = useNostrStore.getState().getPrivateKey()
-          if (mySk) {
-            const backup = await buildGroupKeyBackupEvent(mySk, groupId, groupKeyHex)
-            publishEvent(stableRelays, backup).catch(() => {})
-          }
+          const backup = await buildGroupKeyBackupEvent(groupId, groupKeyHex)
+          publishEvent(stableRelays, backup).catch(() => {})
         } catch {
           // not a group invite or decryption failed
         }
       },
     )
     return () => sub.close()
-  }, [publicKey, stableRelays, getPrivateKey, addGroup, setGroupKey])
+  }, [publicKey, stableRelays, addGroup, setGroupKey])
 }
 
 // ─── Send / publish helpers ──────────────────────────────────────────────────
 
 /** Send a large file as chunked Nostr events (DM or channel). */
 export async function sendChunkedFile(
-  sk: Uint8Array,
-  myPubkey: string,
   dataUrl: string,
   name: string,
   mime: string,
@@ -277,53 +270,49 @@ export async function sendChunkedFile(
   relays: string[],
   onProgress: (sent: number, total: number) => void,
 ): Promise<void> {
-  return sendChunkedFileUtil(sk, myPubkey, dataUrl, name, mime, size, chatType, chatId, relays, onProgress)
+  return sendChunkedFileUtil(dataUrl, name, mime, size, chatType, chatId, relays, onProgress)
 }
 
 // Send a channel message; replyEventId adds NIP-10 reply tag
 export async function sendChannelMessage(
-  sk: Uint8Array,
   content: string,
   channelId: string,
   relays: string[],
   replyEventId?: string,
 ) {
-  const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyEventId)
+  const event = await buildChannelMessageEvent(content, channelId, relays[0], replyEventId)
   await publishEvent(relays, event)
   return event
 }
 
 // Send a DM
 export async function sendDM(
-  sk: Uint8Array,
   content: string,
   recipientPubkey: string,
-  relays: string[]
+  relays: string[],
 ) {
-  const event = await buildDMEvent(sk, recipientPubkey, content)
+  const event = await buildDMEvent(recipientPubkey, content)
   await publishEvent(relays, event)
   return event
 }
 
 // Create a new channel
 export async function createChannel(
-  sk: Uint8Array,
   name: string,
   about: string,
-  relays: string[]
+  relays: string[],
 ) {
-  const event = buildChannelCreateEvent(sk, name, about)
+  const event = await buildChannelCreateEvent(name, about)
   await publishEvent(relays, event)
   return event
 }
 
 // Publish profile
 export async function publishProfile(
-  sk: Uint8Array,
   profile: Partial<NostrProfile>,
-  relays: string[]
+  relays: string[],
 ) {
-  const event = buildProfileEvent(sk, profile)
+  const event = await buildProfileEvent(profile)
   await publishEvent(relays, event)
   return event
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { subscribeEvents, publishEvent, buildTypingEvent, TYPING_INDICATOR_KIND } from '../lib/nostr'
 import { useNostrStore } from '../store/nostrStore'
 import { useStableArray } from './useStableArray'
+import { getSigner } from '../lib/signer'
 
 const THROTTLE_MS   = 3_000  // send at most one typing event per 3 s
 const EXPIRY_MS     = 5_000  // remove typist label after 5 s of silence
@@ -18,7 +19,7 @@ export function useTypingIndicator(
   chatId: string,          // recipientPubkey (DM) or channelId (channel)
   theirPubkey?: string,    // only used for DM subscription filter
 ) {
-  const { publicKey, relays, getPrivateKey } = useNostrStore()
+  const { publicKey, relays } = useNostrStore()
   const stableRelays = useStableArray(relays)
   const [typists, setTypists] = useState<string[]>([])
   const timers    = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
@@ -63,13 +64,12 @@ export function useTypingIndicator(
     const now = Date.now()
     if (now - lastSent.current < THROTTLE_MS) return
     lastSent.current = now
-
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
-
-    const event = buildTypingEvent(sk, chatType, chatId)
-    void publishEvent(stableRelays, event)
-  }, [chatType, chatId, publicKey, stableRelays, getPrivateKey])
+    if (!getSigner() || !publicKey) return
+    void (async () => {
+      const event = await buildTypingEvent(chatType, chatId)
+      void publishEvent(stableRelays, event)
+    })()
+  }, [chatType, chatId, publicKey, stableRelays])
 
   return { typists, notifyTyping }
 }
