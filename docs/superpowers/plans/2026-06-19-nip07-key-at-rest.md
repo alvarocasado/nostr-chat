@@ -918,6 +918,31 @@ git commit -m "refactor: route hooks through Signer; drop sk from send helpers"
 
 ---
 
+## Task 9b: Refactor remaining component call sites (added during execution)
+
+Discovered during Task 8: four components call `getPrivateKey()` and the changed helpers but were missing from the original file map. They must be updated for the Phase 0 build gate (Task 10) to pass.
+
+**Files:**
+- Modify: `src/components/Chat/AddChannelModal.tsx`
+- Modify: `src/components/Chat/AddGroupModal.tsx`
+- Modify: `src/components/Settings/SettingsScreen.tsx`
+- Modify: `src/components/Settings/SettingsPanel.tsx`
+
+**Interfaces consumed:** `getSigner()`; `createChannel(name, about, relays)`; `publishProfile(profile, relays)`; `buildGroupMetadataEvent(groupKeyHex, groupId, name, about, memberPubkeys)`; `buildGroupKeyBackupEvent(groupId, groupKeyHex)`; `buildGroupInviteEvent(recipientPubkey, groupId, groupKeyHex, groupName)` — all async, no `sk`.
+
+- [ ] **Step 1: AddChannelModal.tsx** — remove `getPrivateKey` from the `useNostrStore()` destructure; replace `const sk = getPrivateKey(); if (!sk) ...` with `if (!getSigner()) { /* surface existing error path */ return }`; call `await createChannel(name.trim(), about.trim(), relays)`.
+
+- [ ] **Step 2: AddGroupModal.tsx** — remove `getPrivateKey`; guard `if (!getSigner()) return`; update the three builder calls: `await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers)`, `await buildGroupKeyBackupEvent(groupId, groupKeyHex)`, `await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim())`.
+
+- [ ] **Step 3: SettingsScreen.tsx and SettingsPanel.tsx** — remove `getPrivateKey`; guard `if (!getSigner()) return`; call `await publishProfile({ display_name: displayName, name: displayName, about, picture, nip05 }, relays)`. (These two files duplicate the profile-publish block; update both identically — do not refactor the duplication, it is out of scope.)
+
+- [ ] **Step 4: Verify** — `npm run build` should now show errors ONLY in `useTypingIndicator.ts`, `useNostrSubscriptions.ts`, and `MessageThread.tsx` (Tasks 9 and 10). Run `npm test` (focused suites already covered; no component tests for these). Commit:
+
+```bash
+git add src/components/Chat/AddChannelModal.tsx src/components/Chat/AddGroupModal.tsx src/components/Settings/SettingsScreen.tsx src/components/Settings/SettingsPanel.tsx
+git commit -m "refactor: route remaining component call sites through Signer"
+```
+
 ## Task 10: Refactor `MessageThread.tsx` send paths
 
 **Files:**
