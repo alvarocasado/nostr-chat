@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
 import { extractRootChatId, processChannelEvent, processDMEvent, resetInboxDedup } from '../lib/inbox'
 import { useNostrStore } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
+import { installTestSigner } from '../test/signer'
+import { clearSigner } from '../lib/signer'
 
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
@@ -21,6 +23,10 @@ function makeChannelEvent(sk: Uint8Array, channelId: string, content: string, cr
     content,
   }, sk)
 }
+
+afterEach(() => {
+  clearSigner()
+})
 
 beforeEach(() => {
   resetInboxDedup()
@@ -109,7 +115,8 @@ describe('processDMEvent', () => {
     const senderSk = generateSecretKey()
     const senderPk = getPublicKey(senderSk)
     const mySk = generateSecretKey()
-    const myPk = getPublicKey(mySk)
+    const { signer } = installTestSigner(mySk)
+    const myPk = signer.pubkey
     useNostrStore.setState({ publicKey: myPk })
 
     const encrypted = await nip04.encrypt(senderSk, myPk, 'secret hi')
@@ -120,7 +127,7 @@ describe('processDMEvent', () => {
       content: encrypted,
     }, senderSk)
 
-    await processDMEvent(event, mySk, myPk, RELAYS, { live: true })
+    await processDMEvent(event, myPk, RELAYS, { live: true })
 
     const state = useNostrStore.getState()
     expect(state.messages[senderPk]).toHaveLength(1)
@@ -135,7 +142,8 @@ describe('processDMEvent', () => {
     const senderSk = generateSecretKey()
     const senderPk = getPublicKey(senderSk)
     const mySk = generateSecretKey()
-    const myPk = getPublicKey(mySk)
+    const { signer } = installTestSigner(mySk)
+    const myPk = signer.pubkey
     useNostrStore.setState({ publicKey: myPk })
 
     const payload = JSON.stringify({ type: 'group_invite', groupId: 'g', groupKeyHex: 'k', groupName: 'n' })
@@ -147,7 +155,7 @@ describe('processDMEvent', () => {
       content: encrypted,
     }, senderSk)
 
-    await processDMEvent(event, mySk, myPk, RELAYS, { live: true })
+    await processDMEvent(event, myPk, RELAYS, { live: true })
 
     const state = useNostrStore.getState()
     expect(state.messages[senderPk]).toBeUndefined()
@@ -160,17 +168,18 @@ describe('processDMEvent — request gate', () => {
     const senderSk = generateSecretKey()
     const senderPk = getPublicKey(senderSk)
     const mySk = generateSecretKey()
-    const myPk = getPublicKey(mySk)
+    const { signer } = installTestSigner(mySk)
+    const myPk = signer.pubkey
     useNostrStore.setState({ publicKey: myPk })
     const encrypted = await nip04.encrypt(senderSk, myPk, text)
     const event = finalizeEvent({ kind: 4, created_at: createdAt, tags: [['p', myPk]], content: encrypted }, senderSk)
-    return { event, senderPk, mySk, myPk }
+    return { event, senderPk, myPk }
   }
 
   it('drops events from a blocked sender entirely', async () => {
-    const { event, senderPk, mySk, myPk } = await incomingDM('blocked hello')
+    const { event, senderPk, myPk } = await incomingDM('blocked hello')
     useNostrStore.setState({ blockedPubkeys: [senderPk], contacts: [] })
-    await processDMEvent(event, mySk, myPk, RELAYS, { live: true })
+    await processDMEvent(event, myPk, RELAYS, { live: true })
     const s = useNostrStore.getState()
     expect(s.messages[senderPk]).toBeUndefined()
     expect(s.contacts.find(c => c.pubkey === senderPk)).toBeUndefined()
@@ -179,7 +188,7 @@ describe('processDMEvent — request gate', () => {
   it('drops a dismissed sender message older than the dismissal', async () => {
     const old = await incomingDM('old', 500)
     useNostrStore.setState({ dismissedRequests: { [old.senderPk]: 1000 }, contacts: [], messages: {} })
-    await processDMEvent(old.event, old.mySk, old.myPk, RELAYS, { live: false })
+    await processDMEvent(old.event, old.myPk, RELAYS, { live: false })
     expect(useNostrStore.getState().contacts.find(c => c.pubkey === old.senderPk)).toBeUndefined()
     expect(useNostrStore.getState().messages[old.senderPk]).toBeUndefined()
   })
@@ -187,7 +196,7 @@ describe('processDMEvent — request gate', () => {
   it('reopens a request for a dismissed sender message newer than the dismissal', async () => {
     const fresh = await incomingDM('new message', 2000)
     useNostrStore.setState({ dismissedRequests: { [fresh.senderPk]: 1000 }, contacts: [], messages: {} })
-    await processDMEvent(fresh.event, fresh.mySk, fresh.myPk, RELAYS, { live: true })
+    await processDMEvent(fresh.event, fresh.myPk, RELAYS, { live: true })
     const c = useNostrStore.getState().contacts.find(c => c.pubkey === fresh.senderPk)
     expect(c?.pending).toBe(true)
     expect(useNostrStore.getState().messages[fresh.senderPk]).toHaveLength(1)
@@ -195,9 +204,9 @@ describe('processDMEvent — request gate', () => {
 
   it('creates a pending contact for an unknown sender and does not notify', async () => {
     vi.mocked(fireNotification).mockClear()
-    const { event, senderPk, mySk, myPk } = await incomingDM('hi stranger')
+    const { event, senderPk, myPk } = await incomingDM('hi stranger')
     useNostrStore.setState({ contacts: [], blockedPubkeys: [], dismissedRequests: {} })
-    await processDMEvent(event, mySk, myPk, RELAYS, { live: true })
+    await processDMEvent(event, myPk, RELAYS, { live: true })
     const c = useNostrStore.getState().contacts.find(c => c.pubkey === senderPk)
     expect(c?.pending).toBe(true)
     expect(useNostrStore.getState().messages[senderPk]).toHaveLength(1)
@@ -207,15 +216,15 @@ describe('processDMEvent — request gate', () => {
   it('drops a dismissed sender message exactly at the dismissal timestamp', async () => {
     const at = await incomingDM('boundary', 1000)
     useNostrStore.setState({ dismissedRequests: { [at.senderPk]: 1000 }, contacts: [], messages: {} })
-    await processDMEvent(at.event, at.mySk, at.myPk, RELAYS, { live: false })
+    await processDMEvent(at.event, at.myPk, RELAYS, { live: false })
     expect(useNostrStore.getState().contacts.find(c => c.pubkey === at.senderPk)).toBeUndefined()
   })
 
   it('notifies for an already-accepted contact', async () => {
     vi.mocked(fireNotification).mockClear()
-    const { event, senderPk, mySk, myPk } = await incomingDM('hey again')
+    const { event, senderPk, myPk } = await incomingDM('hey again')
     useNostrStore.setState({ contacts: [{ pubkey: senderPk, pending: false }], blockedPubkeys: [], dismissedRequests: {} })
-    await processDMEvent(event, mySk, myPk, RELAYS, { live: true })
+    await processDMEvent(event, myPk, RELAYS, { live: true })
     expect(fireNotification).toHaveBeenCalled()
   })
 })

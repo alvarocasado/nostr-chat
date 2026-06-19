@@ -177,7 +177,6 @@ export async function processChannelEvent(
 
 export async function processDMEvent(
   event: Event,
-  sk: Uint8Array,
   myPubkey: string,
   relays: string[],
   opts: ProcessOpts,
@@ -191,7 +190,7 @@ export async function processDMEvent(
 
   let decrypted: string
   try {
-    decrypted = await decryptDM(sk, peer, event.content)
+    decrypted = await decryptDM(peer, event.content)
   } catch {
     return // decryption failed — skip
   }
