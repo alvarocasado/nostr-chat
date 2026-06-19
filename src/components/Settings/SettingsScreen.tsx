@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
+import { getSigner } from '../../lib/signer'
 import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
@@ -21,7 +22,7 @@ export function SettingsScreen() {
   const {
     publicKey, npub, nsec, profile, relays,
     activeSettingsTab,
-    addRelay, removeRelay, updateProfile, getPrivateKey,
+    addRelay, removeRelay, updateProfile,
   } = useNostrStore()
 
   const [newRelay, setNewRelay] = useState('')
@@ -70,11 +71,10 @@ export function SettingsScreen() {
   const saveProfile = async () => {
     setSaving(true)
     setSaved(false)
-    const sk = getPrivateKey()
-    if (!sk) { setSaving(false); return }
+    if (!getSigner()) { setSaving(false); return }
     try {
       updateProfile({ display_name: displayName, name: displayName, about, picture, nip05 })
-      await publishProfile(sk, { display_name: displayName, name: displayName, about, picture, nip05 }, relays)
+      await publishProfile({ display_name: displayName, name: displayName, about, picture, nip05 }, relays)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch { /* ignore publish errors */ }
