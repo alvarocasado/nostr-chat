@@ -8,6 +8,7 @@ import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, useGroupMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
+import { getSigner } from '../../lib/signer'
 import type { Event as NostrEvent } from 'nostr-tools'
 import { MessageItem } from './MessageItem'
 import { MediaGallery } from './MediaGallery'
@@ -632,7 +633,7 @@ function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTi
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const { publicKey, messages, profiles, relays, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -648,10 +649,9 @@ function ChannelThread({ channelId }: { channelId: string }) {
   }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
+    if (!getSigner() || !publicKey) return
 
-    const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyTo?.id)
+    const event = await buildChannelMessageEvent(content, channelId, relays[0], replyTo?.id)
 
     addMessage(channelId, {
       id: event.id,
@@ -696,9 +696,8 @@ function ChannelThread({ channelId }: { channelId: string }) {
     replyToData: ReplyTo | null,
     onProgress: (sent: number, total: number) => void,
   ) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
-    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
+    if (!getSigner() || !publicKey) return
+    await sendChunkedFile(attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
     addMessage(channelId, {
       id: `local-${Date.now()}`,
       pubkey: publicKey,
@@ -725,7 +724,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+  const { publicKey, messages, profiles, relays, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
     contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
@@ -743,12 +742,11 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   }, [theirPubkey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
+    if (!getSigner() || !publicKey) return
 
     if (isPending) acceptMessageRequest(theirPubkey)
 
-    const event = await buildDMEvent(sk, theirPubkey, content)
+    const event = await buildDMEvent(theirPubkey, content)
 
     addMessage(theirPubkey, {
       id: event.id,
@@ -794,10 +792,9 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     replyToData: ReplyTo | null,
     onProgress: (sent: number, total: number) => void,
   ) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
+    if (!getSigner() || !publicKey) return
     if (isPending) acceptMessageRequest(theirPubkey)
-    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
+    await sendChunkedFile(attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
     addMessage(theirPubkey, {
       id: `local-${Date.now()}`,
       pubkey: publicKey,
@@ -848,7 +845,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 
 function GroupThread({ groupId }: { groupId: string }) {
   const {
-    publicKey, messages, profiles, relays, getPrivateKey, groupKeys,
+    publicKey, messages, profiles, relays, groupKeys,
     addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
   } = useNostrStore()
   useGroupMessages(groupId)
@@ -866,11 +863,10 @@ function GroupThread({ groupId }: { groupId: string }) {
   }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey || !groupKey) return
+    if (!getSigner() || !publicKey || !groupKey) return
 
     const encryptedContent = await encryptWithGroupKey(content, groupKey)
-    const event = buildGroupMessageEvent(sk, encryptedContent, groupId, relays[0], replyTo?.id)
+    const event = await buildGroupMessageEvent(encryptedContent, groupId, relays[0], replyTo?.id)
 
     addMessage(groupId, {
       id: event.id,
