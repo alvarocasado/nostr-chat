@@ -210,34 +210,30 @@ export function handleFileChunk(
  * Works for both DMs (encrypted) and channels (plaintext).
  */
 export async function sendChunkedFile(
-  sk: Uint8Array,
-  _myPubkey: string,
   dataUrl: string,
   name: string,
   mime: string,
   size: number,
   chatType: 'dm' | 'channel',
-  chatId: string,  // recipientPubkey for DM, channelId for channel
+  chatId: string,
   relays: string[],
   onProgress: (sent: number, total: number) => void,
 ): Promise<void> {
   const transferId = generateTransferId()
-  const { prefix: _prefix, chunks } = splitDataUrl(dataUrl)
+  const { chunks } = splitDataUrl(dataUrl)
   const total = chunks.length
 
-  // 1. Send manifest
   const startPayload = serializeFileStart({ transferId, name, mime, size, totalChunks: total })
   const startEvent = chatType === 'dm'
-    ? await buildDMEvent(sk, chatId, startPayload)
-    : buildChannelMessageEvent(sk, startPayload, chatId, relays[0])
+    ? await buildDMEvent(chatId, startPayload)
+    : await buildChannelMessageEvent(startPayload, chatId, relays[0])
   await publishEvent(relays, startEvent)
 
-  // 2. Send chunks sequentially (relays reject floods)
   for (let i = 0; i < total; i++) {
     const chunkPayload = serializeFileChunk({ transferId, index: i, total, data: chunks[i] })
     const chunkEvent = chatType === 'dm'
-      ? await buildDMEvent(sk, chatId, chunkPayload)
-      : buildChannelMessageEvent(sk, chunkPayload, chatId, relays[0])
+      ? await buildDMEvent(chatId, chunkPayload)
+      : await buildChannelMessageEvent(chunkPayload, chatId, relays[0])
     await publishEvent(relays, chunkEvent)
     onProgress(i + 1, total)
   }
