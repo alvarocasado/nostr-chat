@@ -1,14 +1,13 @@
 import {
   generateSecretKey,
   getPublicKey,
-  finalizeEvent,
-  nip04,
   nip19,
   SimplePool,
   type Event,
   type Filter,
 } from 'nostr-tools'
 import { encryptWithGroupKey } from './groupCrypto'
+import { requireSigner } from './signer'
 
 // Group messages: regular-range kind so relays store full history.
 // The previous kind (10042) sits in NIP-01's replaceable range (10000-19999),
@@ -46,69 +45,69 @@ export function encodePubkey(pk: string): string {
 }
 
 // Build kind-0 (profile) event
-export function buildProfileEvent(sk: Uint8Array, profile: {
+export async function buildProfileEvent(profile: {
   name?: string
   display_name?: string
   about?: string
   picture?: string
   nip05?: string
-}): Event {
-  return finalizeEvent({
+}): Promise<Event> {
+  return requireSigner().signEvent({
     kind: 0,
     created_at: Math.floor(Date.now() / 1000),
     tags: [],
     content: JSON.stringify(profile),
-  }, sk)
+  })
 }
 
 // Build kind-4 (encrypted DM) - NIP-04
-export async function buildDMEvent(sk: Uint8Array, recipientPubkey: string, content: string): Promise<Event> {
-  const encryptedContent = await nip04.encrypt(sk, recipientPubkey, content)
-  return finalizeEvent({
+export async function buildDMEvent(recipientPubkey: string, content: string): Promise<Event> {
+  const signer = requireSigner()
+  const encryptedContent = await signer.nip04Encrypt(recipientPubkey, content)
+  return signer.signEvent({
     kind: 4,
     created_at: Math.floor(Date.now() / 1000),
     tags: [['p', recipientPubkey]],
     content: encryptedContent,
-  }, sk)
+  })
 }
 
 // Decrypt kind-4 DM
-export async function decryptDM(sk: Uint8Array, senderPubkey: string, encryptedContent: string): Promise<string> {
-  return nip04.decrypt(sk, senderPubkey, encryptedContent)
+export async function decryptDM(senderPubkey: string, encryptedContent: string): Promise<string> {
+  return requireSigner().nip04Decrypt(senderPubkey, encryptedContent)
 }
 
 // Build kind-40 (channel creation)
-export function buildChannelCreateEvent(sk: Uint8Array, name: string, about: string): Event {
-  return finalizeEvent({
+export async function buildChannelCreateEvent(name: string, about: string): Promise<Event> {
+  return requireSigner().signEvent({
     kind: 40,
     created_at: Math.floor(Date.now() / 1000),
     tags: [],
     content: JSON.stringify({ name, about }),
-  }, sk)
+  })
 }
 
 // Build ephemeral typing indicator (not stored by relays)
-export function buildTypingEvent(sk: Uint8Array, chatType: 'dm' | 'channel', chatId: string): Event {
+export async function buildTypingEvent(chatType: 'dm' | 'channel', chatId: string): Promise<Event> {
   const tags = chatType === 'dm' ? [['p', chatId]] : [['e', chatId]]
-  return finalizeEvent({
+  return requireSigner().signEvent({
     kind: TYPING_INDICATOR_KIND,
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content: 'typing',
-  }, sk)
+  })
 }
 
 // Build kind-42 (channel message); replyEventId adds NIP-10 reply tag
-export function buildChannelMessageEvent(
-  sk: Uint8Array,
+export async function buildChannelMessageEvent(
   content: string,
   channelId: string,
   relayUrl: string,
   replyEventId?: string,
-): Event {
+): Promise<Event> {
   const tags: string[][] = [['e', channelId, relayUrl, 'root']]
   if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
-  return finalizeEvent({ kind: 42, created_at: Math.floor(Date.now() / 1000), tags, content }, sk)
+  return requireSigner().signEvent({ kind: 42, created_at: Math.floor(Date.now() / 1000), tags, content })
 }
 
 // Pool singleton
@@ -161,21 +160,19 @@ export async function fetchEvents(relays: string[], filter: Filter): Promise<Eve
 }
 
 // Build group message event (content is pre-encrypted by caller)
-export function buildGroupMessageEvent(
-  sk: Uint8Array,
+export async function buildGroupMessageEvent(
   encryptedContent: string,
   groupId: string,
   relayUrl: string,
   replyEventId?: string,
-): Event {
+): Promise<Event> {
   const tags: string[][] = [['e', groupId, relayUrl, 'root']]
   if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
-  return finalizeEvent({ kind: GROUP_MESSAGE_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent }, sk)
+  return requireSigner().signEvent({ kind: GROUP_MESSAGE_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent })
 }
 
 // Build kind-30040 group metadata event (content encrypted with group key)
 export async function buildGroupMetadataEvent(
-  sk: Uint8Array,
   groupKeyHex: string,
   groupId: string,
   name: string,
@@ -183,31 +180,27 @@ export async function buildGroupMetadataEvent(
   memberPubkeys: string[],
 ): Promise<Event> {
   const encrypted = await encryptWithGroupKey(JSON.stringify({ name, about, memberPubkeys }), groupKeyHex)
-  return finalizeEvent({ kind: 30040, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted }, sk)
+  return requireSigner().signEvent({ kind: 30040, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted })
 }
 
 // Build kind-30041 self-encrypted key backup (NIP-04 with own pubkey as recipient)
-export async function buildGroupKeyBackupEvent(
-  sk: Uint8Array,
-  groupId: string,
-  groupKeyHex: string,
-): Promise<Event> {
-  const ownPubkey = getPublicKey(sk)
-  const encrypted = await nip04.encrypt(sk, ownPubkey, groupKeyHex)
-  return finalizeEvent({ kind: 30041, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted }, sk)
+export async function buildGroupKeyBackupEvent(groupId: string, groupKeyHex: string): Promise<Event> {
+  const signer = requireSigner()
+  const encrypted = await signer.nip04Encrypt(signer.pubkey, groupKeyHex)
+  return signer.signEvent({ kind: 30041, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted })
 }
 
 // Build group invite as NIP-04 DM carrying { type: 'group_invite', groupId, groupKeyHex, groupName }
 export async function buildGroupInviteEvent(
-  sk: Uint8Array,
   recipientPubkey: string,
   groupId: string,
   groupKeyHex: string,
   groupName: string,
 ): Promise<Event> {
+  const signer = requireSigner()
   const payload = JSON.stringify({ type: 'group_invite', groupId, groupKeyHex, groupName })
-  const encrypted = await nip04.encrypt(sk, recipientPubkey, payload)
-  return finalizeEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipientPubkey]], content: encrypted }, sk)
+  const encrypted = await signer.nip04Encrypt(recipientPubkey, payload)
+  return signer.signEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipientPubkey]], content: encrypted })
 }
 
 // Shorten pubkey for display

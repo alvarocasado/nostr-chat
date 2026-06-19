@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   generateKeys,
   encodeNsec,
@@ -11,7 +11,12 @@ import {
   LEGACY_GROUP_MESSAGE_KIND,
   TYPING_INDICATOR_KIND,
 } from '../lib/nostr'
+import { installTestSigner } from '../test/signer'
+import { clearSigner } from '../lib/signer'
 import type { Event } from 'nostr-tools'
+
+beforeEach(() => { installTestSigner() })
+afterEach(() => clearSigner())
 
 describe('generateKeys', () => {
   it('returns a 32-byte secret key and 64-char hex public key', () => {
@@ -50,11 +55,10 @@ describe('shortPubkey', () => {
 })
 
 describe('event kinds', () => {
-  it('group messages use a regular-range kind (1000-9999) so relays store full history', () => {
+  it('group messages use a regular-range kind (1000-9999) so relays store full history', async () => {
     // Kinds 10000-19999 are replaceable per NIP-01: relays keep only the
     // latest event per pubkey, collapsing group history to one message per member.
-    const { sk } = generateKeys()
-    const event = buildGroupMessageEvent(sk, 'ciphertext', 'group-id', 'wss://relay.example')
+    const event = await buildGroupMessageEvent('ciphertext', 'group-id', 'wss://relay.example')
     expect(event.kind).toBeGreaterThanOrEqual(1000)
     expect(event.kind).toBeLessThan(10000)
     expect(event.kind).toBe(GROUP_MESSAGE_KIND)
@@ -65,9 +69,8 @@ describe('event kinds', () => {
     expect(GROUP_MESSAGE_KIND).not.toBe(LEGACY_GROUP_MESSAGE_KIND)
   })
 
-  it('typing indicators use an ephemeral kind that does not collide with NIP-46 (24133)', () => {
-    const { sk } = generateKeys()
-    const event = buildTypingEvent(sk, 'channel', 'channel-id')
+  it('typing indicators use an ephemeral kind that does not collide with NIP-46 (24133)', async () => {
+    const event = await buildTypingEvent('channel', 'channel-id')
     expect(event.kind).toBeGreaterThanOrEqual(20000)
     expect(event.kind).toBeLessThan(30000)
     expect(event.kind).not.toBe(24133)
