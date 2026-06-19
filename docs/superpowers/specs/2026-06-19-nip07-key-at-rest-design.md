@@ -34,6 +34,27 @@ signing/encryption through a `Signer` instead of pulling raw secret-key bytes.
 - **Migration:** transparent — existing plaintext keys are re-wrapped on next
   load with no user action.
 
+## Platform support (desktop & mobile browsers)
+
+The app runs in desktop and mobile browsers and as an installed PWA. The two
+features deliver differently per platform, by design:
+
+- **Key-at-rest is the universal path.** WebCrypto (AES-GCM, PBKDF2,
+  non-extractable `CryptoKey` persisted in IndexedDB) is supported across current
+  desktop and mobile browsers — including iOS Safari and Android Chrome — and
+  inside the installed PWA. Device-mode obfuscation and the opt-in passphrase work
+  on every target.
+- **NIP-07 is effectively desktop-only.** `window.nostr` is injected by a browser
+  extension; most mobile browsers do not support extensions (a small number, e.g.
+  Kiwi on Android, do). The "Login with Extension" option is gated on
+  `window.nostr` being present, so on mobile it simply does not appear and users
+  land on create/import — the intended behavior, not a failure state. The common
+  mobile external-signer path, NIP-46 (remote bunker), is out of scope here.
+- **PBKDF2 iteration count is a tunable.** ~600k runs in well under a second on
+  modern phones; expose the iteration count as a named constant so it can be
+  adjusted if low-end devices feel sluggish at unlock. The count is stored in the
+  `EncryptedKey` record so existing keys keep decrypting if the default changes.
+
 ## Background: current auth flow
 
 - `store/nostrStore.ts` holds `privateKeyHex` and exposes `getPrivateKey(): Uint8Array`.
