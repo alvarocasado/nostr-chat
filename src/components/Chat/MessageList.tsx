@@ -49,6 +49,7 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
   targetMessageId?: string
 }) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [jumpNotice, setJumpNotice] = useState(false)
   const { clearTargetMessage } = useNostrStore()
@@ -84,6 +85,7 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
 
     const highlight = () => {
       requestAnimationFrame(() => {
+        if (cancelled) return
         const el = document.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
         if (el) {
           el.classList.add('message-highlight')
@@ -109,11 +111,14 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
       if (!cancelled) {
         setJumpNotice(true)
         clearTargetMessage()
-        setTimeout(() => setJumpNotice(false), 4000)
+        noticeTimerRef.current = setTimeout(() => setJumpNotice(false), 4000)
       }
     }
     void resolve()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    }
   }, [targetMessageId, chatId, exhausted, loadOlder, clearTargetMessage])
 
   if (messages.length === 0) {
