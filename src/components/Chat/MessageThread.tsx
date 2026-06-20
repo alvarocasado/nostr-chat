@@ -5,7 +5,7 @@ import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
 import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, useGroupMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { useChannelMessages, useDMMessages, useGroupMessages } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import { getSigner } from '../../lib/signer'
@@ -18,6 +18,8 @@ import {
   type AttachmentData, type ReplyTo,
 } from '../../lib/fileUtils'
 import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
+import { uploadAttachment } from '../../lib/fileSend'
+import { getMediaServer } from '../../lib/blossom'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
 import { AudioMessage } from './AudioMessage'
 import { formatDuration } from '../../lib/format'
@@ -150,27 +152,29 @@ interface UploadProgress { name: string; sent: number; total: number }
 
 const MAX_TEXTAREA_HEIGHT = 120
 
-function MessageInput({
+export function MessageInput({
   chatId,
+  chatType,
   onSend,
-  onSendChunked,
   onTyping,
   placeholder,
   replyTo,
   onCancelReply,
+  preloadedAttachment,
 }: {
   chatId: string
+  chatType: 'dm' | 'channel' | 'group'
   onSend: (content: string) => Promise<void>
-  onSendChunked: (attachment: AttachmentData, text: string, replyTo: ReplyTo | null, onProgress: (sent: number, total: number) => void) => Promise<void>
   onTyping: () => void
   placeholder: string
   replyTo: Message | null
   onCancelReply: () => void
+  preloadedAttachment?: AttachmentData
 }) {
   const { profiles, drafts, setDraft, clearDraft } = useNostrStore()
   const [text, setText] = useState(() => drafts[chatId] ?? '')
   const [sending, setSending] = useState(false)
-  const [attachment, setAttachment] = useState<AttachmentData | null>(null)
+  const [attachment, setAttachment] = useState<AttachmentData | null>(preloadedAttachment ?? null)
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -200,46 +204,35 @@ function MessageInput({
 
   const handleSend = async () => {
     if (!canSend) return
-
     if (!tryRecord()) return
 
     const replyToData = buildReplyTo()
+    const a = attachment
+    const t = text.trim()
 
-    // Large-file path: chunk and send
-    if (attachment && attachment.data.length > INLINE_BASE64_THRESHOLD) {
-      const a = attachment
-      const t = text.trim()
-      setSending(true)
-      setText('')
-      setAttachment(null)
-      onCancelReply()
-      clearDraft(chatId)
-      setUploadProgress({ name: a.name, sent: 0, total: 1 })
-      try {
-        await onSendChunked(a, t, replyToData, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
-      } catch (err) {
-        setAttachError(err instanceof Error ? err.message : 'Upload failed.')
-      } finally {
-        setSending(false)
-        setUploadProgress(null)
-        textareaRef.current?.focus()
-      }
-      return
-    }
-
-    // Inline path
-    const content = serializeMessage(text.trim(), attachment, replyToData)
     setSending(true)
     setText('')
     setAttachment(null)
     onCancelReply()
     clearDraft(chatId)
+
     try {
+      let finalAttachment = a
+      if (a && a.data && a.data.length > INLINE_BASE64_THRESHOLD) {
+        setUploadProgress({ name: a.name, sent: 0, total: 1 })
+        const server = await getMediaServer()
+        finalAttachment = await uploadAttachment(a, chatType, server, (loaded, total) =>
+          setUploadProgress({ name: a.name, sent: loaded, total }))
+      }
+      const content = serializeMessage(t, finalAttachment, replyToData)
       await onSend(content)
-    } catch {
-      setText(text)
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Send failed.')
+      setText(t)
+      if (a) setAttachment(a)
     } finally {
       setSending(false)
+      setUploadProgress(null)
       textareaRef.current?.focus()
     }
   }
@@ -463,6 +456,7 @@ function MessageInput({
             <button
               onClick={handleSend}
               disabled={!canSend}
+              aria-label="Send"
               className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-700 hover:from-violet-400 hover:to-purple-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-all flex-shrink-0 shadow-[0_4px_12px_rgba(124,58,237,0.45)]"
             >
               <Send size={16} className="text-white" />
@@ -535,23 +529,6 @@ function ChannelThread({ channelId }: { channelId: string }) {
     }
   }
 
-  const handleSendChunked = async (
-    attachment: AttachmentData,
-    text: string,
-    replyToData: ReplyTo | null,
-    onProgress: (sent: number, total: number) => void,
-  ) => {
-    if (!getSigner() || !publicKey) return
-    await sendChunkedFile(attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
-    addMessage(channelId, {
-      id: `local-${Date.now()}`,
-      pubkey: publicKey,
-      content: serializeMessage(text, attachment, replyToData),
-      createdAt: Math.floor(Date.now() / 1000),
-      tags: [], kind: 42,
-    })
-  }
-
   return (
     <>
       <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
@@ -561,7 +538,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <>
           <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
-          <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
       )}
     </>
@@ -631,24 +608,6 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     }
   }
 
-  const handleSendChunked = async (
-    attachment: AttachmentData,
-    text: string,
-    replyToData: ReplyTo | null,
-    onProgress: (sent: number, total: number) => void,
-  ) => {
-    if (!getSigner() || !publicKey || !signerCaps.nip04) return
-    if (isPending) acceptMessageRequest(theirPubkey)
-    await sendChunkedFile(attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
-    addMessage(theirPubkey, {
-      id: `local-${Date.now()}`,
-      pubkey: publicKey,
-      content: serializeMessage(text, attachment, replyToData),
-      createdAt: Math.floor(Date.now() / 1000),
-      tags: [], kind: 4,
-    })
-  }
-
   return (
     <>
       <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
@@ -687,7 +646,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
             </div>
           )}
           {signerCaps.nip04 && (
-            <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+            <MessageInput chatId={theirPubkey} chatType="dm" onSend={handleSend} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
           )}
         </>
       )}
@@ -797,8 +756,8 @@ function GroupThread({ groupId }: { groupId: string }) {
           {signerCaps.nip04 && (
             <MessageInput
               chatId={groupId}
+              chatType="group"
               onSend={handleSend}
-              onSendChunked={async () => { throw new Error('File attachments are not yet supported in groups.') }}
               onTyping={() => {}}
               placeholder="Message group…"
               replyTo={replyTo}

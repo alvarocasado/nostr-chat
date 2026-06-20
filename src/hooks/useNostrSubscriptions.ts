@@ -18,7 +18,6 @@ import {
   processGroupEvent,
   extractRootChatId,
 } from '../lib/inbox'
-import { sendChunkedFile as sendChunkedFileUtil } from '../lib/fileTransfer'
 import { useStableArray } from './useStableArray'
 import { getSigner } from '../lib/signer'
 import { INITIAL_PAGE } from '../lib/pagination'
@@ -213,20 +212,6 @@ export function useGlobalInbox() {
 
 
 // ─── Send / publish helpers ──────────────────────────────────────────────────
-
-/** Send a large file as chunked Nostr events (DM or channel). */
-export async function sendChunkedFile(
-  dataUrl: string,
-  name: string,
-  mime: string,
-  size: number,
-  chatType: 'dm' | 'channel',
-  chatId: string,
-  relays: string[],
-  onProgress: (sent: number, total: number) => void,
-): Promise<void> {
-  return sendChunkedFileUtil(dataUrl, name, mime, size, chatType, chatId, relays, onProgress)
-}
 
 // Send a channel message; replyEventId adds NIP-10 reply tag
 export async function sendChannelMessage(

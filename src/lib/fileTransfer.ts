@@ -1,6 +1,3 @@
-import { buildDMEvent, buildChannelMessageEvent } from './nostr'
-import { publishEvent } from './nostr'
-
 // ~75 KB binary per chunk → ~100 KB base64, within the limits of the relays
 // used by this app (most allow 256 KB+; stricter relays cap at 64 KB and will
 // reject DM chunks regardless since NIP-04 inflation pushes them over anyway).
@@ -203,38 +200,3 @@ export function handleFileChunk(
   return null
 }
 
-// ─── Send-side ───────────────────────────────────────────────────────────────
-
-/**
- * Send a large file as a sequence of chunked Nostr events.
- * Works for both DMs (encrypted) and channels (plaintext).
- */
-export async function sendChunkedFile(
-  dataUrl: string,
-  name: string,
-  mime: string,
-  size: number,
-  chatType: 'dm' | 'channel',
-  chatId: string,
-  relays: string[],
-  onProgress: (sent: number, total: number) => void,
-): Promise<void> {
-  const transferId = generateTransferId()
-  const { chunks } = splitDataUrl(dataUrl)
-  const total = chunks.length
-
-  const startPayload = serializeFileStart({ transferId, name, mime, size, totalChunks: total })
-  const startEvent = chatType === 'dm'
-    ? await buildDMEvent(chatId, startPayload)
-    : await buildChannelMessageEvent(startPayload, chatId, relays[0])
-  await publishEvent(relays, startEvent)
-
-  for (let i = 0; i < total; i++) {
-    const chunkPayload = serializeFileChunk({ transferId, index: i, total, data: chunks[i] })
-    const chunkEvent = chatType === 'dm'
-      ? await buildDMEvent(chatId, chunkPayload)
-      : await buildChannelMessageEvent(chunkPayload, chatId, relays[0])
-    await publishEvent(relays, chunkEvent)
-    onProgress(i + 1, total)
-  }
-}
