@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fetchAppSettings, buildContactListEvent, buildRelayListEvent } from '../lib/nostrSync'
+import { fetchAppSettings, buildContactListEvent, buildRelayListEvent, fetchRelayList } from '../lib/nostrSync'
 import { fetchEvent } from '../lib/nostr'
 import { nip04, generateSecretKey } from 'nostr-tools'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'
 import type { RelayModes } from '../lib/relayRouting'
+
+vi.mock('../lib/nostr', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/nostr')>()
+  return { ...actual, fetchEvent: vi.fn() }
+})
 
 vi.mock('nostr-tools', async (importOriginal) => {
   const actual = await importOriginal<typeof import('nostr-tools')>()
@@ -133,5 +138,24 @@ describe('buildRelayListEvent (kind 10002)', () => {
     installTestSigner(generateSecretKey())
     const ev = await buildRelayListEvent(['wss://a'], {})
     expect(ev.tags).toEqual([['r', 'wss://a']])
+  })
+})
+
+describe('fetchRelayList', () => {
+  it('returns null when the event has no r tags', async () => {
+    const pubkey = 'a'.repeat(64)
+    vi.mocked(fetchEvent).mockResolvedValueOnce({
+      id: 'abc123',
+      pubkey,
+      created_at: 1000,
+      kind: 10002,
+      tags: [['other', 'tag']],
+      content: '',
+      sig: 'sig',
+    })
+
+    const result = await fetchRelayList(['wss://relay.example.com'], pubkey)
+
+    expect(result).toBeNull()
   })
 })

@@ -172,6 +172,7 @@ export async function fetchRelayList(
     else if (marker === 'write') modes[url] = { read: false, write: true }
     else modes[url] = { read: true, write: true }
   }
+  if (urls.length === 0) return null
   return { urls, modes, createdAt: event.created_at }
 }
 
