@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { openUserDb, closeUserDb, getUserDb } from '../lib/userDb'
 import { messageToRecord } from '../lib/db'
-import { pageOlderFromDexie } from '../lib/history'
+import { pageOlderFromDexie, olderFilterFor } from '../lib/history'
+import { GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND } from '../lib/nostr'
 import type { Message } from '../store/nostrStore'
 
 const PK = 'a'.repeat(64)
@@ -41,5 +42,26 @@ describe('pageOlderFromDexie', () => {
   it('returns an empty array when the DB is closed', async () => {
     closeUserDb()
     expect(await pageOlderFromDexie('chat', 8, 3)).toEqual([])
+  })
+})
+
+describe('olderFilterFor', () => {
+  it('builds a single #e filter for channels', () => {
+    expect(olderFilterFor('channel', 'chan', 'me', 1000, 50)).toEqual([
+      { kinds: [42], '#e': ['chan'], until: 1000, limit: 50 },
+    ])
+  })
+
+  it('builds a kinds filter for groups including the legacy kind', () => {
+    expect(olderFilterFor('group', 'grp', 'me', 1000, 50)).toEqual([
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': ['grp'], until: 1000, limit: 50 },
+    ])
+  })
+
+  it('builds two directional filters for DMs', () => {
+    expect(olderFilterFor('dm', 'them', 'me', 1000, 50)).toEqual([
+      { kinds: [4], authors: ['me'], '#p': ['them'], until: 1000, limit: 50 },
+      { kinds: [4], authors: ['them'], '#p': ['me'], until: 1000, limit: 50 },
+    ])
   })
 })
