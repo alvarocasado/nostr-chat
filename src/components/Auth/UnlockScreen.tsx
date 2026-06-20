@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Lock } from 'lucide-react'
-import { LocalSigner, setSigner } from '../../lib/signer'
+import { LocalSigner, setSigner, getSigner } from '../../lib/signer'
 import { loadLocalKey } from '../../lib/keyStore'
 import { encodeNsec } from '../../lib/nostr'
 import { useNostrStore } from '../../store/nostrStore'
@@ -17,6 +17,7 @@ export function UnlockScreen({ onUnlocked, onLogout }: { onUnlocked: () => void;
     setBusy(false)
     if (!sk) { setError('Incorrect passphrase'); return }
     setSigner(new LocalSigner(sk))
+    useNostrStore.getState().setSignerCaps(getSigner()!.caps)
     useNostrStore.setState({ nsec: encodeNsec(sk) })
     onUnlocked()
   }

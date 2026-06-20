@@ -57,12 +57,12 @@ function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpen
 }
 
 function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: () => void }) {
-  const { contacts, profiles, clearActiveChat, setViewingProfilePubkey } = useNostrStore()
+  const { contacts, profiles, clearActiveChat, setViewingProfilePubkey, signerCaps } = useNostrStore()
   const { callState, initiateCall } = useCallContext()
   const contact = contacts.find(c => c.pubkey === pubkey)
   const profile = contact?.profile || profiles[pubkey]
   const name = getDisplayName(profile, pubkey, 12)
-  const canCall = callState === 'idle'
+  const canCall = callState === 'idle' && signerCaps.nip04
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
@@ -725,7 +725,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
   const { publicKey, messages, profiles, relays, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
-    contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat } = useNostrStore()
+    contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat, signerCaps } = useNostrStore()
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
@@ -742,7 +742,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   }, [theirPubkey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    if (!getSigner() || !publicKey) return
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
 
     if (isPending) acceptMessageRequest(theirPubkey)
 
@@ -792,7 +792,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     replyToData: ReplyTo | null,
     onProgress: (sent: number, total: number) => void,
   ) => {
-    if (!getSigner() || !publicKey) return
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
     if (isPending) acceptMessageRequest(theirPubkey)
     await sendChunkedFile(attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
     addMessage(theirPubkey, {
@@ -836,7 +836,14 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <>
           <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
-          <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          {!signerCaps.nip04 && (
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
+              <p className="flex-1 text-sm text-gray-400">Your signer does not support encrypted messages yet</p>
+            </div>
+          )}
+          {signerCaps.nip04 && (
+            <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          )}
         </>
       )}
     </>
@@ -846,7 +853,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 function GroupThread({ groupId }: { groupId: string }) {
   const {
     publicKey, messages, profiles, relays, groupKeys,
-    addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+    addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId, signerCaps,
   } = useNostrStore()
   useGroupMessages(groupId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -863,7 +870,7 @@ function GroupThread({ groupId }: { groupId: string }) {
   }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    if (!getSigner() || !publicKey || !groupKey) return
+    if (!getSigner() || !publicKey || !groupKey || !signerCaps.nip04) return
 
     const encryptedContent = await encryptWithGroupKey(content, groupKey)
     const event = await buildGroupMessageEvent(encryptedContent, groupId, relays[0], replyTo?.id)
@@ -935,15 +942,22 @@ function GroupThread({ groupId }: { groupId: string }) {
             dividerTimestamp={dividerTimestampRef.current}
             targetMessageId={targetMessageId ?? undefined}
           />
-          <MessageInput
-            chatId={groupId}
-            onSend={handleSend}
-            onSendChunked={async () => { throw new Error('File attachments are not yet supported in groups.') }}
-            onTyping={() => {}}
-            placeholder="Message group…"
-            replyTo={replyTo}
-            onCancelReply={() => setReplyTo(null)}
-          />
+          {!signerCaps.nip04 && (
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
+              <p className="flex-1 text-sm text-gray-400">Your signer does not support encrypted messages yet</p>
+            </div>
+          )}
+          {signerCaps.nip04 && (
+            <MessageInput
+              chatId={groupId}
+              onSend={handleSend}
+              onSendChunked={async () => { throw new Error('File attachments are not yet supported in groups.') }}
+              onTyping={() => {}}
+              placeholder="Message group…"
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+            />
+          )}
         </>
       )}
     </>

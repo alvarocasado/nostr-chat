@@ -183,6 +183,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const initiateCall = useCallback(async (peerPubkey: string, type: MediaType) => {
     if (callStateRef.current !== 'idle') return
+    if (!getSigner()?.caps.nip04) return
     const callId = Date.now().toString(36)
     callIdRef.current = callId
     setIceConnFailed(false)

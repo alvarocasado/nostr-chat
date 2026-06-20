@@ -12,8 +12,9 @@ import {
   setActivePubkey,
   clearActivePubkey,
   setAuthMethod,
+  clearAuthMethod,
 } from '../lib/userDb'
-import { saveLocalKey } from '../lib/keyStore'
+import { saveLocalKey, clearLocalKey } from '../lib/keyStore'
 import { messageToRecord, recordToMessage } from '../lib/db'
 import {
   syncFromRelays,
@@ -162,7 +163,11 @@ interface NostrState {
   // Relay sync: created_at of the last kind-30078 settings event we received or published
   syncedSettingsAt: number | null
 
+  // Signer capabilities (runtime-only, never persisted)
+  signerCaps: { nip04: boolean }
+
   // Actions
+  setSignerCaps: (caps: { nip04: boolean }) => void
   generateAndLogin: () => Promise<{ nsec: string; npub: string }>
   loginFromNsec: (nsec: string) => Promise<boolean>
   loginFromHex: (hex: string) => Promise<boolean>
@@ -312,6 +317,7 @@ async function completeLogin(
   get: () => NostrState,
 ): Promise<void> {
   setSigner(new LocalSigner(sk))
+  set({ signerCaps: getSigner()!.caps })
   openUserDb(pk)
   await saveLocalKey(sk)
   setAuthMethod('local')
@@ -431,6 +437,9 @@ export const useNostrStore = create<NostrState>()(
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
+        signerCaps: { nip04: true },
+
+        setSignerCaps: (caps) => set({ signerCaps: caps }),
 
         generateAndLogin: async () => {
           const sk = generateSecretKey()
@@ -469,6 +478,7 @@ export const useNostrStore = create<NostrState>()(
           try {
             const signer = await Nip07Signer.create()
             setSigner(signer)
+            set({ signerCaps: signer.caps })
             const pk = signer.pubkey
             openUserDb(pk)
             const existing = await loadExistingUserState(pk)
@@ -494,8 +504,11 @@ export const useNostrStore = create<NostrState>()(
             messages: {},
             groups: [],
             groupKeys: {},
+            signerCaps: { nip04: true },
           })
           clearSigner()
+          void clearLocalKey().catch(() => {})
+          clearAuthMethod()
           closeUserDb()
           clearActivePubkey()
         },

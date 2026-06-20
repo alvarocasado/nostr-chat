@@ -16,7 +16,7 @@ import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
 import { loadLocalKey, keyProtection } from './lib/keyStore'
-import { LocalSigner, Nip07Signer, setSigner } from './lib/signer'
+import { LocalSigner, Nip07Signer, setSigner, getSigner } from './lib/signer'
 import { encodeNsec } from './lib/nostr'
 import { hasNip07 } from './lib/nip07'
 import { migratePlaintextKeyIfNeeded } from './lib/migrate'
@@ -92,6 +92,7 @@ function App() {
     if (hasNip07()) {
       try {
         setSigner(await Nip07Signer.create())
+        useNostrStore.getState().setSignerCaps(getSigner()!.caps)
         setNeedsReconnect(false)
       } catch {
         setNeedsReconnect(true)
@@ -117,6 +118,7 @@ function App() {
             const sk = await loadLocalKey()
             if (sk) {
               setSigner(new LocalSigner(sk))
+              useNostrStore.getState().setSignerCaps(getSigner()!.caps)
               useNostrStore.setState({ nsec: encodeNsec(sk) })
             }
           }
