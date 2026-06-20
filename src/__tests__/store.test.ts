@@ -510,6 +510,32 @@ describe('setActiveChat initial load cap', () => {
   })
 })
 
+describe('relay modes + routing', () => {
+  beforeEach(() => {
+    useNostrStore.setState({ relays: ['wss://a', 'wss://b'], relayModes: {} })
+  })
+
+  it('readRelays / writeRelays default to all relays', () => {
+    expect(useNostrStore.getState().readRelays()).toEqual(['wss://a', 'wss://b'])
+    expect(useNostrStore.getState().writeRelays()).toEqual(['wss://a', 'wss://b'])
+  })
+
+  it('setRelayMode splits read/write routing', () => {
+    useNostrStore.getState().setRelayMode('wss://a', true, false)  // read-only
+    useNostrStore.getState().setRelayMode('wss://b', false, true)  // write-only
+    expect(useNostrStore.getState().readRelays()).toEqual(['wss://a'])
+    expect(useNostrStore.getState().writeRelays()).toEqual(['wss://b'])
+  })
+
+  it('addRelay seeds both markers; removeRelay drops the mode', () => {
+    useNostrStore.getState().addRelay('wss://c')
+    expect(useNostrStore.getState().relayModes['wss://c']).toEqual({ read: true, write: true })
+    useNostrStore.getState().removeRelay('wss://c')
+    expect(useNostrStore.getState().relayModes['wss://c']).toBeUndefined()
+    expect(useNostrStore.getState().relays).not.toContain('wss://c')
+  })
+})
+
 describe('group store actions', () => {
   const group = {
     id: 'group-1',

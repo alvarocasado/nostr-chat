@@ -22,9 +22,11 @@ import {
   publishContactList,
   publishChannelBookmarks,
   publishAppSettings,
+  publishRelayList,
   debounce,
   type CallsSyncedSettings,
 } from '../lib/nostrSync'
+import { filterRead, filterWrite, type RelayModes } from '../lib/relayRouting'
 
 export type ChatType = 'channel' | 'dm' | 'group'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications' | 'privacy'
@@ -116,6 +118,7 @@ interface NostrState {
 
   // Relays
   relays: string[]
+  relayModes: RelayModes
 
   // Channels
   channels: Channel[]
@@ -178,6 +181,9 @@ interface NostrState {
 
   addRelay: (url: string) => void
   removeRelay: (url: string) => void
+  setRelayMode: (url: string, read: boolean, write: boolean) => void
+  readRelays: () => string[]
+  writeRelays: () => string[]
 
   addChannel: (channel: Channel) => void
   joinChannel: (id: string) => void
@@ -261,6 +267,14 @@ function applySyncResult(
   set: (s: Partial<NostrState>) => void,
   get: () => NostrState,
 ): void {
+  // Relay list (kind 10002): adopt as source of truth when present.
+  if (result.relayList && result.relayList.urls.length > 0) {
+    set({ relays: result.relayList.urls, relayModes: result.relayList.modes })
+  } else {
+    // No published relay list yet — publish current relays so future logins find it.
+    get().triggerSettingsSync()
+  }
+
   // Contacts: additive merge — relay contacts added to local, never removed here
   if (result.contacts) {
     const current = get().contacts
@@ -387,7 +401,7 @@ export const useNostrStore = create<NostrState>()(
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, relays, blockedPubkeys, dismissedRequests } = get()
+            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests } = get()
             if (!getSigner()) return
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
@@ -404,9 +418,11 @@ export const useNostrStore = create<NostrState>()(
               ...(turnMetered ? { turnMetered } : {}),
               ...(turnCustom  ? { turnCustom  } : {}),
             }
-            void publishAppSettings({ notificationSettings, mutedChats, relays, callsSettings, blockedPubkeys, dismissedRequests }, relays)
-              .then(() => set({ syncedSettingsAt: now }))
-              .catch(() => {})
+            const wr = get().writeRelays()
+            void Promise.all([
+              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests }, wr),
+              publishRelayList(wr, get().relays, get().relayModes),
+            ]).then(() => set({ syncedSettingsAt: now })).catch(() => {})
           })()
         })
       }
@@ -417,6 +433,7 @@ export const useNostrStore = create<NostrState>()(
         npub: null,
         profile: null,
         relays: DEFAULT_RELAYS,
+        relayModes: {},
         channels: [],
         joinedChannelIds: [],
         contacts: [],
@@ -526,15 +543,32 @@ export const useNostrStore = create<NostrState>()(
         addRelay: (url) => {
           const relays = get().relays
           if (!relays.includes(url)) {
-            set({ relays: [...relays, url] })
+            set({
+              relays: [...relays, url],
+              relayModes: { ...get().relayModes, [url]: { read: true, write: true } },
+            })
             scheduleSettingsSync()
           }
         },
 
         removeRelay: (url) => {
-          set({ relays: get().relays.filter(r => r !== url) })
+          const { [url]: _removed, ...restModes } = get().relayModes
+          set({
+            relays: get().relays.filter(r => r !== url),
+            relayModes: restModes,
+          })
           scheduleSettingsSync()
         },
+
+        setRelayMode: (url, read, write) => {
+          // never allow neither — keep at least read
+          const safe = read || write ? { read, write } : { read: true, write: false }
+          set({ relayModes: { ...get().relayModes, [url]: safe } })
+          scheduleSettingsSync()
+        },
+
+        readRelays: () => filterRead(get().relays, get().relayModes),
+        writeRelays: () => filterWrite(get().relays, get().relayModes),
 
         addChannel: (channel) => {
           const existing = get().channels.find(c => c.id === channel.id)
@@ -841,6 +875,7 @@ export const useNostrStore = create<NostrState>()(
         npub: state.npub,
         profile: state.profile,
         relays: state.relays,
+        relayModes: state.relayModes,
         channels: state.channels,
         joinedChannelIds: state.joinedChannelIds,
         contacts: state.contacts,
