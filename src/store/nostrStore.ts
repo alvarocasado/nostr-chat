@@ -262,7 +262,7 @@ async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState
 }
 
 // Shared helper: merge relay sync result into store state. Non-fatal — caller wraps in .catch(()=>{}).
-function applySyncResult(
+export function applySyncResult(
   result: Awaited<ReturnType<typeof syncFromRelays>>,
   set: (s: Partial<NostrState>) => void,
   get: () => NostrState,

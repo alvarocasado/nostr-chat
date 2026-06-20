@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { useNostrStore } from '../store/nostrStore'
+import { useNostrStore, applySyncResult } from '../store/nostrStore'
 import { getSigner } from '../lib/signer'
 import { openUserDb, closeUserDb, getUserDb } from '../lib/userDb'
 import { messageToRecord } from '../lib/db'
+import { installTestSigner } from '../test/signer'
+import { generateSecretKey } from 'nostr-tools'
 import type { Message } from '../store/nostrStore'
 
 // Reset store state before each test
@@ -537,21 +539,37 @@ describe('relay modes + routing', () => {
 })
 
 describe('sync precedence: kind-10002 relay list vs settings-blob relays', () => {
-  it('kind-10002 relay list takes precedence over legacy settings-blob relays', async () => {
-    // This test verifies the guard in applySyncResult that prevents the settings-blob
-    // relays from clobbering the kind-10002 adoption. The test is indirect because
-    // applySyncResult is not exported, but it exercises the real precedence rule
-    // through the store's sync path by calling triggerSettingsSync.
-    //
-    // For now we verify the intended behavior: when both sources are available,
-    // kind-10002 should win. The internal sync machinery would call applySyncResult
-    // with both result.relayList and result.settings.relays populated, and the guard
-    // ensures kind-10002 takes precedence.
+  beforeEach(() => {
+    installTestSigner(generateSecretKey())
+  })
+
+  it('applySyncResult: kind-10002 relay list wins over settings-blob relays', () => {
     useNostrStore.setState({ relays: [], relayModes: {}, syncedSettingsAt: 0 })
-    const initialRelays = useNostrStore.getState().relays
-    expect(initialRelays).toEqual([])
-    // The guard is: ...(s.relays !== undefined && !result.relayList ? { relays: s.relays } : {})
-    // This test documents that kind-10002 (result.relayList) takes precedence.
+    const set = (patch: unknown) => useNostrStore.setState(patch as never)
+    const get = () => useNostrStore.getState()
+    applySyncResult({
+      contacts: null,
+      channels: null,
+      groupKeys: {},
+      relayList: { urls: ['wss://from-10002'], modes: { 'wss://from-10002': { read: true, write: true } }, createdAt: 100 },
+      settings: { createdAt: 200, settings: { relays: ['wss://from-blob'] } },
+    } as never, set as never, get as never)
+    expect(useNostrStore.getState().relays).toEqual(['wss://from-10002'])
+    expect(useNostrStore.getState().relayModes['wss://from-10002']).toEqual({ read: true, write: true })
+  })
+
+  it('applySyncResult: falls back to settings-blob relays when no kind-10002 list', () => {
+    useNostrStore.setState({ relays: [], relayModes: {}, syncedSettingsAt: 0 })
+    const set = (patch: unknown) => useNostrStore.setState(patch as never)
+    const get = () => useNostrStore.getState()
+    applySyncResult({
+      contacts: null,
+      channels: null,
+      groupKeys: {},
+      relayList: null,
+      settings: { createdAt: 200, settings: { relays: ['wss://from-blob'] } },
+    } as never, set as never, get as never)
+    expect(useNostrStore.getState().relays).toEqual(['wss://from-blob'])
   })
 })
 
