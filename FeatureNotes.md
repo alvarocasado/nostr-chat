@@ -19,6 +19,9 @@ On desktop browsers with a Nostr signer extension installed (Alby, nos2x, etc.),
 #### Graceful Degradation for Limited Signers
 Some extensions implement newer encryption (NIP-44) but not the NIP-04 this app currently uses for DMs, calls, and group-key backups. When you sign in with such a signer, those features are disabled with a clear in-app notice and public channels keep working — rather than failing silently. This is forward-compatible with the planned NIP-44 migration.
 
+#### Scalable Message History (Virtualization + Backfill)
+Long conversations are now fast and their full history is reachable. Previously the app loaded a chat's entire local history into memory and rendered every message into the page at once, so big channels janked and bloated memory; and history older than the most recent batch the relays returned was simply unreachable. Now the message list is virtualized — only the messages on screen are rendered — so scrolling stays smooth no matter how long the chat is. Opening a chat loads just the most recent page; scrolling up loads older messages a page at a time, first from the local database and then, once local history runs out, by backfilling from the relays. The list stays anchored to the message you're reading while older ones load in above. Jumping to a message (for example from search) now pages history back until it finds the target, then scrolls to and highlights it; if it truly can't be found, a brief "Message not available" notice appears. Virtualization especially helps lower-powered phones, and the scroll, anchoring, and keyboard behavior are tuned for mobile browsers and the installed PWA.
+
 ### Changes
 
 #### Full Sign-out Cleanup
