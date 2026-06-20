@@ -51,8 +51,16 @@ export async function uploadBlob(
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try { resolve(JSON.parse(xhr.responseText) as BlobDescriptor) }
-        catch { reject(new Error('Invalid server response')) }
+        try {
+          const desc = JSON.parse(xhr.responseText) as BlobDescriptor
+          if (desc.sha256 && desc.sha256.toLowerCase() !== sha256) {
+            reject(new Error('Server hash mismatch'))
+            return
+          }
+          resolve({ ...desc, sha256 })
+        } catch {
+          reject(new Error('Invalid server response'))
+        }
       } else {
         reject(new Error(`Upload failed (${xhr.status})`))
       }

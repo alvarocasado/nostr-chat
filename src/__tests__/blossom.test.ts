@@ -32,12 +32,13 @@ describe('uploadBlob', () => {
   it('PUTs to {server}/upload with the Nostr auth header and parses the descriptor', async () => {
     installTestSigner(generateSecretKey())
     const calls: { url?: string; method?: string; headers: Record<string, string>; body?: unknown } = { headers: {} }
+    const expected = await sha256Hex(new TextEncoder().encode('abc').buffer)
     class FakeXHR {
       upload = { onprogress: null as null | ((e: ProgressEvent) => void) }
       onload: null | (() => void) = null
       onerror: null | (() => void) = null
       status = 200
-      responseText = JSON.stringify({ url: 'https://srv/deadbeef', sha256: 'deadbeef', size: 3, type: 'text/plain' })
+      responseText = JSON.stringify({ url: 'https://srv/' + expected, sha256: expected, size: 3, type: 'text/plain' })
       open(method: string, url: string) { calls.method = method; calls.url = url }
       setRequestHeader(k: string, v: string) { calls.headers[k] = v }
       send(body: unknown) { calls.body = body; this.onload?.() }
@@ -48,8 +49,27 @@ describe('uploadBlob', () => {
     expect(calls.method).toBe('PUT')
     expect(calls.url).toBe('https://srv/upload')
     expect(calls.headers['Authorization']).toMatch(/^Nostr /)
-    expect(desc.url).toBe('https://srv/deadbeef')
-    expect(desc.sha256).toBe('deadbeef')
+    expect(desc.sha256).toBe(expected)
+    expect(desc.url).toBe('https://srv/' + expected)
+  })
+
+  it('rejects when the server returns a different sha256 than the local hash', async () => {
+    installTestSigner(generateSecretKey())
+    class FakeXHR {
+      upload = { onprogress: null as null | ((e: ProgressEvent) => void) }
+      onload: null | (() => void) = null
+      onerror: null | (() => void) = null
+      status = 200
+      responseText = JSON.stringify({ url: 'https://srv/deadbeef', sha256: 'deadbeef', size: 3, type: 'text/plain' })
+      open(_method: string, _url: string) { /* noop */ }
+      setRequestHeader(_k: string, _v: string) { /* noop */ }
+      send(_body: unknown) { this.onload?.() }
+    }
+    vi.stubGlobal('XMLHttpRequest', FakeXHR as unknown as typeof XMLHttpRequest)
+
+    await expect(
+      uploadBlob('https://srv/', new TextEncoder().encode('abc').buffer, 'text/plain')
+    ).rejects.toThrow('Server hash mismatch')
   })
 })
 

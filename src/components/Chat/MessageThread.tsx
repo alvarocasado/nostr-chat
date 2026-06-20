@@ -256,7 +256,7 @@ export function MessageInput({
     }
 
     try {
-      // Images: compress first; if still over inline limit it will be chunked on send
+      // Images: compress first; large files are uploaded to the media server (Blossom) on send
       const data = file.type.startsWith('image/')
         ? await compressImage(file)
         : await encodeFile(file)
