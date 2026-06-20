@@ -9,6 +9,7 @@ import type { Message } from '../../store/nostrStore'
 import type { NostrProfile } from '../../lib/nostr'
 import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData, type ReplyTo } from '../../lib/fileUtils'
 import { useNostrStore } from '../../store/nostrStore'
+import { useBlossomAttachment } from '../../hooks/useBlossomAttachment'
 
 interface MessageItemProps {
   message: Message
@@ -102,7 +103,41 @@ function ImageAttachment({ attachment }: { attachment: AttachmentData }) {
   )
 }
 
+function RemoteAttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isOwn: boolean }) {
+  const { status, objectUrl, retry } = useBlossomAttachment(attachment)
+
+  if (status === 'ready' && objectUrl) {
+    return <AttachmentView attachment={{ ...attachment, data: objectUrl }} isOwn={isOwn} />
+  }
+  if (status === 'error') {
+    return (
+      <button
+        onClick={retry}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-red-700/50 bg-red-900/20 w-full text-left"
+      >
+        <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-white truncate">Couldn't load attachment</p>
+          <p className="text-xs text-gray-400 truncate">{attachment.name} — tap to retry</p>
+        </div>
+      </button>
+    )
+  }
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-600/40 bg-gray-700/40 w-full">
+      <Loader2 size={18} className="text-gray-400 animate-spin flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-white truncate">Loading…</p>
+        <p className="text-xs text-gray-400 truncate">{attachment.name}</p>
+      </div>
+    </div>
+  )
+}
+
 function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isOwn: boolean }) {
+  if (!attachment.data && attachment.url) {
+    return <RemoteAttachmentView attachment={attachment} isOwn={isOwn} />
+  }
   if (attachment.type.startsWith('image/')) {
     return <ImageAttachment attachment={attachment} />
   }
