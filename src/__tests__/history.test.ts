@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { openUserDb, closeUserDb, getUserDb } from '../lib/userDb'
 import { messageToRecord } from '../lib/db'
-import { pageOlderFromDexie, olderFilterFor } from '../lib/history'
+import { pageOlderFromDexie, olderFilterFor, indexOfMessage } from '../lib/history'
 import { GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND } from '../lib/nostr'
 import type { Message } from '../store/nostrStore'
 
@@ -42,6 +42,16 @@ describe('pageOlderFromDexie', () => {
   it('returns an empty array when the DB is closed', async () => {
     closeUserDb()
     expect(await pageOlderFromDexie('chat', 8, 3)).toEqual([])
+  })
+})
+
+describe('indexOfMessage', () => {
+  const msgs = [{ id: 'a' }, { id: 'b' }, { id: 'c' }] as unknown as Message[]
+  it('finds the index of a message by id', () => {
+    expect(indexOfMessage(msgs, 'b')).toBe(1)
+  })
+  it('returns -1 when not present', () => {
+    expect(indexOfMessage(msgs, 'z')).toBe(-1)
   })
 })
 

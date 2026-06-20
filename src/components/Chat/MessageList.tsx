@@ -5,7 +5,7 @@ import { useNostrStore, type Message } from '../../store/nostrStore'
 import { MessageItem } from './MessageItem'
 import { decorateRow } from '../../lib/messageRows'
 import { useChatHistory } from '../../hooks/useChatHistory'
-import { START_INDEX } from '../../lib/pagination'
+import { START_INDEX, MAX_JUMP_PAGES } from '../../lib/pagination'
 
 function NewMessagesDivider() {
   return (
@@ -50,9 +50,10 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
 }) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const [jumpNotice, setJumpNotice] = useState(false)
   const { clearTargetMessage } = useNostrStore()
 
-  const { loadOlder } = useChatHistory(chatId, chatType, myPubkey)
+  const { loadOlder, exhausted } = useChatHistory(chatId, chatType, myPubkey)
   const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX)
 
   const handleStartReached = async () => {
@@ -76,21 +77,44 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
   }
   const initialIndex = initialIndexRef.current
 
-  // Jump to a target message already in the window.
+  // Jump to a target message, paging older history until it is found or the page budget runs out.
   useEffect(() => {
     if (!targetMessageId) return
-    const idx = messages.findIndex(m => m.id === targetMessageId)
-    if (idx < 0) return
-    virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' })
-    requestAnimationFrame(() => {
-      const el = document.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
-      if (el) {
-        el.classList.add('message-highlight')
-        el.addEventListener('animationend', () => el.classList.remove('message-highlight'), { once: true })
+    let cancelled = false
+
+    const highlight = () => {
+      requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
+        if (el) {
+          el.classList.add('message-highlight')
+          el.addEventListener('animationend', () => el.classList.remove('message-highlight'), { once: true })
+        }
+        clearTargetMessage()
+      })
+    }
+
+    const resolve = async () => {
+      for (let page = 0; page < MAX_JUMP_PAGES; page++) {
+        if (cancelled) return
+        const idx = useNostrStore.getState().messages[chatId]?.findIndex(m => m.id === targetMessageId) ?? -1
+        if (idx >= 0) {
+          virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' })
+          highlight()
+          return
+        }
+        if (exhausted) break
+        const added = await loadOlder()
+        if (added === 0) break
       }
-      clearTargetMessage()
-    })
-  }, [targetMessageId, messages, clearTargetMessage])
+      if (!cancelled) {
+        setJumpNotice(true)
+        clearTargetMessage()
+        setTimeout(() => setJumpNotice(false), 4000)
+      }
+    }
+    void resolve()
+    return () => { cancelled = true }
+  }, [targetMessageId, chatId, exhausted, loadOlder, clearTargetMessage])
 
   if (messages.length === 0) {
     return (
@@ -137,6 +161,11 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
           )
         }}
       />
+      {jumpNotice && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700/50 rounded-xl px-3 py-2 shadow-lg">
+          <p className="text-xs text-gray-300">Message not available</p>
+        </div>
+      )}
       {!atBottom && (
         <button
           onClick={() => virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, align: 'end', behavior: 'smooth' })}

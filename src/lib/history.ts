@@ -4,6 +4,10 @@ import { recordToMessage } from './db'
 import { GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND } from './nostr'
 import type { Message } from '../store/nostrStore'
 
+export function indexOfMessage(messages: Message[], id: string): number {
+  return messages.findIndex(m => m.id === id)
+}
+
 export type ChatType = 'dm' | 'channel' | 'group'
 
 /**
