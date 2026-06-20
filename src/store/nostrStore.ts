@@ -14,7 +14,7 @@ import {
   setAuthMethod,
   clearAuthMethod,
 } from '../lib/userDb'
-import { saveLocalKey, clearLocalKey } from '../lib/keyStore'
+import { saveLocalKey, clearLocalKey, hasLocalKey, keyProtection } from '../lib/keyStore'
 import { messageToRecord, recordToMessage } from '../lib/db'
 import {
   syncFromRelays,
@@ -319,7 +319,9 @@ async function completeLogin(
   setSigner(new LocalSigner(sk))
   set({ signerCaps: getSigner()!.caps })
   openUserDb(pk)
-  await saveLocalKey(sk)
+  if (!(await hasLocalKey()) || (await keyProtection()) !== 'passphrase') {
+    await saveLocalKey(sk)
+  }
   setAuthMethod('local')
   const existing = await loadExistingUserState(pk)
   if (existing.publicKey === pk) {
@@ -481,6 +483,7 @@ export const useNostrStore = create<NostrState>()(
             set({ signerCaps: signer.caps })
             const pk = signer.pubkey
             openUserDb(pk)
+            await clearLocalKey()
             const existing = await loadExistingUserState(pk)
             if (existing.publicKey === pk) set(existing)
             set({ publicKey: pk, npub: encodePubkey(pk), nsec: null, profile: existing.profile ?? { pubkey: pk } })

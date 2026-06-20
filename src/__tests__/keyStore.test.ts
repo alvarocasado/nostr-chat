@@ -53,6 +53,45 @@ describe('keyStore passphrase mode', () => {
   })
 })
 
+describe('completeLogin passphrase-preservation guard', () => {
+  // Simulates the guard logic in completeLogin: only write device mode when
+  // there is no existing key OR the existing key is not passphrase-protected.
+  async function simulateCompleteLogin(sk: Uint8Array): Promise<void> {
+    if (!(await hasLocalKey()) || (await keyProtection()) !== 'passphrase') {
+      await saveLocalKey(sk)
+    }
+  }
+
+  beforeEach(() => { openUserDb(PK) })
+
+  it('preserves passphrase protection when re-logging in with the same key', async () => {
+    const sk = generateSecretKey()
+    // First login: device mode
+    await saveLocalKey(sk)
+    expect(await keyProtection()).toBe('device')
+    // User upgrades to passphrase protection
+    await setPassphrase(sk, 'my-strong-passphrase')
+    expect(await keyProtection()).toBe('passphrase')
+    // Re-login (e.g. Import-nsec/hex): guard must NOT downgrade to device
+    await simulateCompleteLogin(sk)
+    expect(await keyProtection()).toBe('passphrase')
+  })
+
+  it('does write device mode when there is no existing key', async () => {
+    await clearLocalKey()
+    const sk = generateSecretKey()
+    await simulateCompleteLogin(sk)
+    expect(await keyProtection()).toBe('device')
+  })
+
+  it('does write device mode when existing key is already device mode', async () => {
+    const sk = generateSecretKey()
+    await saveLocalKey(sk) // device mode
+    await simulateCompleteLogin(sk) // allowed to overwrite
+    expect(await keyProtection()).toBe('device')
+  })
+})
+
 describe('migratePlaintextKeyIfNeeded', () => {
   beforeEach(async () => {
     openUserDb(PK)
