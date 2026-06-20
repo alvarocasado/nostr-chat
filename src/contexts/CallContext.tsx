@@ -50,7 +50,7 @@ export function useCallContext() {
 }
 
 export function CallProvider({ children }: { children: ReactNode }) {
-  const { publicKey, relays } = useNostrStore()
+  const { publicKey } = useNostrStore()
   const readR = useReadRelays()
 
   const [callState, setCallState]       = useState<CallState>('idle')
@@ -83,8 +83,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const sendSignal = useCallback(async (peerPubkey: string, signal: CallSignal) => {
     if (!getSigner()) return
     const event = await buildCallSignalEvent(peerPubkey, signal)
-    await publishEvent(relays, event)
-  }, [relays])
+    await publishEvent(useNostrStore.getState().writeRelays(), event)
+  }, [])
 
   const stopLocalStream = useCallback(() => {
     localStreamRef.current?.getTracks().forEach(t => t.stop())

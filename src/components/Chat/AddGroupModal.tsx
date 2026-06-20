@@ -17,7 +17,7 @@ interface AddGroupModalProps {
 }
 
 export function AddGroupModal({ onClose }: AddGroupModalProps) {
-  const { relays, publicKey, addGroup, setGroupKey, setActiveChat } = useNostrStore()
+  const { publicKey, addGroup, setGroupKey, setActiveChat } = useNostrStore()
   const [name, setName] = useState('')
   const [about, setAbout] = useState('')
   const [memberInput, setMemberInput] = useState('')
@@ -56,10 +56,11 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
       const groupKeyHex = generateGroupKey()
       const allMembers = [publicKey, ...memberPubkeys]
 
-      await publishEvent(relays, await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
-      await publishEvent(relays, await buildGroupKeyBackupEvent(groupId, groupKeyHex))
+      const writeRelays = useNostrStore.getState().writeRelays()
+      await publishEvent(writeRelays, await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
+      await publishEvent(writeRelays, await buildGroupKeyBackupEvent(groupId, groupKeyHex))
       for (const memberPubkey of memberPubkeys) {
-        await publishEvent(relays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim()))
+        await publishEvent(writeRelays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim()))
       }
 
       addGroup({
@@ -68,7 +69,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
         about: about.trim() || undefined,
         creatorPubkey: publicKey,
         memberPubkeys: allMembers,
-        relayUrl: relays[0],
+        relayUrl: writeRelays[0],
       })
       setGroupKey(groupId, groupKeyHex)
       setActiveChat(groupId, 'group')

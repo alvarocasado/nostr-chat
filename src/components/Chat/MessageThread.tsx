@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRateLimit } from '../../hooks/useRateLimit'
+import { useWriteRelays } from '../../hooks/useRelays'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
@@ -472,7 +473,8 @@ export function MessageInput({
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const { publicKey, messages, profiles, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const writeR = useWriteRelays()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -490,7 +492,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
   const handleSend = async (content: string) => {
     if (!getSigner() || !publicKey) return
 
-    const event = await buildChannelMessageEvent(content, channelId, relays[0], replyTo?.id)
+    const event = await buildChannelMessageEvent(content, channelId, writeR[0], replyTo?.id)
 
     addMessage(channelId, {
       id: event.id,
@@ -508,7 +510,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
     pendingEventsRef.current.set(event.id, event)
 
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(channelId, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -521,7 +523,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
     if (!event) return
     updateMessageStatus(channelId, msgId, 'sending')
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(channelId, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {
@@ -546,8 +548,9 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+  const { publicKey, messages, profiles, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
     contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat, signerCaps } = useNostrStore()
+  const writeR = useWriteRelays()
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
@@ -587,7 +590,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     pendingEventsRef.current.set(event.id, event)
 
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(theirPubkey, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -600,7 +603,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     if (!event) return
     updateMessageStatus(theirPubkey, msgId, 'sending')
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(theirPubkey, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {
@@ -656,9 +659,10 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 
 function GroupThread({ groupId }: { groupId: string }) {
   const {
-    publicKey, messages, profiles, relays, groupKeys,
+    publicKey, messages, profiles, groupKeys,
     addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId, signerCaps,
   } = useNostrStore()
+  const writeR = useWriteRelays()
   useGroupMessages(groupId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
@@ -677,7 +681,7 @@ function GroupThread({ groupId }: { groupId: string }) {
     if (!getSigner() || !publicKey || !groupKey || !signerCaps.nip04) return
 
     const encryptedContent = await encryptWithGroupKey(content, groupKey)
-    const event = await buildGroupMessageEvent(encryptedContent, groupId, relays[0], replyTo?.id)
+    const event = await buildGroupMessageEvent(encryptedContent, groupId, writeR[0], replyTo?.id)
 
     addMessage(groupId, {
       id: event.id,
@@ -695,7 +699,7 @@ function GroupThread({ groupId }: { groupId: string }) {
     setReplyTo(null)
 
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(groupId, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -708,7 +712,7 @@ function GroupThread({ groupId }: { groupId: string }) {
     if (!event) return
     updateMessageStatus(groupId, msgId, 'sending')
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(groupId, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {

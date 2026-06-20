@@ -9,7 +9,7 @@ interface AddChannelModalProps {
 }
 
 export function AddChannelModal({ onClose }: AddChannelModalProps) {
-  const { channels, relays, addChannel, joinChannel, setActiveChat } = useNostrStore()
+  const { channels, addChannel, joinChannel, setActiveChat } = useNostrStore()
   const [tab, setTab] = useState<'discover' | 'create'>('discover')
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
@@ -36,13 +36,14 @@ export function AddChannelModal({ onClose }: AddChannelModalProps) {
     setCreating(true)
     setError('')
     try {
-      const event = await createChannel(name.trim(), about.trim(), relays)
+      const writeRelays = useNostrStore.getState().writeRelays()
+      const event = await createChannel(name.trim(), about.trim(), writeRelays)
       addChannel({
         id: event.id,
         name: name.trim(),
         about: about.trim(),
         creatorPubkey: event.pubkey,
-        relayUrl: relays[0],
+        relayUrl: writeRelays[0],
       })
       joinChannel(event.id)
       setActiveChat(event.id, 'channel')
