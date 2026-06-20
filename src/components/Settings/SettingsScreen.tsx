@@ -24,9 +24,9 @@ const TAB_LABELS: Record<string, string> = {
 
 export function SettingsScreen() {
   const {
-    publicKey, npub, nsec, profile, relays,
+    publicKey, npub, nsec, profile, relays, relayModes,
     activeSettingsTab,
-    addRelay, removeRelay, updateProfile,
+    addRelay, removeRelay, updateProfile, setRelayMode,
   } = useNostrStore()
 
   const [newRelay, setNewRelay] = useState('')
@@ -289,18 +289,35 @@ export function SettingsScreen() {
               {relayError && <p className="text-red-400 text-xs">{relayError}</p>}
 
               <div className="space-y-2">
-                {relays.map(relay => (
-                  <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
-                    <Wifi size={16} className="text-green-400 flex-shrink-0" />
-                    <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
-                    <button
-                      onClick={() => removeRelay(relay)}
-                      className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-red-500/10"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
+                {relays.map(relay => {
+                  const mode = relayModes[relay] ?? { read: true, write: true }
+                  return (
+                    <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
+                      <Wifi size={16} className="text-green-400 flex-shrink-0" />
+                      <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
+                      <button
+                        onClick={() => setRelayMode(relay, !mode.read, mode.write)}
+                        className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${mode.read ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+                        title="Read from this relay"
+                      >
+                        Read
+                      </button>
+                      <button
+                        onClick={() => setRelayMode(relay, mode.read, !mode.write)}
+                        className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${mode.write ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+                        title="Publish to this relay"
+                      >
+                        Write
+                      </button>
+                      <button
+                        onClick={() => removeRelay(relay)}
+                        className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-red-500/10"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             </>
           )}

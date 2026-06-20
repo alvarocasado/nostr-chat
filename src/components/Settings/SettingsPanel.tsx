@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Plus, Trash2, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
+import { type RelayModes } from '../../lib/relayRouting'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { getSigner } from '../../lib/signer'
 import { Avatar } from '../Chat/Avatar'
@@ -20,8 +21,8 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({ onClose, initialTab = 'profile', inline = false }: SettingsPanelProps) {
   const {
-    publicKey, npub, nsec, profile, relays,
-    addRelay, removeRelay, updateProfile,
+    publicKey, npub, nsec, profile, relays, relayModes,
+    addRelay, removeRelay, updateProfile, setRelayMode,
   } = useNostrStore()
 
   const [tab, setTab] = useState<SettingsTab>(initialTab)
@@ -174,12 +175,14 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
           {tab === 'relays' && (
             <RelaysTab
               relays={relays}
+              relayModes={relayModes}
               newRelay={newRelay}
               setNewRelay={setNewRelay}
               relayError={relayError}
               setRelayError={setRelayError}
               addRelayHandler={addRelayHandler}
               removeRelay={removeRelay}
+              setRelayMode={setRelayMode}
             />
           )}
 
@@ -352,15 +355,17 @@ function RelayStatusDot({ status }: { status: RelayStatus }) {
 }
 
 function RelaysTab({
-  relays, newRelay, setNewRelay, relayError, setRelayError, addRelayHandler, removeRelay,
+  relays, relayModes, newRelay, setNewRelay, relayError, setRelayError, addRelayHandler, removeRelay, setRelayMode,
 }: {
   relays: string[]
+  relayModes: RelayModes
   newRelay: string
   setNewRelay: (v: string) => void
   relayError: string
   setRelayError: (v: string) => void
   addRelayHandler: () => void
   removeRelay: (url: string) => void
+  setRelayMode: (url: string, read: boolean, write: boolean) => void
 }) {
   const health = useRelayHealth(relays)
   const connected = Object.values(health).filter(s => s === 'connected').length
@@ -391,21 +396,38 @@ function RelaysTab({
       {relayError && <p className="text-red-400 text-xs">{relayError}</p>}
 
       <div className="space-y-2">
-        {relays.map(relay => (
-          <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
-            <RelayStatusDot status={health[relay] ?? 'pending'} />
-            <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
-            <span className="text-xs text-gray-500 flex-shrink-0 mr-1">
-              {health[relay] === 'connected' ? 'ok' : health[relay] === 'disconnected' ? 'error' : '…'}
-            </span>
-            <button
-              onClick={() => removeRelay(relay)}
-              className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-red-500/10"
-            >
-              <Trash2 size={15} />
-            </button>
-          </div>
-        ))}
+        {relays.map(relay => {
+          const mode = relayModes[relay] ?? { read: true, write: true }
+          return (
+            <div key={relay} className="flex items-center gap-3 bg-gray-800 rounded-xl px-4 py-3">
+              <RelayStatusDot status={health[relay] ?? 'pending'} />
+              <span className="flex-1 text-sm font-mono text-gray-200 truncate">{relay}</span>
+              <span className="text-xs text-gray-500 flex-shrink-0 mr-1">
+                {health[relay] === 'connected' ? 'ok' : health[relay] === 'disconnected' ? 'error' : '…'}
+              </span>
+              <button
+                onClick={() => setRelayMode(relay, !mode.read, mode.write)}
+                className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${mode.read ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+                title="Read from this relay"
+              >
+                Read
+              </button>
+              <button
+                onClick={() => setRelayMode(relay, mode.read, !mode.write)}
+                className={`px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${mode.write ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+                title="Publish to this relay"
+              >
+                Write
+              </button>
+              <button
+                onClick={() => removeRelay(relay)}
+                className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded-lg hover:bg-red-500/10"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          )
+        })}
       </div>
     </>
   )
