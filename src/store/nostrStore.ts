@@ -172,7 +172,7 @@ interface NostrState {
   loginFromNsec: (nsec: string) => Promise<boolean>
   loginFromHex: (hex: string) => Promise<boolean>
   loginWithExtension: () => Promise<boolean>
-  logout: () => void
+  logout: () => Promise<void>
   updateProfile: (profile: Partial<NostrProfile>) => void
 
   addRelay: (url: string) => void
@@ -493,7 +493,7 @@ export const useNostrStore = create<NostrState>()(
           }
         },
 
-        logout: () => {
+        logout: async () => {
           set({
             publicKey: null,
             nsec: null,
@@ -507,7 +507,7 @@ export const useNostrStore = create<NostrState>()(
             signerCaps: { nip04: true },
           })
           clearSigner()
-          void clearLocalKey().catch(() => {})
+          await clearLocalKey()
           clearAuthMethod()
           closeUserDb()
           clearActivePubkey()

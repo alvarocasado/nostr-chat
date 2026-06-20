@@ -69,7 +69,7 @@ describe('logout', () => {
     await useNostrStore.getState().generateAndLogin()
     useNostrStore.setState({ messages: { test: [{ id: '1', pubkey: 'pk', content: 'hi', createdAt: 0, tags: [], kind: 1 }] } })
 
-    useNostrStore.getState().logout()
+    await useNostrStore.getState().logout()
     const state = useNostrStore.getState()
 
     expect(state.publicKey).toBeNull()
@@ -84,7 +84,7 @@ describe('logout', () => {
       groupKeys: { g1: 'deadbeef' },
     })
 
-    useNostrStore.getState().logout()
+    await useNostrStore.getState().logout()
     const state = useNostrStore.getState()
 
     expect(state.groups).toEqual([])
