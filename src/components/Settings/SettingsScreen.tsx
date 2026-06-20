@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Plus, Trash2, Wifi, User, Key, Copy, Check, Save, Loader2, QrCode, ChevronDown, ChevronUp, Link, Share2, Eye, EyeOff } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { publishProfile } from '../../hooks/useNostrSubscriptions'
 import { getSigner } from '../../lib/signer'
@@ -8,6 +8,8 @@ import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
 import { CallsTab } from './CallsTab'
 import { PrivacyTab } from './PrivacyTab'
+import { keyProtection, loadLocalKey, setPassphrase } from '../../lib/keyStore'
+import { getAuthMethod } from '../../lib/userDb'
 
 const TAB_LABELS: Record<string, string> = {
   profile: 'Profile',
@@ -31,6 +33,43 @@ export function SettingsScreen() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [showQR, setShowQR] = useState(false)
+
+  // Key protection state
+  const authMethod = getAuthMethod()
+  const [protection, setProtection] = useState<'none' | 'device' | 'passphrase' | null>(null)
+
+  // Set passphrase form (device -> passphrase)
+  const [setNewPass, setSetNewPass] = useState('')
+  const [setConfirmPass, setSetConfirmPass] = useState('')
+  const [setPassError, setSetPassError] = useState('')
+  const [setPassSuccess, setSetPassSuccess] = useState('')
+  const [setPassBusy, setSetPassBusy] = useState(false)
+  const [showSetNew, setShowSetNew] = useState(false)
+  const [showSetConfirm, setShowSetConfirm] = useState(false)
+
+  // Change passphrase form (passphrase -> passphrase)
+  const [changeCurrent, setChangeCurrent] = useState('')
+  const [changeNew, setChangeNew] = useState('')
+  const [changeConfirm, setChangeConfirm] = useState('')
+  const [changeError, setChangeError] = useState('')
+  const [changeSuccess, setChangeSuccess] = useState('')
+  const [changeBusy, setChangeBusy] = useState(false)
+  const [showChangeCurrent, setShowChangeCurrent] = useState(false)
+  const [showChangeNew, setShowChangeNew] = useState(false)
+  const [showChangeConfirm, setShowChangeConfirm] = useState(false)
+
+  // Remove passphrase form (passphrase -> device)
+  const [removeCurrent, setRemoveCurrent] = useState('')
+  const [removeError, setRemoveError] = useState('')
+  const [removeSuccess, setRemoveSuccess] = useState('')
+  const [removeBusy, setRemoveBusy] = useState(false)
+  const [showRemoveCurrent, setShowRemoveCurrent] = useState(false)
+
+  useEffect(() => {
+    if (activeSettingsTab === 'keys' && authMethod !== 'nip07') {
+      keyProtection().then(setProtection)
+    }
+  }, [activeSettingsTab, authMethod])
 
   const [displayName, setDisplayName] = useState(profile?.display_name || profile?.name || '')
   const [about, setAbout] = useState(profile?.about || '')
@@ -79,6 +118,74 @@ export function SettingsScreen() {
       setTimeout(() => setSaved(false), 2000)
     } catch { /* ignore publish errors */ }
     finally { setSaving(false) }
+  }
+
+  const refreshProtection = async () => {
+    const p = await keyProtection()
+    setProtection(p)
+  }
+
+  const handleSetPassphrase = async () => {
+    setSetPassError('')
+    setSetPassSuccess('')
+    if (!setNewPass) { setSetPassError('Passphrase must not be empty.'); return }
+    if (setNewPass !== setConfirmPass) { setSetPassError('Passphrases do not match.'); return }
+    setSetPassBusy(true)
+    try {
+      const sk = await loadLocalKey()
+      if (!sk) { setSetPassError('Could not load local key. Try again.'); return }
+      await setPassphrase(sk, setNewPass)
+      setSetNewPass('')
+      setSetConfirmPass('')
+      setSetPassSuccess('Passphrase set successfully.')
+      await refreshProtection()
+    } catch {
+      setSetPassError('Failed to set passphrase. Try again.')
+    } finally {
+      setSetPassBusy(false)
+    }
+  }
+
+  const handleChangePassphrase = async () => {
+    setChangeError('')
+    setChangeSuccess('')
+    if (!changeCurrent) { setChangeError('Current passphrase is required.'); return }
+    if (!changeNew) { setChangeError('New passphrase must not be empty.'); return }
+    if (changeNew !== changeConfirm) { setChangeError('New passphrases do not match.'); return }
+    setChangeBusy(true)
+    try {
+      const sk = await loadLocalKey({ passphrase: changeCurrent })
+      if (!sk) { setChangeError('Incorrect current passphrase.'); return }
+      await setPassphrase(sk, changeNew)
+      setChangeCurrent('')
+      setChangeNew('')
+      setChangeConfirm('')
+      setChangeSuccess('Passphrase changed successfully.')
+      await refreshProtection()
+    } catch {
+      setChangeError('Failed to change passphrase. Try again.')
+    } finally {
+      setChangeBusy(false)
+    }
+  }
+
+  const handleRemovePassphrase = async () => {
+    setRemoveError('')
+    setRemoveSuccess('')
+    if (!removeCurrent) { setRemoveError('Current passphrase is required.'); return }
+    setRemoveBusy(true)
+    try {
+      const sk = await loadLocalKey({ passphrase: removeCurrent })
+      if (!sk) { setRemoveError('Incorrect current passphrase.'); return }
+      await setPassphrase(sk, null)
+      setRemoveCurrent('')
+      setRemoveSuccess('Passphrase removed. Key is now protected by device only.')
+      await refreshProtection()
+    } catch {
+      setRemoveError('Failed to remove passphrase. Try again.')
+    } finally {
+      setRemoveBusy(false)
+    }
   }
 
   if (!activeSettingsTab) return null
@@ -199,80 +306,205 @@ export function SettingsScreen() {
           {/* Keys */}
           {activeSettingsTab === 'keys' && (
             <div className="space-y-4">
-              <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-xl p-4">
-                <p className="text-yellow-300 text-sm">
-                  <strong>Never share your private key (nsec).</strong> Anyone with it has full control of your account.
-                </p>
-              </div>
-
-              <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
-                <button
-                  onClick={() => setShowQR(v => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
-                >
-                  <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                    <QrCode size={16} className="text-purple-400" />
-                    Share Public Key via QR Code
+              {authMethod === 'nip07' ? (
+                <div className="bg-gray-800 border border-gray-700 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Key size={16} className="text-purple-400" />
+                    <span className="text-sm font-semibold text-white">Signed in with browser extension</span>
                   </div>
-                  {showQR ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
-                </button>
-                {showQR && npub && (
-                  <div className="px-4 pb-5 pt-1 border-t border-gray-700">
-                    <p className="text-gray-400 text-xs mb-4 text-center">
-                      Anyone can scan this to find and message you on Nostr.
+                  <p className="text-gray-400 text-sm">
+                    Your key is managed by your Nostr browser extension. Passphrase controls and private key export are not available.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-xl p-4">
+                    <p className="text-yellow-300 text-sm">
+                      <strong>Never share your private key (nsec).</strong> Anyone with it has full control of your account.
                     </p>
-                    <QRCodeDisplay
-                      value={`nostr:${npub}`}
-                      label={`nostr:${npub.slice(0, 16)}...${npub.slice(-8)}`}
-                    />
                   </div>
-                )}
-              </div>
 
-              <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Link size={16} className="text-purple-400 flex-shrink-0" />
-                  <span className="text-sm font-semibold text-white">Share Contact Link</span>
-                </div>
-                <p className="text-gray-400 text-xs">
-                  Anyone who opens this link will be prompted to add you as a contact on NostrChat.
-                </p>
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Web Link</p>
-                  <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
-                    <span className="flex-1 text-xs font-mono text-gray-300 truncate">{contactLink}</span>
-                    <button onClick={() => copy(contactLink, 'contactLink')} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0" title="Copy link">
-                      {copied === 'contactLink' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
+                  <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setShowQR(v => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors"
+                    >
+                      <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                        <QrCode size={16} className="text-purple-400" />
+                        Share Public Key via QR Code
+                      </div>
+                      {showQR ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
                     </button>
+                    {showQR && npub && (
+                      <div className="px-4 pb-5 pt-1 border-t border-gray-700">
+                        <p className="text-gray-400 text-xs mb-4 text-center">
+                          Anyone can scan this to find and message you on Nostr.
+                        </p>
+                        <QRCodeDisplay
+                          value={`nostr:${npub}`}
+                          label={`nostr:${npub.slice(0, 16)}...${npub.slice(-8)}`}
+                        />
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Nostr URI</p>
-                  <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
-                    <span className="flex-1 text-xs font-mono text-gray-300 truncate">nostr:{npub}</span>
-                    <button onClick={() => copy(`nostr:${npub}`, 'nostrUri')} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0" title="Copy Nostr URI">
-                      {copied === 'nostrUri' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
-                    </button>
-                  </div>
-                </div>
-                {typeof navigator !== 'undefined' && !!navigator.share && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await navigator.share({ title: 'Add me on NostrChat', text: `Add me on NostrChat (nostr:${npub})`, url: contactLink })
-                      } catch { /* user cancelled */ }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-sm font-semibold rounded-xl transition-colors"
-                  >
-                    <Share2 size={15} />
-                    Share via…
-                  </button>
-                )}
-              </div>
 
-              <KeyRow label="Public Key (npub)" value={npub || ''} icon={<User size={16} className="text-purple-400" />} onCopy={() => copy(npub || '', 'npub')} copied={copied === 'npub'} />
-              <KeyRow label="Public Key (hex)" value={publicKey || ''} icon={<User size={16} className="text-purple-400" />} onCopy={() => copy(publicKey || '', 'pkHex')} copied={copied === 'pkHex'} />
-              <KeyRow label="Private Key (nsec) — Keep Secret!" value={nsec || ''} icon={<Key size={16} className="text-red-400" />} onCopy={() => copy(nsec || '', 'nsec')} copied={copied === 'nsec'} secret />
+                  <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Link size={16} className="text-purple-400 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-white">Share Contact Link</span>
+                    </div>
+                    <p className="text-gray-400 text-xs">
+                      Anyone who opens this link will be prompted to add you as a contact on NostrChat.
+                    </p>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Web Link</p>
+                      <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
+                        <span className="flex-1 text-xs font-mono text-gray-300 truncate">{contactLink}</span>
+                        <button onClick={() => copy(contactLink, 'contactLink')} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0" title="Copy link">
+                          {copied === 'contactLink' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Nostr URI</p>
+                      <div className="flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
+                        <span className="flex-1 text-xs font-mono text-gray-300 truncate">nostr:{npub}</span>
+                        <button onClick={() => copy(`nostr:${npub}`, 'nostrUri')} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0" title="Copy Nostr URI">
+                          {copied === 'nostrUri' ? <Check size={15} className="text-green-400" /> : <Copy size={15} />}
+                        </button>
+                      </div>
+                    </div>
+                    {typeof navigator !== 'undefined' && !!navigator.share && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await navigator.share({ title: 'Add me on NostrChat', text: `Add me on NostrChat (nostr:${npub})`, url: contactLink })
+                          } catch { /* user cancelled */ }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-sm font-semibold rounded-xl transition-colors"
+                      >
+                        <Share2 size={15} />
+                        Share via…
+                      </button>
+                    )}
+                  </div>
+
+                  <KeyRow label="Public Key (npub)" value={npub || ''} icon={<User size={16} className="text-purple-400" />} onCopy={() => copy(npub || '', 'npub')} copied={copied === 'npub'} />
+                  <KeyRow label="Public Key (hex)" value={publicKey || ''} icon={<User size={16} className="text-purple-400" />} onCopy={() => copy(publicKey || '', 'pkHex')} copied={copied === 'pkHex'} />
+                  <KeyRow label="Private Key (nsec) — Keep Secret!" value={nsec || ''} icon={<Key size={16} className="text-red-400" />} onCopy={() => copy(nsec || '', 'nsec')} copied={copied === 'nsec'} secret />
+
+                  {/* Key protection section */}
+                  <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Key size={16} className="text-purple-400 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-white">Key protection</span>
+                      {protection !== null && (
+                        <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-300 font-mono">
+                          {protection === 'passphrase' ? 'Passphrase' : 'Device'}
+                        </span>
+                      )}
+                    </div>
+
+                    {protection === 'device' || protection === 'none' ? (
+                      /* Set passphrase */
+                      <div className="space-y-3">
+                        <p className="text-gray-400 text-xs">
+                          Your key is currently protected by this device only. Set a passphrase so you are prompted for it on each login.
+                        </p>
+                        <PassField
+                          label="New passphrase"
+                          value={setNewPass}
+                          onChange={setSetNewPass}
+                          show={showSetNew}
+                          onToggleShow={() => setShowSetNew(v => !v)}
+                        />
+                        <PassField
+                          label="Confirm passphrase"
+                          value={setConfirmPass}
+                          onChange={setSetConfirmPass}
+                          show={showSetConfirm}
+                          onToggleShow={() => setShowSetConfirm(v => !v)}
+                        />
+                        {setPassError && <p className="text-red-400 text-xs">{setPassError}</p>}
+                        {setPassSuccess && <p className="text-green-400 text-xs">{setPassSuccess}</p>}
+                        <button
+                          onClick={handleSetPassphrase}
+                          disabled={setPassBusy}
+                          className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                        >
+                          {setPassBusy ? <Loader2 size={15} className="animate-spin" /> : null}
+                          Set passphrase
+                        </button>
+                      </div>
+                    ) : protection === 'passphrase' ? (
+                      /* Change + Remove passphrase */
+                      <div className="space-y-5">
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Change passphrase</p>
+                          <PassField
+                            label="Current passphrase"
+                            value={changeCurrent}
+                            onChange={setChangeCurrent}
+                            show={showChangeCurrent}
+                            onToggleShow={() => setShowChangeCurrent(v => !v)}
+                          />
+                          <PassField
+                            label="New passphrase"
+                            value={changeNew}
+                            onChange={setChangeNew}
+                            show={showChangeNew}
+                            onToggleShow={() => setShowChangeNew(v => !v)}
+                          />
+                          <PassField
+                            label="Confirm new passphrase"
+                            value={changeConfirm}
+                            onChange={setChangeConfirm}
+                            show={showChangeConfirm}
+                            onToggleShow={() => setShowChangeConfirm(v => !v)}
+                          />
+                          {changeError && <p className="text-red-400 text-xs">{changeError}</p>}
+                          {changeSuccess && <p className="text-green-400 text-xs">{changeSuccess}</p>}
+                          <button
+                            onClick={handleChangePassphrase}
+                            disabled={changeBusy}
+                            className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                          >
+                            {changeBusy ? <Loader2 size={15} className="animate-spin" /> : null}
+                            Change passphrase
+                          </button>
+                        </div>
+
+                        <div className="border-t border-gray-700 pt-4 space-y-3">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Remove passphrase</p>
+                          <p className="text-gray-400 text-xs">
+                            Revert to device-only protection. You will no longer be prompted for a passphrase on login.
+                          </p>
+                          <PassField
+                            label="Current passphrase"
+                            value={removeCurrent}
+                            onChange={setRemoveCurrent}
+                            show={showRemoveCurrent}
+                            onToggleShow={() => setShowRemoveCurrent(v => !v)}
+                          />
+                          {removeError && <p className="text-red-400 text-xs">{removeError}</p>}
+                          {removeSuccess && <p className="text-green-400 text-xs">{removeSuccess}</p>}
+                          <button
+                            onClick={handleRemovePassphrase}
+                            disabled={removeBusy}
+                            className="w-full bg-red-700/60 hover:bg-red-700/80 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+                          >
+                            {removeBusy ? <Loader2 size={15} className="animate-spin" /> : null}
+                            Remove passphrase
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Loading state */
+                      <p className="text-gray-500 text-xs">Loading...</p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -327,6 +559,38 @@ function KeyRow({ label, value, icon, onCopy, copied, secret = false }: {
         )}
         <button onClick={onCopy} className="text-gray-400 hover:text-purple-400 transition-colors flex-shrink-0">
           {copied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PassField({ label, value, onChange, show, onToggleShow }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  show: boolean
+  onToggleShow: () => void
+}) {
+  return (
+    <div>
+      <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</label>
+      <div className="mt-1 flex items-center gap-2 bg-gray-900 border border-gray-700 rounded-xl px-3 py-2.5">
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          autoComplete="new-password"
+          className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 outline-none"
+        />
+        <button
+          type="button"
+          onClick={onToggleShow}
+          className="text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+          tabIndex={-1}
+          aria-label={show ? 'Hide passphrase' : 'Show passphrase'}
+        >
+          {show ? <EyeOff size={15} /> : <Eye size={15} />}
         </button>
       </div>
     </div>
