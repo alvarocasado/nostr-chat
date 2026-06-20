@@ -16,6 +16,7 @@ import {
 } from '../lib/userDb'
 import { saveLocalKey, clearLocalKey, hasLocalKey, keyProtection } from '../lib/keyStore'
 import { messageToRecord, recordToMessage } from '../lib/db'
+import { INITIAL_PAGE } from '../lib/pagination'
 import {
   syncFromRelays,
   publishContactList,
@@ -199,6 +200,7 @@ interface NostrState {
   clearTargetMessage: () => void
 
   addMessage: (chatId: string, message: Message) => void
+  prependMessages: (chatId: string, msgs: Message[]) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
   updateContactLastMessage: (pubkey: string, content: string, at: number, opts?: { incrementUnread?: boolean }) => void
@@ -665,6 +667,8 @@ export const useNostrStore = create<NostrState>()(
             void db.messages
               .where('[chatId+createdAt]')
               .between([id, -Infinity], [id, Infinity])
+              .reverse()
+              .limit(INITIAL_PAGE)
               .toArray()
               .then(records => {
                 if (records.length === 0) return
@@ -696,6 +700,16 @@ export const useNostrStore = create<NostrState>()(
           set({ messages: { ...get().messages, [chatId]: sorted } })
           const db = getUserDb()
           if (db) void db.messages.put(messageToRecord(chatId, message))
+        },
+
+        prependMessages: (chatId, msgs) => {
+          if (msgs.length === 0) return
+          const existing = get().messages[chatId] || []
+          const existingIds = new Set(existing.map(m => m.id))
+          const fresh = msgs.filter(m => !existingIds.has(m.id))
+          if (fresh.length === 0) return
+          const merged = [...fresh, ...existing].sort((a, b) => a.createdAt - b.createdAt)
+          set({ messages: { ...get().messages, [chatId]: merged } })
         },
 
         updateMessageStatus: (chatId, msgId, status) => {

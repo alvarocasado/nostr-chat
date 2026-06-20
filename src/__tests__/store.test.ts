@@ -1,6 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useNostrStore } from '../store/nostrStore'
 import { getSigner } from '../lib/signer'
+import { openUserDb, closeUserDb, getUserDb } from '../lib/userDb'
+import { messageToRecord } from '../lib/db'
+import type { Message } from '../store/nostrStore'
 
 // Reset store state before each test
 beforeEach(() => {
@@ -460,6 +463,50 @@ describe('message request actions', () => {
     const s = useNostrStore.getState()
     expect(s.contacts[0].pending).toBe(false)
     expect(s.dismissedRequests['req1']).toBeUndefined()
+  })
+})
+
+describe('prependMessages', () => {
+  it('prepends older messages, dedups by id, and keeps ascending order', () => {
+    const m = (id: string, t: number): Message => ({ id, pubkey: 'p', content: id, createdAt: t, tags: [], kind: 42 })
+    useNostrStore.setState({ messages: { chat: [m('c', 3), m('d', 4)] } })
+    useNostrStore.getState().prependMessages('chat', [m('a', 1), m('b', 2), m('c', 3)])
+    const ids = useNostrStore.getState().messages['chat'].map(x => x.id)
+    expect(ids).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('is a no-op for an empty input', () => {
+    useNostrStore.setState({ messages: { chat: [] } })
+    useNostrStore.getState().prependMessages('chat', [])
+    expect(useNostrStore.getState().messages['chat']).toEqual([])
+  })
+})
+
+describe('setActiveChat initial load cap', () => {
+  const PK = 'b'.repeat(64)
+  beforeEach(async () => {
+    openUserDb(PK)
+    const db = getUserDb()!
+    await db.messages.clear()
+    for (let t = 1; t <= 120; t++) {
+      await db.messages.put(messageToRecord('chatX', { id: `n${t}`, pubkey: 'p', content: `n${t}`, createdAt: t, tags: [], kind: 42 }))
+    }
+    useNostrStore.setState({ messages: {}, contacts: [], channels: [], groups: [] })
+  })
+  afterEach(async () => {
+    const db = getUserDb()
+    if (db) await db.messages.clear()
+    closeUserDb()
+  })
+
+  it('loads only the most recent INITIAL_PAGE messages, ascending', async () => {
+    useNostrStore.getState().setActiveChat('chatX', 'channel')
+    // setActiveChat loads asynchronously; wait a microtask-tick for the Dexie promise
+    await new Promise(r => setTimeout(r, 0))
+    const loaded = useNostrStore.getState().messages['chatX'] || []
+    expect(loaded).toHaveLength(50)
+    expect(loaded[0].createdAt).toBe(71)
+    expect(loaded[loaded.length - 1].createdAt).toBe(120)
   })
 })
 
