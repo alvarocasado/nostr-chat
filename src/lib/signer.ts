@@ -1,4 +1,5 @@
 import { finalizeEvent, getPublicKey, nip04, type Event, type EventTemplate } from 'nostr-tools'
+import { getNip07, type Nip07Provider } from './nip07'
 
 export interface SignerCaps {
   nip04: boolean
@@ -39,6 +40,40 @@ export class LocalSigner implements Signer {
   /** Best-effort zeroing of the in-memory secret on logout. */
   destroy(): void {
     this.sk.fill(0)
+  }
+}
+
+export class Nip07Signer implements Signer {
+  readonly type = 'nip07' as const
+  readonly pubkey: string
+  readonly caps: SignerCaps
+  private provider: Nip07Provider
+
+  private constructor(provider: Nip07Provider, pubkey: string) {
+    this.provider = provider
+    this.pubkey = pubkey
+    this.caps = { nip04: !!provider.nip04 }
+  }
+
+  static async create(): Promise<Nip07Signer> {
+    const provider = getNip07()
+    if (!provider) throw new Error('No NIP-07 provider')
+    const pubkey = await provider.getPublicKey()
+    return new Nip07Signer(provider, pubkey)
+  }
+
+  async signEvent(t: EventTemplate): Promise<Event> {
+    return this.provider.signEvent(t)
+  }
+
+  async nip04Encrypt(peer: string, plaintext: string): Promise<string> {
+    if (!this.provider.nip04) throw new Error('Signer does not support nip04')
+    return this.provider.nip04.encrypt(peer, plaintext)
+  }
+
+  async nip04Decrypt(peer: string, ciphertext: string): Promise<string> {
+    if (!this.provider.nip04) throw new Error('Signer does not support nip04')
+    return this.provider.nip04.decrypt(peer, ciphertext)
   }
 }
 
