@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { useNostrStore } from './store/nostrStore'
 import { LoginScreen } from './components/Auth/LoginScreen'
+import { UnlockScreen } from './components/Auth/UnlockScreen'
 import { Sidebar } from './components/Chat/Sidebar'
 import { MessageThread } from './components/Chat/MessageThread'
 import { SettingsScreen } from './components/Settings/SettingsScreen'
@@ -61,6 +62,7 @@ function consumeContactParam(): string | null {
 
 function App() {
   const [isHydrating, setIsHydrating] = useState(true)
+  const [locked, setLocked] = useState(false)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
 
   const {
@@ -102,7 +104,9 @@ function App() {
               useNostrStore.setState({ nsec: encodeNsec(sk) })
             }
           }
-          // passphrase protection -> handled by UnlockScreen in Task 15
+          if (protection === 'passphrase') {
+            setLocked(true)
+          }
         }
         // nip07 -> handled in Task 17
       }
@@ -117,6 +121,10 @@ function App() {
         <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
+  }
+
+  if (locked) {
+    return <UnlockScreen onUnlocked={() => setLocked(false)} onLogout={() => { useNostrStore.getState().logout(); setLocked(false) }} />
   }
 
   if (!publicKey) {
