@@ -5,7 +5,14 @@ export interface AttachmentData {
   name: string
   type: string
   size: number  // original file size in bytes
-  data: string  // data URL
+  data?: string // inline data URL (small files)
+  url?: string  // Blossom GET url (off-relay files)
+  hash?: string // SHA-256 hex of the uploaded blob (ciphertext when encrypted)
+  enc?: {       // present only for encrypted (DM/group) files
+    algo: 'AES-GCM'
+    key: string // base64 raw key
+    iv: string  // base64 IV
+  }
 }
 
 export interface ReplyTo {
@@ -71,10 +78,11 @@ export function encodeFile(file: File): Promise<string> {
 export function parseMessageContent(content: string): ParsedMessage {
   try {
     const parsed = JSON.parse(content)
-    if (parsed && typeof parsed === 'object' && (parsed.attachment?.data || parsed.replyTo)) {
+    const hasAttachment = !!(parsed?.attachment?.data || parsed?.attachment?.url)
+    if (parsed && typeof parsed === 'object' && (hasAttachment || parsed.replyTo)) {
       return {
         text: parsed.text ?? '',
-        attachment: parsed.attachment?.data ? parsed.attachment as AttachmentData : null,
+        attachment: hasAttachment ? parsed.attachment as AttachmentData : null,
         replyTo: parsed.replyTo ?? undefined,
       }
     }

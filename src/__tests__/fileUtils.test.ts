@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseMessageContent,
   serializeMessage,
+  getPreviewText,
   formatBytes,
   MAX_ATTACHMENT_BYTES,
   MAX_RAW_FILE_BYTES,
@@ -106,5 +107,34 @@ describe('size constants', () => {
 
   it('MAX_RAW_FILE_BYTES is 100 KB', () => {
     expect(MAX_RAW_FILE_BYTES).toBe(100 * 1024)
+  })
+})
+
+describe('remote (Blossom) attachments', () => {
+  const remote: AttachmentData = {
+    name: 'pic.jpg', type: 'image/jpeg', size: 1234,
+    url: 'https://srv/abc', hash: 'abc',
+    enc: { algo: 'AES-GCM', key: 'k', iv: 'iv' },
+  }
+
+  it('serializes and parses a remote attachment (no inline data)', () => {
+    const content = serializeMessage('caption', remote, null)
+    const parsed = parseMessageContent(content)
+    expect(parsed.text).toBe('caption')
+    expect(parsed.attachment?.url).toBe('https://srv/abc')
+    expect(parsed.attachment?.hash).toBe('abc')
+    expect(parsed.attachment?.enc?.key).toBe('k')
+    expect(parsed.attachment?.data).toBeUndefined()
+  })
+
+  it('getPreviewText describes a remote image attachment', () => {
+    const content = serializeMessage('', remote, null)
+    expect(getPreviewText(content)).toBe('Image: pic.jpg')
+  })
+
+  it('still parses a legacy inline attachment (data url)', () => {
+    const inline: AttachmentData = { name: 'a.txt', type: 'text/plain', size: 3, data: 'data:text/plain;base64,YWJj' }
+    const parsed = parseMessageContent(serializeMessage('hi', inline, null))
+    expect(parsed.attachment?.data).toBe('data:text/plain;base64,YWJj')
   })
 })
