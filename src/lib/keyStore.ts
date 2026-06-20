@@ -90,10 +90,41 @@ export async function clearLocalKey(): Promise<void> {
   await db.crypto.delete(DEVICE_KEY_ID)
 }
 
-// --- Passphrase mode: implemented in Task 14 ---
-async function savePassphrase(_secret: Uint8Array, _passphrase: string): Promise<void> {
-  throw new Error('passphrase mode not implemented yet')
+async function deriveKey(passphrase: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+  const baseKey = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey'],
+  )
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
 }
-async function loadPassphrase(_rec: PassphraseRecord, _passphrase?: string): Promise<Uint8Array | null> {
-  throw new Error('passphrase mode not implemented yet')
+
+async function savePassphrase(secret: Uint8Array, passphrase: string): Promise<void> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const key = await deriveKey(passphrase, salt, PBKDF2_ITERATIONS)
+  const { iv, ciphertext } = await wrap(key, secret)
+  await writeRecord({ mode: 'passphrase', iv, salt: b64encode(salt), iterations: PBKDF2_ITERATIONS, ciphertext })
+  // Passphrase mode supersedes device mode: drop any device wrap key.
+  const db = getUserDb()
+  if (db) await db.crypto.delete(DEVICE_KEY_ID)
+}
+
+async function loadPassphrase(rec: PassphraseRecord, passphrase?: string): Promise<Uint8Array | null> {
+  if (!passphrase) return null
+  try {
+    const key = await deriveKey(passphrase, b64decode(rec.salt), rec.iterations)
+    return await unwrap(key, rec.iv, rec.ciphertext)
+  } catch {
+    return null
+  }
+}
+
+/** Switch protection: passphrase string sets/changes it, null reverts to device mode. */
+export async function setPassphrase(secret: Uint8Array, passphrase: string | null): Promise<void> {
+  if (passphrase) await savePassphrase(secret, passphrase)
+  else await saveLocalKey(secret) // device mode
 }

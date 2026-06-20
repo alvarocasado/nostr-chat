@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { generateSecretKey } from 'nostr-tools'
 import { openUserDb, closeUserDb } from '../lib/userDb'
-import { saveLocalKey, loadLocalKey, hasLocalKey, keyProtection, clearLocalKey } from '../lib/keyStore'
+import { saveLocalKey, loadLocalKey, hasLocalKey, keyProtection, clearLocalKey, setPassphrase } from '../lib/keyStore'
 import { migratePlaintextKeyIfNeeded } from '../lib/migrate'
 
 const PK = 'a'.repeat(64)
@@ -28,6 +28,28 @@ describe('keyStore device mode', () => {
     expect(await keyProtection()).toBe('none')
     expect(await loadLocalKey()).toBeNull()
     closeUserDb()
+  })
+})
+
+describe('keyStore passphrase mode', () => {
+  beforeEach(() => { openUserDb(PK) })
+
+  it('round-trips under a passphrase and rejects the wrong one', async () => {
+    const sk = generateSecretKey()
+    await saveLocalKey(sk, { passphrase: 'hunter2' })
+    expect(await keyProtection()).toBe('passphrase')
+    const ok = await loadLocalKey({ passphrase: 'hunter2' })
+    expect(ok && eq(ok, sk)).toBe(true)
+    expect(await loadLocalKey({ passphrase: 'wrong' })).toBeNull()
+  })
+
+  it('setPassphrase(null) reverts to device mode', async () => {
+    const sk = generateSecretKey()
+    await saveLocalKey(sk, { passphrase: 'hunter2' })
+    await setPassphrase(sk, null)
+    expect(await keyProtection()).toBe('device')
+    const ok = await loadLocalKey()
+    expect(ok && eq(ok, sk)).toBe(true)
   })
 })
 
