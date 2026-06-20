@@ -3,17 +3,15 @@ import {
   subscribeEvents,
   publishEvent,
   parseProfile,
-  decryptDM,
   buildChannelCreateEvent,
   buildChannelMessageEvent,
   buildDMEvent,
   buildProfileEvent,
-  buildGroupKeyBackupEvent,
   GROUP_MESSAGE_KIND,
   LEGACY_GROUP_MESSAGE_KIND,
   type NostrProfile,
 } from '../lib/nostr'
-import { useNostrStore, type Channel, type Group } from '../store/nostrStore'
+import { useNostrStore, type Channel } from '../store/nostrStore'
 import {
   processChannelEvent,
   processDMEvent,
@@ -212,50 +210,6 @@ export function useGlobalInbox() {
   }, [publicKey, groupIds, stableRelays])
 }
 
-// Hook to detect incoming group invites from kind-4 DMs addressed to the local user.
-// Mount once at app level (inside App component when logged in).
-export function useGroupInviteListener() {
-  const { relays, publicKey, addGroup, setGroupKey } = useNostrStore()
-  const stableRelays = useStableArray(relays)
-
-  useEffect(() => {
-    if (!publicKey) return
-    if (!getSigner()) return
-
-    const sub = subscribeEvents(
-      stableRelays,
-      { kinds: [4], '#p': [publicKey], limit: 100 },
-      async (event) => {
-        try {
-          const decrypted = await decryptDM(event.pubkey, event.content)
-          const payload = JSON.parse(decrypted) as { type?: string; groupId?: string; groupKeyHex?: string; groupName?: string }
-          if (payload?.type !== 'group_invite') return
-          const { groupId, groupKeyHex, groupName } = payload
-          if (!groupId || !groupKeyHex || !groupName) return
-          if (useNostrStore.getState().groups.find((g: Group) => g.id === groupId)) return
-
-          addGroup({
-            id: groupId,
-            name: groupName,
-            creatorPubkey: event.pubkey,
-            memberPubkeys: [publicKey],
-            relayUrl: stableRelays[0],
-            lastMessage: 'Joined via invite',
-            lastMessageAt: event.created_at,
-          })
-          setGroupKey(groupId, groupKeyHex)
-
-          // Publish own key backup so cross-device recovery works
-          const backup = await buildGroupKeyBackupEvent(groupId, groupKeyHex)
-          publishEvent(stableRelays, backup).catch(() => {})
-        } catch {
-          // not a group invite or decryption failed
-        }
-      },
-    )
-    return () => sub.close()
-  }, [publicKey, stableRelays, addGroup, setGroupKey])
-}
 
 // ─── Send / publish helpers ──────────────────────────────────────────────────
 

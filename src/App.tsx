@@ -20,7 +20,7 @@ import { LocalSigner, Nip07Signer, setSigner, getSigner } from './lib/signer'
 import { encodeNsec } from './lib/nostr'
 import { hasNip07 } from './lib/nip07'
 import { migratePlaintextKeyIfNeeded } from './lib/migrate'
-import { useGroupInviteListener, useGlobalInbox } from './hooks/useNostrSubscriptions'
+import { useGlobalInbox } from './hooks/useNostrSubscriptions'
 import { ReconnectScreen } from './components/Auth/ReconnectScreen'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
@@ -76,7 +76,6 @@ function App() {
     showAddGroup, setShowAddGroup,
   } = useNostrStore()
 
-  useGroupInviteListener()
   useGlobalInbox()
 
   const openCallSettings = useCallback(() => {
