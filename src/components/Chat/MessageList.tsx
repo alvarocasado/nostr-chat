@@ -6,6 +6,7 @@ import { MessageItem } from './MessageItem'
 import { decorateRow } from '../../lib/messageRows'
 import { useChatHistory } from '../../hooks/useChatHistory'
 import { START_INDEX, MAX_JUMP_PAGES } from '../../lib/pagination'
+import { indexOfMessage } from '../../lib/history'
 
 function NewMessagesDivider() {
   return (
@@ -98,7 +99,7 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
     const resolve = async () => {
       for (let page = 0; page < MAX_JUMP_PAGES; page++) {
         if (cancelled) return
-        const idx = useNostrStore.getState().messages[chatId]?.findIndex(m => m.id === targetMessageId) ?? -1
+        const idx = indexOfMessage(useNostrStore.getState().messages[chatId] ?? [], targetMessageId)
         if (idx >= 0) {
           virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center' })
           highlight()

@@ -835,11 +835,11 @@ export function MessageThread() {
   return (
     <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden">
       {activeChatType === 'channel' ? (
-        <ChannelThread channelId={activeChatId} />
+        <ChannelThread key={activeChatId} channelId={activeChatId} />
       ) : activeChatType === 'group' ? (
-        <GroupThread groupId={activeChatId} />
+        <GroupThread key={activeChatId} groupId={activeChatId} />
       ) : (
-        <DMThread theirPubkey={activeChatId} />
+        <DMThread key={activeChatId} theirPubkey={activeChatId} />
       )}
     </div>
   )
