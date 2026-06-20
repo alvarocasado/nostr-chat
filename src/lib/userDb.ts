@@ -63,3 +63,16 @@ export function setActivePubkey(pubkey: string): void {
 export function clearActivePubkey(): void {
   try { localStorage.removeItem(ACTIVE_PUBKEY_KEY) } catch {}
 }
+
+export const AUTH_METHOD_KEY = 'nostr-auth-method'
+export type AuthMethod = 'local' | 'nip07'
+
+export function getAuthMethod(): AuthMethod | null {
+  try { return localStorage.getItem(AUTH_METHOD_KEY) as AuthMethod | null } catch { return null }
+}
+export function setAuthMethod(m: AuthMethod): void {
+  try { localStorage.setItem(AUTH_METHOD_KEY, m) } catch {}
+}
+export function clearAuthMethod(): void {
+  try { localStorage.removeItem(AUTH_METHOD_KEY) } catch {}
+}

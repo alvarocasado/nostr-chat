@@ -5,7 +5,6 @@ import { getSigner } from '../lib/signer'
 // Reset store state before each test
 beforeEach(() => {
   useNostrStore.setState({
-    privateKeyHex: null,
     publicKey: null,
     nsec: null,
     npub: null,
@@ -14,8 +13,8 @@ beforeEach(() => {
     channels: [],
     joinedChannelIds: [],
     contacts: [],
-    groups: [],          // add
-    groupKeys: {},       // add
+    groups: [],
+    groupKeys: {},
     activeChatId: null,
     activeChatType: null,
     messages: {},
@@ -24,12 +23,11 @@ beforeEach(() => {
 })
 
 describe('generateAndLogin', () => {
-  it('sets publicKey, nsec, npub, and privateKeyHex', async () => {
+  it('sets publicKey, nsec, and npub (no plaintext key in state)', async () => {
     const { nsec, npub } = await useNostrStore.getState().generateAndLogin()
     const state = useNostrStore.getState()
 
     expect(state.publicKey).toMatch(/^[0-9a-f]{64}$/)
-    expect(state.privateKeyHex).toMatch(/^[0-9a-f]{64}$/)
     expect(state.nsec).toBe(nsec)
     expect(state.npub).toBe(npub)
     expect(nsec).toMatch(/^nsec1/)
@@ -51,7 +49,7 @@ describe('loginFromNsec', () => {
     const { nsec } = await useNostrStore.getState().generateAndLogin()
     const savedPk = useNostrStore.getState().publicKey
 
-    useNostrStore.setState({ privateKeyHex: null, publicKey: null, nsec: null, npub: null })
+    useNostrStore.setState({ publicKey: null, nsec: null, npub: null })
     const ok = await useNostrStore.getState().loginFromNsec(nsec)
 
     expect(ok).toBe(true)
@@ -75,7 +73,7 @@ describe('logout', () => {
     const state = useNostrStore.getState()
 
     expect(state.publicKey).toBeNull()
-    expect(state.privateKeyHex).toBeNull()
+    expect(state.nsec).toBeNull()
     expect(state.messages).toEqual({})
   })
 

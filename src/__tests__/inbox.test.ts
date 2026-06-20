@@ -33,7 +33,6 @@ beforeEach(() => {
   useNostrStore.setState({
     publicKey: 'me'.padEnd(64, '0'),
     npub: null,
-    privateKeyHex: null,
     relays: RELAYS,
     channels: [{ id: 'chan1', name: 'general', creatorPubkey: 'p', relayUrl: RELAYS[0], unread: 0, mentions: 0 }],
     contacts: [],

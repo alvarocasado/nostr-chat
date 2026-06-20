@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LoginScreen } from '../components/Auth/LoginScreen'
 import { useNostrStore } from '../store/nostrStore'
 
 beforeEach(() => {
   useNostrStore.setState({
-    privateKeyHex: null, publicKey: null, nsec: null, npub: null, profile: null,
+    publicKey: null, nsec: null, npub: null, profile: null,
   })
 })
 
@@ -45,7 +45,7 @@ describe('LoginScreen', () => {
 
   it('logs in successfully with a valid nsec', async () => {
     const { nsec } = await useNostrStore.getState().generateAndLogin()
-    useNostrStore.setState({ privateKeyHex: null, publicKey: null, nsec: null, npub: null })
+    useNostrStore.setState({ publicKey: null, nsec: null, npub: null })
 
     render(<LoginScreen />)
     await userEvent.click(screen.getByText('Login with Private Key'))
@@ -53,7 +53,7 @@ describe('LoginScreen', () => {
     // Use fireEvent for long strings (userEvent can be slow)
     fireEvent.change(input, { target: { value: nsec } })
     await userEvent.click(screen.getByText('Import & Login'))
-    expect(useNostrStore.getState().publicKey).toBeTruthy()
+    await waitFor(() => expect(useNostrStore.getState().publicKey).toBeTruthy())
   })
 
   it('back button returns to the welcome screen', async () => {

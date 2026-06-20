@@ -13,7 +13,10 @@ import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
-import { getActivePubkey, openUserDb, evictOldMessages } from './lib/userDb'
+import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
+import { loadLocalKey, keyProtection } from './lib/keyStore'
+import { LocalSigner, setSigner } from './lib/signer'
+import { migratePlaintextKeyIfNeeded } from './lib/migrate'
 import { useGroupInviteListener, useGlobalInbox } from './hooks/useNostrSubscriptions'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
@@ -83,10 +86,21 @@ function App() {
   useEffect(() => {
     async function bootstrap() {
       const pubkey = getActivePubkey()
+      const method = getAuthMethod()
       if (pubkey) {
         openUserDb(pubkey)
-await evictOldMessages()
+        await evictOldMessages()
         await useNostrStore.persist.rehydrate()
+        await migratePlaintextKeyIfNeeded(pubkey)
+        if (method === 'local' || method === null) {
+          const protection = await keyProtection()
+          if (protection === 'device') {
+            const sk = await loadLocalKey()
+            if (sk) setSigner(new LocalSigner(sk))
+          }
+          // passphrase protection -> handled by UnlockScreen in Task 15
+        }
+        // nip07 -> handled in Task 17
       }
       setIsHydrating(false)
     }

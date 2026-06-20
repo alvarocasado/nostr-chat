@@ -11,7 +11,9 @@ import {
   setSetting,
   setActivePubkey,
   clearActivePubkey,
+  setAuthMethod,
 } from '../lib/userDb'
+import { saveLocalKey } from '../lib/keyStore'
 import { messageToRecord, recordToMessage } from '../lib/db'
 import {
   syncFromRelays,
@@ -105,7 +107,6 @@ export interface Message {
 
 interface NostrState {
   // Auth
-  privateKeyHex: string | null
   publicKey: string | null
   nsec: string | null
   npub: string | null
@@ -160,9 +161,6 @@ interface NostrState {
 
   // Relay sync: created_at of the last kind-30078 settings event we received or published
   syncedSettingsAt: number | null
-
-  // Derived helper
-  getPrivateKey: () => Uint8Array | null
 
   // Actions
   generateAndLogin: () => Promise<{ nsec: string; npub: string }>
@@ -233,10 +231,6 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes
 }
 
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
 // Rehydrate existing user data from Dexie before completing login.
 async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState>> {
   const db = getUserDb()
@@ -262,12 +256,13 @@ async function completeLogin(
 ): Promise<void> {
   setSigner(new LocalSigner(sk))
   openUserDb(pk)
+  await saveLocalKey(sk)
+  setAuthMethod('local')
   const existing = await loadExistingUserState(pk)
   if (existing.publicKey === pk) {
     set(existing)
   }
   set({
-    privateKeyHex: bytesToHex(sk),
     publicKey: pk,
     nsec: nsecStr,
     npub: encodePubkey(pk),
@@ -399,7 +394,6 @@ export const useNostrStore = create<NostrState>()(
       }
 
       return {
-        privateKeyHex: null,
         publicKey: null,
         nsec: null,
         npub: null,
@@ -429,11 +423,6 @@ export const useNostrStore = create<NostrState>()(
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
-
-        getPrivateKey: () => {
-          const hex = get().privateKeyHex
-          return hex ? hexToBytes(hex) : null
-        },
 
         generateAndLogin: async () => {
           const sk = generateSecretKey()
@@ -470,7 +459,6 @@ export const useNostrStore = create<NostrState>()(
 
         logout: () => {
           set({
-            privateKeyHex: null,
             publicKey: null,
             nsec: null,
             npub: null,
@@ -786,10 +774,6 @@ export const useNostrStore = create<NostrState>()(
       name: 'nostr-chat-storage',
       storage: createJSONStorage(() => dexieStorage),
       onRehydrateStorage: () => (state) => {
-        if (state?.privateKeyHex) {
-          setSigner(new LocalSigner(hexToBytes(state.privateKeyHex)))
-          if (!state.nsec) state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
-        }
         if (state?.notificationSettings) {
           const ns = state.notificationSettings
           if (ns.callEnabled === undefined) ns.callEnabled = true
@@ -797,7 +781,6 @@ export const useNostrStore = create<NostrState>()(
         }
       },
       partialize: (state) => ({
-        privateKeyHex: state.privateKeyHex,
         publicKey: state.publicKey,
         npub: state.npub,
         profile: state.profile,

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { generateSecretKey } from 'nostr-tools'
 import { openUserDb, closeUserDb } from '../lib/userDb'
 import { saveLocalKey, loadLocalKey, hasLocalKey, keyProtection, clearLocalKey } from '../lib/keyStore'
+import { migratePlaintextKeyIfNeeded } from '../lib/migrate'
 
 const PK = 'a'.repeat(64)
 
@@ -27,5 +28,45 @@ describe('keyStore device mode', () => {
     expect(await keyProtection()).toBe('none')
     expect(await loadLocalKey()).toBeNull()
     closeUserDb()
+  })
+})
+
+describe('migratePlaintextKeyIfNeeded', () => {
+  beforeEach(async () => {
+    openUserDb(PK)
+    await clearLocalKey()
+    // Remove any leftover Zustand blob from previous test runs
+    const { getUserDb } = await import('../lib/userDb')
+    const db = getUserDb()!
+    await db.settings.delete('nostr-chat-storage')
+  })
+
+  it('migrates a plaintext privateKeyHex into the key store', async () => {
+    const { getUserDb } = await import('../lib/userDb')
+    const db = getUserDb()!
+    const hex = 'b'.repeat(64)
+    await db.settings.put({ key: 'nostr-chat-storage', value: JSON.stringify({ state: { privateKeyHex: hex, publicKey: PK } }) })
+    await migratePlaintextKeyIfNeeded(PK)
+    expect(await hasLocalKey()).toBe(true)
+    const blob = JSON.parse((await db.settings.get('nostr-chat-storage'))!.value)
+    expect(blob.state.privateKeyHex).toBeUndefined()
+  })
+
+  it('is a no-op when the key is already in the key store', async () => {
+    const sk = generateSecretKey()
+    await saveLocalKey(sk)
+    const { getUserDb } = await import('../lib/userDb')
+    const db = getUserDb()!
+    const hex = 'c'.repeat(64)
+    await db.settings.put({ key: 'nostr-chat-storage', value: JSON.stringify({ state: { privateKeyHex: hex, publicKey: PK } }) })
+    await migratePlaintextKeyIfNeeded(PK)
+    // The key in store should remain the original sk, not the one from the blob
+    const loaded = await loadLocalKey()
+    expect(loaded && eq(loaded, sk)).toBe(true)
+  })
+
+  it('is a no-op when there is no stored blob', async () => {
+    await migratePlaintextKeyIfNeeded(PK)
+    expect(await hasLocalKey()).toBe(false)
   })
 })
