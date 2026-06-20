@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone, Shield } from 'lucide-react'
+import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, LogOut, Zap, X, Search, BellOff, Bell, User, Wifi, Key, Phone, Shield, Paperclip } from 'lucide-react'
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType, type Group } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
@@ -735,6 +735,7 @@ export function Sidebar() {
             { tab: 'relays',        label: 'Relays',        icon: <Wifi  size={16} />, badge: relaysResolved > 0 ? `${relaysConnected}/${relaysTotal}` : null },
             { tab: 'keys',          label: 'Keys',          icon: <Key   size={16} />, badge: null },
             { tab: 'calls',         label: 'Calls',         icon: <Phone size={16} />, badge: null },
+            { tab: 'files',         label: 'Files',         icon: <Paperclip size={16} />, badge: null },
             { tab: 'notifications', label: 'Notifications', icon: <Bell   size={16} />, badge: null },
             { tab: 'privacy',       label: 'Privacy',       icon: <Shield size={16} />, badge: null },
           ] as const

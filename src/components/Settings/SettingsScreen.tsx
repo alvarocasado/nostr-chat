@@ -7,6 +7,7 @@ import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
 import { CallsTab } from './CallsTab'
+import { FilesTab } from './FilesTab'
 import { PrivacyTab } from './PrivacyTab'
 import { keyProtection, loadLocalKey, setPassphrase } from '../../lib/keyStore'
 import { getAuthMethod } from '../../lib/userDb'
@@ -16,6 +17,7 @@ const TAB_LABELS: Record<string, string> = {
   relays: 'Relays',
   keys: 'Keys',
   calls: 'Calls',
+  files: 'Files',
   notifications: 'Notifications',
   privacy: 'Privacy',
 }
@@ -510,6 +512,9 @@ export function SettingsScreen() {
 
           {/* Calls */}
           {activeSettingsTab === 'calls' && <CallsTab />}
+
+          {/* Files */}
+          {activeSettingsTab === 'files' && <FilesTab />}
 
           {/* Notifications */}
           {activeSettingsTab === 'notifications' && <NotificationsTab />}

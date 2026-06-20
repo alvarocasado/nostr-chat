@@ -27,7 +27,7 @@ import {
 } from '../lib/nostrSync'
 
 export type ChatType = 'channel' | 'dm' | 'group'
-export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications' | 'privacy'
+export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications' | 'privacy'
 
 export interface NotificationSettings {
   dmEnabled: boolean

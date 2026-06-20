@@ -7,9 +7,10 @@ import { Avatar } from '../Chat/Avatar'
 import { QRCodeDisplay } from './QRCodeDisplay'
 import { NotificationsTab } from './NotificationsTab'
 import { CallsTab } from './CallsTab'
+import { FilesTab } from './FilesTab'
 import { useRelayHealth, type RelayStatus } from '../../hooks/useRelayHealth'
 
-type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications'
+type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications'
 
 interface SettingsPanelProps {
   onClose: () => void
@@ -92,7 +93,7 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
 
   const tabs = (
     <div className={`flex gap-1 flex-shrink-0 overflow-x-auto scrollbar-none flex-wrap ${inline ? 'px-3 pt-3 pb-1' : 'px-6 pt-4'}`}>
-      {(['profile', 'relays', 'keys', 'calls', 'notifications'] as const).map(t => (
+      {(['profile', 'relays', 'keys', 'calls', 'files', 'notifications'] as const).map(t => (
         <button
           key={t}
           onClick={() => setTab(t)}
@@ -306,6 +307,9 @@ export function SettingsPanel({ onClose, initialTab = 'profile', inline = false 
 
           {/* Calls tab */}
           {tab === 'calls' && <CallsTab />}
+
+          {/* Files tab */}
+          {tab === 'files' && <FilesTab />}
 
           {/* Notifications tab */}
           {tab === 'notifications' && <NotificationsTab />}
