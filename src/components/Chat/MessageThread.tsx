@@ -3,14 +3,14 @@ import { useRateLimit } from '../../hooks/useRateLimit'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, ChevronDown, Users } from 'lucide-react'
+import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, useGroupMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import { getSigner } from '../../lib/signer'
 import type { Event as NostrEvent } from 'nostr-tools'
-import { MessageItem } from './MessageItem'
+import { MessageList } from './MessageList'
 import { MediaGallery } from './MediaGallery'
 import { Avatar } from './Avatar'
 import {
@@ -473,161 +473,6 @@ function MessageInput({
       <p className="text-gray-600 text-xs mt-1.5 text-center hidden sm:block">
         Enter to send · Shift+Enter for new line
       </p>
-    </div>
-  )
-}
-
-function NewMessagesDivider({ divRef }: { divRef: React.RefObject<HTMLDivElement> }) {
-  return (
-    <div ref={divRef} className="flex items-center gap-3 py-2">
-      <div className="flex-1 border-t border-purple-500/40" />
-      <span className="text-xs text-purple-400 font-semibold px-2 flex-shrink-0">New messages</span>
-      <div className="flex-1 border-t border-purple-500/40" />
-    </div>
-  )
-}
-
-function DateSeparator({ date }: { date: Date }) {
-  const label = (() => {
-    const now = new Date()
-    const d = new Date(date)
-    if (d.toDateString() === now.toDateString()) return 'Today'
-    const yesterday = new Date(now)
-    yesterday.setDate(yesterday.getDate() - 1)
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
-  })()
-
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <div className="flex-1 border-t border-gray-800" />
-      <span className="text-xs text-gray-500 px-2">{label}</span>
-      <div className="flex-1 border-t border-gray-800" />
-    </div>
-  )
-}
-
-const NEAR_BOTTOM_PX = 120
-
-function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
-  messages: Message[]
-  myPubkey: string
-  profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
-  onReply: (msg: Message) => void
-  onRetry: (msgId: string) => void
-  dividerTimestamp?: number
-  targetMessageId?: string
-}) {
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const dividerRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const mountedRef = useRef(false)
-  const atBottomRef = useRef(true)
-  const { clearTargetMessage } = useNostrStore()
-  const [showScrollButton, setShowScrollButton] = useState(false)
-
-  const handleScroll = () => {
-    const el = containerRef.current
-    if (!el) return
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
-    atBottomRef.current = isAtBottom
-    setShowScrollButton(!isAtBottom)
-  }
-
-  const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true
-      if (dividerRef.current) {
-        dividerRef.current.scrollIntoView({ block: 'start' })
-        atBottomRef.current = false
-      } else {
-        bottomRef.current?.scrollIntoView()
-      }
-      return
-    }
-    if (atBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages.length])
-
-  useEffect(() => {
-    if (!targetMessageId) return
-    const tryScroll = () => {
-      const el = containerRef.current?.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
-      if (!el) return
-      el.scrollIntoView({ block: 'center' })
-      el.classList.add('message-highlight')
-      el.addEventListener('animationend', () => el.classList.remove('message-highlight'), { once: true })
-      clearTargetMessage()
-    }
-    requestAnimationFrame(tryScroll)
-  }, [targetMessageId, messages.length, clearTargetMessage])
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center px-6">
-          <Wifi size={40} className="text-gray-700 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">No messages yet. Say hello!</p>
-        </div>
-      </div>
-    )
-  }
-
-  const elements: React.ReactNode[] = []
-  let lastDate = ''
-  let lastPubkey = ''
-  let dividerInserted = false
-
-  for (const msg of messages) {
-    const msgDate = new Date(msg.createdAt * 1000).toDateString()
-    if (msgDate !== lastDate) {
-      elements.push(<DateSeparator key={`date-${msgDate}`} date={new Date(msg.createdAt * 1000)} />)
-      lastDate = msgDate
-      lastPubkey = ''
-    }
-    if (!dividerInserted && dividerTimestamp !== undefined && msg.createdAt > dividerTimestamp) {
-      elements.push(<NewMessagesDivider key="new-messages-divider" divRef={dividerRef} />)
-      dividerInserted = true
-    }
-    const showAvatar = msg.pubkey !== lastPubkey && msg.pubkey !== myPubkey
-    lastPubkey = msg.pubkey
-    elements.push(
-      <MessageItem
-        key={msg.id}
-        message={msg}
-        profile={profiles[msg.pubkey]}
-        isOwn={msg.pubkey === myPubkey}
-        showAvatar={showAvatar}
-        onReply={onReply}
-        onRetry={onRetry}
-      />
-    )
-  }
-
-  return (
-    <div className="flex-1 relative min-h-0">
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5"
-      >
-        {elements}
-        <div ref={bottomRef} />
-      </div>
-      {showScrollButton && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-4 right-4 w-10 h-10 bg-gray-800/90 hover:bg-gray-700 border border-gray-700/50 rounded-full flex items-center justify-center shadow-lg transition-colors"
-          aria-label="Scroll to bottom"
-        >
-          <ChevronDown size={20} className="text-white" />
-        </button>
-      )}
     </div>
   )
 }
