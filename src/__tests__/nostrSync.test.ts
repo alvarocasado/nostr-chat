@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fetchAppSettings, buildContactListEvent } from '../lib/nostrSync'
+import { fetchAppSettings, buildContactListEvent, buildRelayListEvent } from '../lib/nostrSync'
 import { fetchEvent } from '../lib/nostr'
-import { nip04 } from 'nostr-tools'
+import { nip04, generateSecretKey } from 'nostr-tools'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'
+import type { RelayModes } from '../lib/relayRouting'
 
 vi.mock('nostr-tools', async (importOriginal) => {
   const actual = await importOriginal<typeof import('nostr-tools')>()
@@ -107,5 +108,30 @@ describe('fetchAppSettings', () => {
     expect(result).not.toBeNull()
     expect(result!.settings.blockedPubkeys).toEqual(['aa', 'bb'])
     expect(result!.settings.dismissedRequests).toEqual({ cc: 1000 })
+  })
+})
+
+describe('buildRelayListEvent (kind 10002)', () => {
+  it('emits r tags with the correct markers', async () => {
+    installTestSigner(generateSecretKey())
+    const relays = ['wss://a', 'wss://b', 'wss://c']
+    const modes: RelayModes = {
+      'wss://a': { read: true, write: true },
+      'wss://b': { read: true, write: false },
+      'wss://c': { read: false, write: true },
+    }
+    const ev = await buildRelayListEvent(relays, modes)
+    expect(ev.kind).toBe(10002)
+    expect(ev.tags).toEqual([
+      ['r', 'wss://a'],
+      ['r', 'wss://b', 'read'],
+      ['r', 'wss://c', 'write'],
+    ])
+  })
+
+  it('treats an unmarked relay as read+write (bare r tag)', async () => {
+    installTestSigner(generateSecretKey())
+    const ev = await buildRelayListEvent(['wss://a'], {})
+    expect(ev.tags).toEqual([['r', 'wss://a']])
   })
 })

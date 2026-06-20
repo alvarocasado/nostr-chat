@@ -2,6 +2,7 @@ import type { Event } from 'nostr-tools'
 import { fetchEvent, fetchEvents, publishEvent } from './nostr'
 import type { Contact, NotificationSettings } from '../store/nostrStore'
 import { requireSigner } from './signer'
+import type { RelayModes } from './relayRouting'
 
 // ── Kind 3 – NIP-02 contact list ─────────────────────────────────────────────
 
@@ -135,6 +136,49 @@ export async function fetchGroupKeys(relays: string[]): Promise<Record<string, s
   return keys
 }
 
+// ── Kind 10002 – NIP-65 relay list ───────────────────────────────────────────
+
+export async function buildRelayListEvent(relays: string[], modes: RelayModes): Promise<Event> {
+  const tags: string[][] = []
+  for (const url of relays) {
+    const m = modes[url] ?? { read: true, write: true }
+    if (m.read && m.write) tags.push(['r', url])
+    else if (m.read) tags.push(['r', url, 'read'])
+    else if (m.write) tags.push(['r', url, 'write'])
+    // neither -> omitted
+  }
+  return requireSigner().signEvent({
+    kind: 10002,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: '',
+  })
+}
+
+export async function fetchRelayList(
+  relays: string[],
+  pubkey: string,
+): Promise<{ urls: string[]; modes: RelayModes; createdAt: number } | null> {
+  const event = await fetchEvent(relays, { kinds: [10002], authors: [pubkey], limit: 1 })
+  if (!event) return null
+  const urls: string[] = []
+  const modes: RelayModes = {}
+  for (const t of event.tags) {
+    if (t[0] !== 'r' || !t[1]) continue
+    const url = t[1]
+    const marker = t[2]
+    urls.push(url)
+    if (marker === 'read') modes[url] = { read: true, write: false }
+    else if (marker === 'write') modes[url] = { read: false, write: true }
+    else modes[url] = { read: true, write: true }
+  }
+  return { urls, modes, createdAt: event.created_at }
+}
+
+export async function publishRelayList(writeRelays: string[], relays: string[], modes: RelayModes): Promise<void> {
+  await publishEvent(writeRelays, await buildRelayListEvent(relays, modes))
+}
+
 // ── Debounce ──────────────────────────────────────────────────────────────────
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -151,20 +195,23 @@ export interface SyncResult {
   channels: { channelIds: string[]; createdAt: number } | null
   settings: { settings: SyncedSettings; createdAt: number } | null
   groupKeys: Record<string, string>
+  relayList: { urls: string[]; modes: RelayModes; createdAt: number } | null
 }
 
 export async function syncFromRelays(relays: string[]): Promise<SyncResult> {
   const pubkey = requireSigner().pubkey
-  const [contacts, channels, settings, groupKeysResult] = await Promise.allSettled([
+  const [contacts, channels, settings, groupKeysResult, relayList] = await Promise.allSettled([
     fetchContactList(relays, pubkey),
     fetchChannelBookmarks(relays, pubkey),
     fetchAppSettings(relays),
     fetchGroupKeys(relays),
+    fetchRelayList(relays, pubkey),
   ])
   return {
     contacts: contacts.status === 'fulfilled' ? contacts.value : null,
     channels: channels.status === 'fulfilled' ? channels.value : null,
     settings: settings.status === 'fulfilled' ? settings.value : null,
     groupKeys: groupKeysResult.status === 'fulfilled' ? groupKeysResult.value : {},
+    relayList: relayList.status === 'fulfilled' ? relayList.value : null,
   }
 }
