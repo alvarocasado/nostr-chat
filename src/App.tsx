@@ -16,10 +16,12 @@ import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
 import { loadLocalKey, keyProtection } from './lib/keyStore'
-import { LocalSigner, setSigner } from './lib/signer'
+import { LocalSigner, Nip07Signer, setSigner } from './lib/signer'
 import { encodeNsec } from './lib/nostr'
+import { hasNip07 } from './lib/nip07'
 import { migratePlaintextKeyIfNeeded } from './lib/migrate'
 import { useGroupInviteListener, useGlobalInbox } from './hooks/useNostrSubscriptions'
+import { ReconnectScreen } from './components/Auth/ReconnectScreen'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -63,6 +65,7 @@ function consumeContactParam(): string | null {
 function App() {
   const [isHydrating, setIsHydrating] = useState(true)
   const [locked, setLocked] = useState(false)
+  const [needsReconnect, setNeedsReconnect] = useState(false)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
 
   const {
@@ -84,6 +87,19 @@ function App() {
     const npub = consumeContactParam()
     if (npub) setContactLinkNpub(npub)
   }, [])
+
+  async function acquireNip07Signer() {
+    if (hasNip07()) {
+      try {
+        setSigner(await Nip07Signer.create())
+        setNeedsReconnect(false)
+      } catch {
+        setNeedsReconnect(true)
+      }
+    } else {
+      setNeedsReconnect(true)
+    }
+  }
 
   // Bootstrap: open the previously active user's DB and rehydrate Zustand.
   useEffect(() => {
@@ -108,11 +124,15 @@ function App() {
             setLocked(true)
           }
         }
-        // nip07 -> handled in Task 17
+        if (method === 'nip07') {
+          await acquireNip07Signer()
+        }
       }
       setIsHydrating(false)
     }
     bootstrap()
+  // acquireNip07Signer is stable (no deps) — safe to omit from dep array
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (isHydrating) {
@@ -125,6 +145,15 @@ function App() {
 
   if (locked) {
     return <UnlockScreen onUnlocked={() => setLocked(false)} onLogout={() => { useNostrStore.getState().logout(); setLocked(false) }} />
+  }
+
+  if (needsReconnect) {
+    return (
+      <ReconnectScreen
+        onRetry={() => acquireNip07Signer()}
+        onLogout={() => { useNostrStore.getState().logout(); setNeedsReconnect(false) }}
+      />
+    )
   }
 
   if (!publicKey) {
