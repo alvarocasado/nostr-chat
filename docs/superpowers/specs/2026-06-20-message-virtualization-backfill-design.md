@@ -194,6 +194,35 @@ jump-to-message (targetMessageId set by jumpToMessage)
 - Jump not found within `MAX_JUMP_PAGES` (or after exhaustion) → transient inline
   "Message not available" notice; the window is left where paging stopped.
 
+## Mobile / PWA considerations
+
+The app runs in desktop and mobile browsers and as an installed PWA, so this
+feature targets touch the same as desktop. Virtualization in fact benefits mobile
+most — windowed rendering cuts DOM size and memory on the weaker devices that jank
+first. Specific points:
+
+- **Container height.** `Virtuoso` needs a defined-height scroll container. The
+  existing thread layout is a flex column (`flex-1 flex flex-col ... overflow-hidden`);
+  `MessageList` renders `Virtuoso` with `style={{ flex: 1 }}` (or `height: '100%'`)
+  inside it. No fixed pixel heights — must flex correctly at any mobile viewport.
+- **iOS momentum scroll + prepend.** The `firstItemIndex` decrement pattern is
+  exactly the mechanism that keeps scroll position stable when older messages are
+  prepended mid-flick on iOS Safari; this is the right tool and avoids the
+  jump-to-top glitch a naive prepend would cause.
+- **`startReached` during fast flicks.** A hard flick to the top can fire
+  `startReached` repeatedly; the `loading` guard in `useChatHistory` coalesces
+  these into one in-flight `loadOlder`.
+- **Keyboard + safe area.** When the input is focused the on-screen keyboard
+  resizes the viewport; `followOutput` keeps the newest message pinned when the
+  user is at the bottom. The existing `env(safe-area-inset-bottom)` padding on
+  `MessageInput` is unchanged. The mobile back button and headers are untouched.
+- **Scroll-to-bottom button** sits inside the `MessageList` container so it
+  respects the mobile layout, same as today.
+- **Verification.** Scroll anchoring, momentum, and keyboard interplay are
+  layout- and device-dependent and cannot be asserted in jsdom; they are part of
+  the manual / e2e verification on a real mobile browser and the installed PWA
+  (see Testing).
+
 ## Testing
 
 - **`history.ts` (pure):** `olderFilterFor` produces the correct filter(s) per
