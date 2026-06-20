@@ -16,6 +16,7 @@ import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
 import { loadLocalKey, keyProtection } from './lib/keyStore'
 import { LocalSigner, setSigner } from './lib/signer'
+import { encodeNsec } from './lib/nostr'
 import { migratePlaintextKeyIfNeeded } from './lib/migrate'
 import { useGroupInviteListener, useGlobalInbox } from './hooks/useNostrSubscriptions'
 
@@ -96,7 +97,10 @@ function App() {
           const protection = await keyProtection()
           if (protection === 'device') {
             const sk = await loadLocalKey()
-            if (sk) setSigner(new LocalSigner(sk))
+            if (sk) {
+              setSigner(new LocalSigner(sk))
+              useNostrStore.setState({ nsec: encodeNsec(sk) })
+            }
           }
           // passphrase protection -> handled by UnlockScreen in Task 15
         }

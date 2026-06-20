@@ -50,6 +50,9 @@ describe('migratePlaintextKeyIfNeeded', () => {
     expect(await hasLocalKey()).toBe(true)
     const blob = JSON.parse((await db.settings.get('nostr-chat-storage'))!.value)
     expect(blob.state.privateKeyHex).toBeUndefined()
+    const expected = Uint8Array.from(hex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
+    const loaded = await loadLocalKey()
+    expect(loaded && eq(loaded, expected)).toBe(true)
   })
 
   it('is a no-op when the key is already in the key store', async () => {
