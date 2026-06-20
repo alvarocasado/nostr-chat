@@ -705,8 +705,8 @@ describe('useChatHistory (Dexie load-older)', () => {
     const { result } = renderHook(() => useChatHistory('chat', 'channel', PK))
     let added = 0
     await act(async () => { added = await result.current.loadOlder() })
-    expect(added).toBe(5) // 3,4,5,6,7
-    expect(useNostrStore.getState().messages['chat'][0].createdAt).toBe(3)
+    expect(added).toBe(7) // createdAt 1..7 are all older than 8 and fit within OLDER_PAGE
+    expect(useNostrStore.getState().messages['chat'][0].createdAt).toBe(1)
     expect(result.current.exhausted).toBe(false)
   })
 
