@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import type { Message } from '../store/nostrStore'
 
 // Passthrough mock: render all items so itemContent runs in jsdom.
 vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({ data, itemContent }: { data: Message[]; itemContent: (i: number, m: Message) => React.ReactNode }) => (
+  Virtuoso: ({ data, itemContent }: { data: Message[]; itemContent: (i: number, m: Message) => ReactNode }) => (
     <div data-testid="virtuoso">{data.map((m, i) => <div key={m.id}>{itemContent(i, m)}</div>)}</div>
   ),
 }))

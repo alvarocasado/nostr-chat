@@ -49,13 +49,17 @@ export function MessageList({ messages, myPubkey, profiles, onReply, onRetry, di
   const { clearTargetMessage } = useNostrStore()
 
   // Open at the first unread message when a divider exists, otherwise at the bottom.
-  const initialIndex = (() => {
-    if (dividerTimestamp !== undefined) {
-      const i = messages.findIndex(m => m.createdAt > dividerTimestamp)
-      if (i >= 0) return i
-    }
-    return messages.length - 1
-  })()
+  const initialIndexRef = useRef<number | null>(null)
+  if (initialIndexRef.current === null) {
+    initialIndexRef.current = (() => {
+      if (dividerTimestamp !== undefined) {
+        const i = messages.findIndex(m => m.createdAt > dividerTimestamp)
+        if (i >= 0) return i
+      }
+      return messages.length - 1
+    })()
+  }
+  const initialIndex = initialIndexRef.current
 
   // Jump to a target message already in the window.
   useEffect(() => {
