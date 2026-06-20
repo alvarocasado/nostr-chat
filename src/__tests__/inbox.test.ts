@@ -6,10 +6,11 @@ import { useNostrStore } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'
+import { publishEvent } from '../lib/nostr'
 
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
-  return { ...actual, fetchEvent: vi.fn().mockResolvedValue(null) }
+  return { ...actual, fetchEvent: vi.fn().mockResolvedValue(null), publishEvent: vi.fn().mockResolvedValue(undefined) }
 })
 vi.mock('../lib/notifications', () => ({ fireNotification: vi.fn() }))
 
@@ -29,6 +30,7 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+  vi.clearAllMocks()
   resetInboxDedup()
   useNostrStore.setState({
     publicKey: 'me'.padEnd(64, '0'),
@@ -137,7 +139,7 @@ describe('processDMEvent', () => {
     expect(contact?.pending).toBe(true)
   })
 
-  it('ignores group invite payloads', async () => {
+  it('handles group invite payloads: adds the group, sets the key, publishes a backup, and creates no chat message', async () => {
     const senderSk = generateSecretKey()
     const senderPk = getPublicKey(senderSk)
     const mySk = generateSecretKey()
@@ -157,8 +159,35 @@ describe('processDMEvent', () => {
     await processDMEvent(event, myPk, RELAYS, { live: true })
 
     const state = useNostrStore.getState()
+    expect(state.groups.find(grp => grp.id === 'g')?.name).toBe('n')
+    expect(state.groupKeys['g']).toBe('k')
     expect(state.messages[senderPk]).toBeUndefined()
     expect(state.contacts.find(c => c.pubkey === senderPk)).toBeUndefined()
+    expect(publishEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('handles a repeated group invite once: no duplicate group, single backup publish', async () => {
+    const senderSk = generateSecretKey()
+    const mySk = generateSecretKey()
+    const { signer } = installTestSigner(mySk)
+    const myPk = signer.pubkey
+    useNostrStore.setState({ publicKey: myPk })
+
+    const payload = JSON.stringify({ type: 'group_invite', groupId: 'g', groupKeyHex: 'k', groupName: 'n' })
+    const encrypted = await nip04.encrypt(senderSk, myPk, payload)
+    const event = finalizeEvent({
+      kind: 4,
+      created_at: 1000,
+      tags: [['p', myPk]],
+      content: encrypted,
+    }, senderSk)
+
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+    await processDMEvent(event, myPk, RELAYS, { live: false })
+
+    const state = useNostrStore.getState()
+    expect(state.groups.filter(grp => grp.id === 'g')).toHaveLength(1)
+    expect(publishEvent).toHaveBeenCalledTimes(1)
   })
 })
 
