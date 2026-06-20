@@ -24,3 +24,6 @@ Some extensions implement newer encryption (NIP-44) but not the NIP-04 this app 
 #### Full Sign-out Cleanup
 Logging out now deletes the encrypted key, the device wrap key, and the stored sign-in method (in addition to clearing the in-memory key and active account), so no key material is left at rest for the next person to use the device. The deletion completes before the database is closed.
 
+#### Deduplicated Direct-Message Subscriptions
+Incoming direct messages were being fetched and decrypted twice. Two separate listeners — the global inbox and a dedicated group-invite watcher — each opened the same relay subscription for kind-4 DMs addressed to you and independently ran the NIP-04 decryption on every one. Group-invite handling now lives in the shared message processor, so a single subscription decrypts each DM once and routes it to either the chat flow or the invite-join flow. This halves the relay load and per-message decryption work for DMs, and removes a redundant subscription. Joining a group from an invite remains idempotent — replays from overlapping subscriptions or relay backfill can't add a group twice or re-publish its key backup.
+
