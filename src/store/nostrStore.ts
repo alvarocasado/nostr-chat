@@ -311,7 +311,7 @@ function applySyncResult(
       set({
         ...(s.notificationSettings !== undefined ? { notificationSettings: s.notificationSettings } : {}),
         ...(s.mutedChats !== undefined ? { mutedChats: s.mutedChats } : {}),
-        ...(s.relays !== undefined ? { relays: s.relays } : {}),
+        ...(s.relays !== undefined && !result.relayList ? { relays: s.relays } : {}),
         ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
         ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
         syncedSettingsAt: result.settings.createdAt,
