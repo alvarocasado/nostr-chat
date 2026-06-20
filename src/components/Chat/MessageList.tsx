@@ -4,6 +4,8 @@ import { Wifi, ChevronDown } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { MessageItem } from './MessageItem'
 import { decorateRow } from '../../lib/messageRows'
+import { useChatHistory } from '../../hooks/useChatHistory'
+import { START_INDEX } from '../../lib/pagination'
 
 function NewMessagesDivider() {
   return (
@@ -35,7 +37,9 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-export function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
+export function MessageList({ chatId, chatType, messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
+  chatId: string
+  chatType: 'dm' | 'channel' | 'group'
   messages: Message[]
   myPubkey: string
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
@@ -47,6 +51,17 @@ export function MessageList({ messages, myPubkey, profiles, onReply, onRetry, di
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const [atBottom, setAtBottom] = useState(true)
   const { clearTargetMessage } = useNostrStore()
+
+  const { loadOlder } = useChatHistory(chatId, chatType, myPubkey)
+  const [firstItemIndex, setFirstItemIndex] = useState(START_INDEX)
+
+  const handleStartReached = async () => {
+    const added = await loadOlder()
+    if (added > 0) setFirstItemIndex(i => i - added)
+  }
+
+  // Reset the prepend anchor when switching chats.
+  useEffect(() => { setFirstItemIndex(START_INDEX) }, [chatId])
 
   // Open at the first unread message when a divider exists, otherwise at the bottom.
   const initialIndexRef = useRef<number | null>(null)
@@ -99,6 +114,8 @@ export function MessageList({ messages, myPubkey, profiles, onReply, onRetry, di
         followOutput={(isAtBottom) => (isAtBottom ? 'smooth' : false)}
         atBottomStateChange={setAtBottom}
         increaseViewportBy={600}
+        firstItemIndex={firstItemIndex}
+        startReached={() => { void handleStartReached() }}
         itemContent={(index, msg) => {
           const prev = messages[index - 1]
           const { showDateSeparator, showDivider, showAvatar } = decorateRow(msg, prev, dividerTimestamp, myPubkey)

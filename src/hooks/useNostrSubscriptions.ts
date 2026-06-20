@@ -21,6 +21,7 @@ import {
 import { sendChunkedFile as sendChunkedFileUtil } from '../lib/fileTransfer'
 import { useStableArray } from './useStableArray'
 import { getSigner } from '../lib/signer'
+import { INITIAL_PAGE } from '../lib/pagination'
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
@@ -56,7 +57,7 @@ export function useChannelMessages(channelId: string | null) {
     let live = false
     const sub = subscribeEvents(
       stableRelays,
-      { kinds: [42], '#e': [channelId], limit: 200 },
+      { kinds: [42], '#e': [channelId], limit: INITIAL_PAGE },
       (event) => { void processChannelEvent(event, channelId, stableRelays, { live }) },
       () => { live = true },
     )
@@ -77,7 +78,7 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
     let live1 = false
     const sub1 = subscribeEvents(
       stableRelays,
-      { kinds: [4], authors: [myPubkey], '#p': [theirPubkey], limit: 200 },
+      { kinds: [4], authors: [myPubkey], '#p': [theirPubkey], limit: INITIAL_PAGE },
       (event) => { void processDMEvent(event, myPubkey, stableRelays, { live: live1 }) },
       () => { live1 = true },
     )
@@ -85,7 +86,7 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
     let live2 = false
     const sub2 = subscribeEvents(
       stableRelays,
-      { kinds: [4], authors: [theirPubkey], '#p': [myPubkey], limit: 200 },
+      { kinds: [4], authors: [theirPubkey], '#p': [myPubkey], limit: INITIAL_PAGE },
       (event) => { void processDMEvent(event, myPubkey, stableRelays, { live: live2 }) },
       () => { live2 = true },
     )
@@ -138,7 +139,7 @@ export function useGroupMessages(groupId: string | null) {
     let live = false
     const sub = subscribeEvents(
       stableRelays,
-      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': [groupId], limit: 200 },
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': [groupId], limit: INITIAL_PAGE },
       (event) => { void processGroupEvent(event, groupId, groupKey, stableRelays, { live }) },
       () => { live = true },
     )
