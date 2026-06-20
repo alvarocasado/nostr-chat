@@ -5,6 +5,7 @@ import {
 import { subscribeEvents, publishEvent } from '../lib/nostr'
 import { getSetting } from '../lib/userDb'
 import { useNostrStore } from '../store/nostrStore'
+import { useReadRelays } from '../hooks/useRelays'
 import { getSigner } from '../lib/signer'
 import { fireCallNotification } from '../lib/notifications'
 import {
@@ -50,6 +51,7 @@ export function useCallContext() {
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const { publicKey, relays } = useNostrStore()
+  const readR = useReadRelays()
 
   const [callState, setCallState]       = useState<CallState>('idle')
   const [peer, setPeer]                 = useState<CallPeer | null>(null)
@@ -384,7 +386,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!publicKey || !getSigner()) return
     const sub = subscribeEvents(
-      relays,
+      readR,
       { kinds: [CALL_SIGNAL_KIND], '#p': [publicKey] } as Parameters<typeof subscribeEvents>[1],
       async (event) => {
         const signal = await decryptCallSignal(event.pubkey, event.content)
@@ -392,7 +394,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       },
     )
     return () => sub.close()
-  }, [publicKey, relays, handleSignal])
+  }, [publicKey, readR, handleSignal])
 
   // Ringtone + browser banner while the incoming call modal is showing
   const peerPubkey = peer?.pubkey

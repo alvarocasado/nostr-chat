@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { subscribeEvents, publishEvent, buildTypingEvent, TYPING_INDICATOR_KIND } from '../lib/nostr'
 import { useNostrStore } from '../store/nostrStore'
-import { useStableArray } from './useStableArray'
+import { useReadRelays } from './useRelays'
 import { getSigner } from '../lib/signer'
 
 const THROTTLE_MS   = 3_000  // send at most one typing event per 3 s
@@ -19,8 +19,8 @@ export function useTypingIndicator(
   chatId: string,          // recipientPubkey (DM) or channelId (channel)
   theirPubkey?: string,    // only used for DM subscription filter
 ) {
-  const { publicKey, relays } = useNostrStore()
-  const stableRelays = useStableArray(relays)
+  const publicKey = useNostrStore(s => s.publicKey)
+  const readR = useReadRelays()
   const [typists, setTypists] = useState<string[]>([])
   const timers    = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const lastSent  = useRef(0)
@@ -35,7 +35,7 @@ export function useTypingIndicator(
         : { kinds: [TYPING_INDICATOR_KIND], '#e': [chatId] }
 
     const timersMap = timers.current
-    const sub = subscribeEvents(stableRelays, filter as Parameters<typeof subscribeEvents>[1], (event) => {
+    const sub = subscribeEvents(readR, filter as Parameters<typeof subscribeEvents>[1], (event) => {
       if (event.pubkey === publicKey) return  // ignore own echoes
 
       const pk = event.pubkey
@@ -57,7 +57,7 @@ export function useTypingIndicator(
       timersMap.clear()
       setTypists([])
     }
-  }, [chatType, chatId, theirPubkey, publicKey, stableRelays])
+  }, [chatType, chatId, theirPubkey, publicKey, readR])
 
   // ── send side (throttled) ────────────────────────────────────────────────
   const notifyTyping = useCallback(() => {
@@ -67,9 +67,9 @@ export function useTypingIndicator(
     if (!getSigner() || !publicKey) return
     void (async () => {
       const event = await buildTypingEvent(chatType, chatId)
-      void publishEvent(stableRelays, event)
+      void publishEvent(useNostrStore.getState().writeRelays(), event)
     })()
-  }, [chatType, chatId, publicKey, stableRelays])
+  }, [chatType, chatId, publicKey])
 
   return { typists, notifyTyping }
 }

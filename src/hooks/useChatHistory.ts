@@ -41,7 +41,7 @@ export function useChatHistory(
       }
 
       // No local history older than the window: backfill from relays.
-      const relays = useNostrStore.getState().relays
+      const relays = useNostrStore.getState().readRelays()
       const filters = olderFilterFor(chatType, chatId, myPubkey, oldest, OLDER_PAGE)
       const events = (await Promise.all(filters.map(f => fetchEvents(relays, f)))).flat()
       if (events.length === 0) {

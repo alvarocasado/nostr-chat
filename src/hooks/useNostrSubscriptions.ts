@@ -19,14 +19,15 @@ import {
   extractRootChatId,
 } from '../lib/inbox'
 import { useStableArray } from './useStableArray'
+import { useReadRelays } from './useRelays'
 import { getSigner } from '../lib/signer'
 import { INITIAL_PAGE } from '../lib/pagination'
 
 // Hook to load profiles for a list of pubkeys
 export function useProfileLoader(pubkeys: string[]) {
-  const { relays, setProfile } = useNostrStore()
+  const { setProfile } = useNostrStore()
   const stablePubkeys = useStableArray(pubkeys)
-  const stableRelays = useStableArray(relays)
+  const stableRelays = useReadRelays()
 
   useEffect(() => {
     if (!stablePubkeys.length) return
@@ -47,8 +48,7 @@ export function useProfileLoader(pubkeys: string[]) {
 
 // Hook to subscribe to public channel messages
 export function useChannelMessages(channelId: string | null) {
-  const { relays } = useNostrStore()
-  const stableRelays = useStableArray(relays)
+  const stableRelays = useReadRelays()
 
   useEffect(() => {
     if (!channelId) return
@@ -66,8 +66,7 @@ export function useChannelMessages(channelId: string | null) {
 
 // Hook to subscribe to DMs (two separate subscriptions: sent + received)
 export function useDMMessages(myPubkey: string | null, theirPubkey: string | null) {
-  const { relays } = useNostrStore()
-  const stableRelays = useStableArray(relays)
+  const stableRelays = useReadRelays()
 
   useEffect(() => {
     if (!myPubkey || !theirPubkey) return
@@ -98,8 +97,8 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
 
 // Hook to discover public channels
 export function useChannelDiscovery() {
-  const { relays, addChannel } = useNostrStore()
-  const stableRelays = useStableArray(relays)
+  const { addChannel } = useNostrStore()
+  const stableRelays = useReadRelays()
 
   useEffect(() => {
     const sub = subscribeEvents(
@@ -128,9 +127,9 @@ export function useChannelDiscovery() {
 
 // Hook to subscribe to encrypted group messages
 export function useGroupMessages(groupId: string | null) {
-  const { relays, groupKeys } = useNostrStore()
+  const { groupKeys } = useNostrStore()
   const groupKey = groupId ? groupKeys[groupId] : null
-  const stableRelays = useStableArray(relays)
+  const stableRelays = useReadRelays()
 
   useEffect(() => {
     if (!groupId || !groupKey) return
@@ -150,8 +149,8 @@ export function useGroupMessages(groupId: string | null) {
 // working for chats that are not currently open. Per-chat hooks above provide
 // history backfill; the shared processors deduplicate side effects between them.
 export function useGlobalInbox() {
-  const { publicKey, relays, joinedChannelIds, groups } = useNostrStore()
-  const stableRelays = useStableArray(relays)
+  const { publicKey, joinedChannelIds, groups } = useNostrStore()
+  const stableRelays = useReadRelays()
   const stableJoined = useStableArray(joinedChannelIds)
   const groupIds = useStableArray(groups.map(g => g.id))
 
