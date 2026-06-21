@@ -4,6 +4,7 @@ import { pageOlderFromDexie, olderFilterFor } from '../lib/history'
 import { OLDER_PAGE } from '../lib/pagination'
 import { fetchEvents } from '../lib/nostr'
 import { processChannelEvent, processDMEvent, processGroupEvent } from '../lib/inbox'
+import { getPeerRelays, combineRelays } from '../lib/peerRelays'
 
 export function useChatHistory(
   chatId: string,
@@ -43,7 +44,19 @@ export function useChatHistory(
       // No local history older than the window: backfill from relays.
       const relays = useNostrStore.getState().readRelays()
       const filters = olderFilterFor(chatType, chatId, myPubkey, oldest, OLDER_PAGE)
-      const events = (await Promise.all(filters.map(f => fetchEvents(relays, f)))).flat()
+      let events
+      if (chatType === 'dm') {
+        // olderFilterFor('dm', ...) returns [sent (authors:[me]), received (authors:[peer])]
+        const [sentFilter, receivedFilter] = filters
+        const peer = await getPeerRelays(chatId, relays)
+        const receivedRelays = combineRelays(relays, peer.write)
+        events = (await Promise.all([
+          fetchEvents(relays, sentFilter),
+          fetchEvents(receivedRelays, receivedFilter),
+        ])).flat()
+      } else {
+        events = (await Promise.all(filters.map(f => fetchEvents(relays, f)))).flat()
+      }
       if (events.length === 0) {
         exhaustedRef.current = true
         setExhausted(true)

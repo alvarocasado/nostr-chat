@@ -3,6 +3,7 @@ import { decryptDM, fetchEvent, parseProfile, buildGroupKeyBackupEvent, publishE
 import { decryptWithGroupKey } from './groupCrypto'
 import { useNostrStore, type Message, type Group } from '../store/nostrStore'
 import { fireNotification } from './notifications'
+import { getPeerRelays, combineRelays } from './peerRelays'
 import {
   parseTransferPayload,
   handleFileStart,
@@ -76,7 +77,8 @@ export function ensureProfile(pubkey: string, relays: string[]): void {
   const { profiles, setProfile } = useNostrStore.getState()
   if (profiles[pubkey] || fetchingProfiles.has(pubkey)) return
   fetchingProfiles.add(pubkey)
-  fetchEvent(relays, { kinds: [0], authors: [pubkey] })
+  getPeerRelays(pubkey, relays)
+    .then(pr => fetchEvent(combineRelays(relays, pr.write), { kinds: [0], authors: [pubkey] }))
     .then(profileEvent => { if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent)) })
     .catch(() => {})
     .finally(() => fetchingProfiles.delete(pubkey))

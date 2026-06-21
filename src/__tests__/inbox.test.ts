@@ -1,18 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
-import { extractRootChatId, processChannelEvent, processDMEvent, resetInboxDedup } from '../lib/inbox'
+import { extractRootChatId, processChannelEvent, processDMEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
 import { useNostrStore } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'
-import { publishEvent } from '../lib/nostr'
+import { fetchEvent, publishEvent } from '../lib/nostr'
 
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
   return { ...actual, fetchEvent: vi.fn().mockResolvedValue(null), publishEvent: vi.fn().mockResolvedValue(undefined) }
 })
 vi.mock('../lib/notifications', () => ({ fireNotification: vi.fn() }))
+vi.mock('../lib/peerRelays', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/peerRelays')>()
+  return { ...actual, getPeerRelays: vi.fn().mockResolvedValue({ read: [], write: ['wss://authorwrite'] }) }
+})
 
 const RELAYS = ['wss://relay.test']
 
@@ -254,5 +258,18 @@ describe('processDMEvent — request gate', () => {
     useNostrStore.setState({ contacts: [{ pubkey: senderPk, pending: false }], blockedPubkeys: [], dismissedRequests: {} })
     await processDMEvent(event, myPk, RELAYS, { live: true })
     expect(fireNotification).toHaveBeenCalled()
+  })
+})
+
+describe('ensureProfile routing', () => {
+  it('ensureProfile fetches the author profile from author write relays + given relays', async () => {
+    useNostrStore.setState({ profiles: {} })
+    ensureProfile('authorPk', ['wss://myread'])
+    // ensureProfile is fire-and-forget through getPeerRelays; allow the microtasks to settle
+    await new Promise(r => setTimeout(r, 0))
+    const call = (fetchEvent as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)!
+    const relaysArg = call[0] as string[]
+    expect(relaysArg).toContain('wss://myread')
+    expect(relaysArg).toContain('wss://authorwrite')
   })
 })
