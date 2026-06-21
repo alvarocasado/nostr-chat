@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { sha256Hex, buildBlossomAuth, uploadBlob, downloadBlob } from '../lib/blossom'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'

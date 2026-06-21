@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 
-const subscribeEvents = vi.fn(() => ({ close: vi.fn() }))
+const subscribeEvents = vi.fn((..._a: unknown[]) => ({ close: vi.fn() }))
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
   return { ...actual, subscribeEvents: (...a: unknown[]) => subscribeEvents(...a), publishEvent: vi.fn() }
