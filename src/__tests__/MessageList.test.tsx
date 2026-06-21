@@ -73,6 +73,15 @@ describe('MessageList', () => {
     expect(lastVirtuosoProps.firstItemIndex).toBe(START_INDEX - 2)
   })
 
+  it('never passes a negative initialTopMostItemIndex when a chat opens empty then populates', () => {
+    // Regression: an empty first render must not cache initialTopMostItemIndex = -1,
+    // which corrupts react-virtuoso's index math (blank list) once messages arrive.
+    const { rerender } = render(<MessageList chatId="c" chatType="dm" messages={[]} myPubkey={ME} profiles={{}} onReply={noop} onRetry={noop} />)
+    const messages = [msg({ id: 'a', createdAt: 1 }), msg({ id: 'b', createdAt: 2 })]
+    rerender(<MessageList chatId="c" chatType="dm" messages={messages} myPubkey={ME} profiles={{}} onReply={noop} onRetry={noop} />)
+    expect(lastVirtuosoProps.initialTopMostItemIndex as number).toBeGreaterThanOrEqual(0)
+  })
+
   it('shows a not-found notice when the jump target never loads', async () => {
     exhausted = false
     loadOlder.mockResolvedValue(0) // paging yields nothing new

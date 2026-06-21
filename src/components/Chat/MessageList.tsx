@@ -67,8 +67,10 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
   useEffect(() => { setFirstItemIndex(START_INDEX) }, [chatId])
 
   // Open at the first unread message when a divider exists, otherwise at the bottom.
+  // Compute only once messages exist: on an empty first render `messages.length - 1`
+  // is -1, which corrupts Virtuoso's index math when the list later populates.
   const initialIndexRef = useRef<number | null>(null)
-  if (initialIndexRef.current === null) {
+  if (initialIndexRef.current === null && messages.length > 0) {
     initialIndexRef.current = (() => {
       if (dividerTimestamp !== undefined) {
         const i = messages.findIndex(m => m.createdAt > dividerTimestamp)
@@ -77,7 +79,7 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
       return messages.length - 1
     })()
   }
-  const initialIndex = initialIndexRef.current
+  const initialIndex = initialIndexRef.current ?? 0
 
   // Jump to a target message, paging older history until it is found or the page budget runs out.
   useEffect(() => {
