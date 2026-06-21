@@ -20,7 +20,8 @@ export async function generateFileKey(): Promise<{ key: CryptoKey; iv: Uint8Arra
 }
 
 export function encryptBlob(bytes: ArrayBuffer, key: CryptoKey, iv: Uint8Array): Promise<ArrayBuffer> {
-  return crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes)
+  // ponytail: wrap in a TypedArray view — Node 20's jsdom WebCrypto rejects a bare ArrayBuffer.
+  return crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new Uint8Array(bytes))
 }
 
 export async function exportKeyB64(key: CryptoKey): Promise<string> {
