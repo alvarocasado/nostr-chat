@@ -8,6 +8,7 @@ import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone,
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
 import { useChannelMessages, useDMMessages, useGroupMessages } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
+import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import { getSigner } from '../../lib/signer'
 import type { Event as NostrEvent } from 'nostr-tools'
@@ -590,7 +591,9 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     pendingEventsRef.current.set(event.id, event)
 
     try {
-      await publishEvent(writeR, event)
+      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+      const target = combineRelays(writeR, peerRead)
+      await publishEvent(target, event)
       updateMessageStatus(theirPubkey, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -603,7 +606,9 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     if (!event) return
     updateMessageStatus(theirPubkey, msgId, 'sending')
     try {
-      await publishEvent(writeR, event)
+      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+      const target = combineRelays(writeR, peerRead)
+      await publishEvent(target, event)
       updateMessageStatus(theirPubkey, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {

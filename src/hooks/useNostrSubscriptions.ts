@@ -20,6 +20,8 @@ import {
 } from '../lib/inbox'
 import { useStableArray } from './useStableArray'
 import { useReadRelays } from './useRelays'
+import { usePeerRelays } from './usePeerRelays'
+import { combineRelays } from '../lib/peerRelays'
 import { getSigner } from '../lib/signer'
 import { INITIAL_PAGE } from '../lib/pagination'
 
@@ -67,12 +69,14 @@ export function useChannelMessages(channelId: string | null) {
 // Hook to subscribe to DMs (two separate subscriptions: sent + received)
 export function useDMMessages(myPubkey: string | null, theirPubkey: string | null) {
   const stableRelays = useReadRelays()
+  const peer = usePeerRelays(theirPubkey)
+  const receivedRelays = useStableArray(combineRelays(stableRelays, peer.write))
 
   useEffect(() => {
     if (!myPubkey || !theirPubkey) return
     if (!getSigner()) return
 
-    // Messages I sent to them
+    // Messages I sent to them — my relays
     let live1 = false
     const sub1 = subscribeEvents(
       stableRelays,
@@ -80,19 +84,19 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
       (event) => { void processDMEvent(event, myPubkey, stableRelays, { live: live1 }) },
       () => { live1 = true },
     )
-    // Messages they sent to me
+    // Messages they sent to me — my read relays + their write relays (outbox)
     let live2 = false
     const sub2 = subscribeEvents(
-      stableRelays,
+      receivedRelays,
       { kinds: [4], authors: [theirPubkey], '#p': [myPubkey], limit: INITIAL_PAGE },
-      (event) => { void processDMEvent(event, myPubkey, stableRelays, { live: live2 }) },
+      (event) => { void processDMEvent(event, myPubkey, receivedRelays, { live: live2 }) },
       () => { live2 = true },
     )
     return () => {
       sub1.close()
       sub2.close()
     }
-  }, [myPubkey, theirPubkey, stableRelays])
+  }, [myPubkey, theirPubkey, stableRelays, receivedRelays])
 }
 
 // Hook to discover public channels
