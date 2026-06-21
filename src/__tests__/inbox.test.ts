@@ -264,12 +264,15 @@ describe('processDMEvent — request gate', () => {
 describe('ensureProfile routing', () => {
   it('ensureProfile fetches the author profile from author write relays + given relays', async () => {
     useNostrStore.setState({ profiles: {} })
+    const fe = fetchEvent as unknown as { mock: { calls: unknown[][] } }
     ensureProfile('authorPk', ['wss://myread'])
-    // ensureProfile is fire-and-forget through getPeerRelays; allow the microtasks to settle
-    await new Promise(r => setTimeout(r, 0))
-    const call = (fetchEvent as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(-1)!
-    const relaysArg = call[0] as string[]
-    expect(relaysArg).toContain('wss://myread')
-    expect(relaysArg).toContain('wss://authorwrite')
+    // ensureProfile is fire-and-forget through getPeerRelays; poll until the kind-0
+    // fetch is issued (deterministic — a fixed setTimeout tick can race the chain).
+    await vi.waitFor(() => {
+      expect(fe.mock.calls.some(c => {
+        const r = c[0] as string[]
+        return r.includes('wss://myread') && r.includes('wss://authorwrite')
+      })).toBe(true)
+    })
   })
 })

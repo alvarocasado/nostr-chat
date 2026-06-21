@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useNostrStore, applySyncResult } from '../store/nostrStore'
 import { getSigner } from '../lib/signer'
 import { openUserDb, closeUserDb, getUserDb } from '../lib/userDb'
@@ -503,10 +503,12 @@ describe('setActiveChat initial load cap', () => {
 
   it('loads only the most recent INITIAL_PAGE messages, ascending', async () => {
     useNostrStore.getState().setActiveChat('chatX', 'channel')
-    // setActiveChat loads asynchronously; wait a microtask-tick for the Dexie promise
-    await new Promise(r => setTimeout(r, 0))
-    const loaded = useNostrStore.getState().messages['chatX'] || []
-    expect(loaded).toHaveLength(50)
+    // setActiveChat loads asynchronously from Dexie; poll until the load settles
+    // (deterministic — a fixed setTimeout tick can fire before the Dexie promise).
+    await vi.waitFor(() => {
+      expect(useNostrStore.getState().messages['chatX'] ?? []).toHaveLength(50)
+    })
+    const loaded = useNostrStore.getState().messages['chatX']!
     expect(loaded[0].createdAt).toBe(71)
     expect(loaded[loaded.length - 1].createdAt).toBe(120)
   })
