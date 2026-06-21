@@ -11,7 +11,7 @@ import {
   clearActivePubkey,
   evictOldMessages,
 } from '../lib/userDb'
-import { messageToRecord, recordToMessage } from '../lib/db'
+import { messageToRecord, recordToMessage, type RelayListRecord } from '../lib/db'
 import type { Message } from '../store/nostrStore'
 
 // 64-char hex pubkey for tests
@@ -197,5 +197,26 @@ describe('messageToRecord / recordToMessage', () => {
     expect(restored.replyTo).toEqual(full.replyTo)
     expect(restored.status).toBe('sent')
     expect(restored.tags).toEqual([['e', 'ref']])
+  })
+})
+
+// ─── relayLists table ───────────────────────────────────────────────────────────
+
+describe('userDb – relayLists table', () => {
+  beforeEach(() => { openUserDb(TEST_PUBKEY) })
+  afterEach(async () => {
+    const db = getUserDb()
+    if (db) await db.relayLists.clear()
+    closeUserDb()
+  })
+
+  it('stores and retrieves a relay list by pubkey', async () => {
+    const db = getUserDb()!
+    const rec: RelayListRecord = { pubkey: 'p1', read: ['wss://r'], write: ['wss://w'], fetchedAt: 123 }
+    await db.relayLists.put(rec)
+    const found = await db.relayLists.get('p1')
+    expect(found?.read).toEqual(['wss://r'])
+    expect(found?.write).toEqual(['wss://w'])
+    expect(found?.fetchedAt).toBe(123)
   })
 })
