@@ -29,4 +29,11 @@ describe('usePeerRelays', () => {
     expect(result.current).toEqual({ read: [], write: [] })
     expect(getPeerRelays).not.toHaveBeenCalled()
   })
+
+  it('returns empty on fetch error', async () => {
+    getPeerRelays.mockRejectedValue(new Error('fetch failed'))
+    const { result } = renderHook(() => usePeerRelays('peerX'))
+    expect(result.current).toEqual({ read: [], write: [] })
+    await waitFor(() => expect(result.current).toEqual({ read: [], write: [] }))
+  })
 })
