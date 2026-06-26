@@ -149,7 +149,8 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
         firstItemIndex={firstItemIndex}
         startReached={() => { void handleStartReached() }}
         itemContent={(index, msg) => {
-          const prev = messages[index - 1]
+          // Virtuoso passes the absolute index (offset by firstItemIndex); map back to the data array.
+          const prev = messages[index - firstItemIndex - 1]
           const { showDateSeparator, showDivider, showAvatar } = decorateRow(msg, prev, dividerTimestamp, myPubkey)
           return (
             <div className="px-3">
