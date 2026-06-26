@@ -3,7 +3,7 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { Wifi, ChevronDown } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { MessageItem } from './MessageItem'
-import { decorateRow } from '../../lib/messageRows'
+import { decorateRow, unreadAnchorId } from '../../lib/messageRows'
 import { useChatHistory } from '../../hooks/useChatHistory'
 import { START_INDEX, MAX_JUMP_PAGES } from '../../lib/pagination'
 import { indexOfMessage } from '../../lib/history'
@@ -81,6 +81,8 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
   }
   const initialIndex = initialIndexRef.current ?? 0
 
+  const dividerAnchorId = unreadAnchorId(messages, dividerTimestamp, myPubkey)
+
   // Jump to a target message, paging older history until it is found or the page budget runs out.
   useEffect(() => {
     if (!targetMessageId) return
@@ -151,7 +153,8 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
         itemContent={(index, msg) => {
           // Virtuoso passes the absolute index (offset by firstItemIndex); map back to the data array.
           const prev = messages[index - firstItemIndex - 1]
-          const { showDateSeparator, showDivider, showAvatar } = decorateRow(msg, prev, dividerTimestamp, myPubkey)
+          const { showDateSeparator, showAvatar } = decorateRow(msg, prev, myPubkey)
+          const showDivider = msg.id === dividerAnchorId
           return (
             <div className="px-3">
               {showDateSeparator && <DateSeparator date={new Date(msg.createdAt * 1000)} />}
