@@ -1,17 +1,18 @@
-import { finalizeEvent, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
 import { fetchEvent, fetchEvents, publishEvent } from './nostr'
 import type { Contact, NotificationSettings } from '../store/nostrStore'
+import { requireSigner } from './signer'
+import type { RelayModes } from './relayRouting'
 
 // ── Kind 3 – NIP-02 contact list ─────────────────────────────────────────────
 
-export function buildContactListEvent(sk: Uint8Array, contacts: Contact[]): Event {
-  return finalizeEvent({
+export async function buildContactListEvent(contacts: Contact[]): Promise<Event> {
+  return requireSigner().signEvent({
     kind: 3,
     created_at: Math.floor(Date.now() / 1000),
     tags: contacts.filter(c => !c.pending).map(c => ['p', c.pubkey]),
     content: '',
-  }, sk)
+  })
 }
 
 export async function fetchContactList(
@@ -26,25 +27,21 @@ export async function fetchContactList(
   }
 }
 
-export async function publishContactList(
-  sk: Uint8Array,
-  contacts: Contact[],
-  relays: string[],
-): Promise<void> {
-  await publishEvent(relays, buildContactListEvent(sk, contacts))
+export async function publishContactList(contacts: Contact[], relays: string[]): Promise<void> {
+  await publishEvent(relays, await buildContactListEvent(contacts))
 }
 
 // ── Kind 30001 – NIP-51 joined-channels bookmark list ────────────────────────
 
 const CHANNELS_D_TAG = 'joined-channels'
 
-export function buildChannelBookmarkEvent(sk: Uint8Array, channelIds: string[]): Event {
-  return finalizeEvent({
+export async function buildChannelBookmarkEvent(channelIds: string[]): Promise<Event> {
+  return requireSigner().signEvent({
     kind: 30001,
     created_at: Math.floor(Date.now() / 1000),
     tags: [['d', CHANNELS_D_TAG], ...channelIds.map(id => ['e', id])],
     content: '',
-  }, sk)
+  })
 }
 
 export async function fetchChannelBookmarks(
@@ -64,12 +61,8 @@ export async function fetchChannelBookmarks(
   }
 }
 
-export async function publishChannelBookmarks(
-  sk: Uint8Array,
-  channelIds: string[],
-  relays: string[],
-): Promise<void> {
-  await publishEvent(relays, buildChannelBookmarkEvent(sk, channelIds))
+export async function publishChannelBookmarks(channelIds: string[], relays: string[]): Promise<void> {
+  await publishEvent(relays, await buildChannelBookmarkEvent(channelIds))
 }
 
 // ── Kind 30078 – NIP-78 app settings, NIP-04 self-encrypted ──────────────────
@@ -91,68 +84,100 @@ export interface SyncedSettings {
   dismissedRequests?: Record<string, number>
 }
 
-async function buildAppSettingsEvent(
-  sk: Uint8Array,
-  pubkey: string,
-  settings: SyncedSettings,
-): Promise<Event> {
-  const encrypted = await nip04.encrypt(sk, pubkey, JSON.stringify(settings))
-  return finalizeEvent({
+async function buildAppSettingsEvent(settings: SyncedSettings): Promise<Event> {
+  const signer = requireSigner()
+  const encrypted = await signer.nip04Encrypt(signer.pubkey, JSON.stringify(settings))
+  return signer.signEvent({
     kind: 30078,
     created_at: Math.floor(Date.now() / 1000),
     tags: [['d', SETTINGS_D_TAG]],
     content: encrypted,
-  }, sk)
+  })
 }
 
 export async function fetchAppSettings(
   relays: string[],
-  sk: Uint8Array,
-  pubkey: string,
 ): Promise<{ settings: SyncedSettings; createdAt: number } | null> {
+  const signer = requireSigner()
   const event = await fetchEvent(relays, {
     kinds: [30078],
-    authors: [pubkey],
+    authors: [signer.pubkey],
     '#d': [SETTINGS_D_TAG],
     limit: 1,
   })
   if (!event) return null
   try {
-    const plaintext = await nip04.decrypt(sk, pubkey, event.content)
+    const plaintext = await signer.nip04Decrypt(signer.pubkey, event.content)
     return { settings: JSON.parse(plaintext) as SyncedSettings, createdAt: event.created_at }
   } catch {
     return null
   }
 }
 
-export async function publishAppSettings(
-  sk: Uint8Array,
-  pubkey: string,
-  settings: SyncedSettings,
-  relays: string[],
-): Promise<void> {
-  await publishEvent(relays, await buildAppSettingsEvent(sk, pubkey, settings))
+export async function publishAppSettings(settings: SyncedSettings, relays: string[]): Promise<void> {
+  await publishEvent(relays, await buildAppSettingsEvent(settings))
 }
 
 // ── Kind 30041 – self-encrypted group key backups ─────────────────────────────
 
-export async function fetchGroupKeys(
-  relays: string[],
-  sk: Uint8Array,
-  pubkey: string,
-): Promise<Record<string, string>> {
-  const events = await fetchEvents(relays, { kinds: [30041], authors: [pubkey] })
+export async function fetchGroupKeys(relays: string[]): Promise<Record<string, string>> {
+  const signer = requireSigner()
+  const events = await fetchEvents(relays, { kinds: [30041], authors: [signer.pubkey] })
   const keys: Record<string, string> = {}
   for (const event of events) {
     const groupId = event.tags.find(t => t[0] === 'd')?.[1]
     if (!groupId) continue
     try {
-      keys[groupId] = await nip04.decrypt(sk, pubkey, event.content)
+      keys[groupId] = await signer.nip04Decrypt(signer.pubkey, event.content)
     } catch {
-      // corrupt or unrecognised — skip
+      // corrupt or unrecognised - skip
     }
   }
   return keys
+}
+
+// ── Kind 10002 – NIP-65 relay list ───────────────────────────────────────────
+
+export async function buildRelayListEvent(relays: string[], modes: RelayModes): Promise<Event> {
+  const tags: string[][] = []
+  for (const url of relays) {
+    const m = modes[url] ?? { read: true, write: true }
+    if (m.read && m.write) tags.push(['r', url])
+    else if (m.read) tags.push(['r', url, 'read'])
+    else if (m.write) tags.push(['r', url, 'write'])
+    // neither -> omitted
+  }
+  return requireSigner().signEvent({
+    kind: 10002,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: '',
+  })
+}
+
+export async function fetchRelayList(
+  relays: string[],
+  pubkey: string,
+): Promise<{ urls: string[]; modes: RelayModes; createdAt: number } | null> {
+  const event = await fetchEvent(relays, { kinds: [10002], authors: [pubkey], limit: 1 })
+  if (!event) return null
+  const urls: string[] = []
+  const modes: RelayModes = {}
+  for (const t of event.tags) {
+    if (t[0] !== 'r' || !t[1]) continue
+    const url = t[1]
+    const marker = t[2]
+    urls.push(url)
+    if (marker === 'read') modes[url] = { read: true, write: false }
+    else if (marker === 'write') modes[url] = { read: false, write: true }
+    else modes[url] = { read: true, write: true }
+  }
+  if (urls.length === 0) return null
+  return { urls, modes, createdAt: event.created_at }
+}
+
+export async function publishRelayList(writeRelays: string[], relays: string[], modes: RelayModes): Promise<void> {
+  await publishEvent(writeRelays, await buildRelayListEvent(relays, modes))
 }
 
 // ── Debounce ──────────────────────────────────────────────────────────────────
@@ -171,23 +196,23 @@ export interface SyncResult {
   channels: { channelIds: string[]; createdAt: number } | null
   settings: { settings: SyncedSettings; createdAt: number } | null
   groupKeys: Record<string, string>
+  relayList: { urls: string[]; modes: RelayModes; createdAt: number } | null
 }
 
-export async function syncFromRelays(
-  sk: Uint8Array,
-  pubkey: string,
-  relays: string[],
-): Promise<SyncResult> {
-  const [contacts, channels, settings, groupKeysResult] = await Promise.allSettled([
+export async function syncFromRelays(relays: string[]): Promise<SyncResult> {
+  const pubkey = requireSigner().pubkey
+  const [contacts, channels, settings, groupKeysResult, relayList] = await Promise.allSettled([
     fetchContactList(relays, pubkey),
     fetchChannelBookmarks(relays, pubkey),
-    fetchAppSettings(relays, sk, pubkey),
-    fetchGroupKeys(relays, sk, pubkey),
+    fetchAppSettings(relays),
+    fetchGroupKeys(relays),
+    fetchRelayList(relays, pubkey),
   ])
   return {
     contacts: contacts.status === 'fulfilled' ? contacts.value : null,
     channels: channels.status === 'fulfilled' ? channels.value : null,
     settings: settings.status === 'fulfilled' ? settings.value : null,
     groupKeys: groupKeysResult.status === 'fulfilled' ? groupKeysResult.value : {},
+    relayList: relayList.status === 'fulfilled' ? relayList.value : null,
   }
 }

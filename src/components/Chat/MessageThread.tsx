@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRateLimit } from '../../hooks/useRateLimit'
+import { useWriteRelays } from '../../hooks/useRelays'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
-import { Send, Hash, Lock, Wifi, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, ChevronDown, Users } from 'lucide-react'
+import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, useGroupMessages, sendChunkedFile } from '../../hooks/useNostrSubscriptions'
+import { useChannelMessages, useDMMessages, useGroupMessages } from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
+import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
+import { getSigner } from '../../lib/signer'
 import type { Event as NostrEvent } from 'nostr-tools'
-import { MessageItem } from './MessageItem'
+import { MessageList } from './MessageList'
 import { MediaGallery } from './MediaGallery'
 import { Avatar } from './Avatar'
 import {
@@ -17,6 +20,8 @@ import {
   type AttachmentData, type ReplyTo,
 } from '../../lib/fileUtils'
 import { INLINE_BASE64_THRESHOLD, MAX_CHUNKED_FILE_BYTES } from '../../lib/fileTransfer'
+import { uploadAttachment } from '../../lib/fileSend'
+import { getMediaServer } from '../../lib/blossom'
 import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRecorder'
 import { AudioMessage } from './AudioMessage'
 import { formatDuration } from '../../lib/format'
@@ -56,12 +61,12 @@ function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpen
 }
 
 function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: () => void }) {
-  const { contacts, profiles, clearActiveChat, setViewingProfilePubkey } = useNostrStore()
+  const { contacts, profiles, clearActiveChat, setViewingProfilePubkey, signerCaps } = useNostrStore()
   const { callState, initiateCall } = useCallContext()
   const contact = contacts.find(c => c.pubkey === pubkey)
   const profile = contact?.profile || profiles[pubkey]
   const name = getDisplayName(profile, pubkey, 12)
-  const canCall = callState === 'idle'
+  const canCall = callState === 'idle' && signerCaps.nip04
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
@@ -149,27 +154,29 @@ interface UploadProgress { name: string; sent: number; total: number }
 
 const MAX_TEXTAREA_HEIGHT = 120
 
-function MessageInput({
+export function MessageInput({
   chatId,
+  chatType,
   onSend,
-  onSendChunked,
   onTyping,
   placeholder,
   replyTo,
   onCancelReply,
+  preloadedAttachment,
 }: {
   chatId: string
+  chatType: 'dm' | 'channel' | 'group'
   onSend: (content: string) => Promise<void>
-  onSendChunked: (attachment: AttachmentData, text: string, replyTo: ReplyTo | null, onProgress: (sent: number, total: number) => void) => Promise<void>
   onTyping: () => void
   placeholder: string
   replyTo: Message | null
   onCancelReply: () => void
+  preloadedAttachment?: AttachmentData
 }) {
   const { profiles, drafts, setDraft, clearDraft } = useNostrStore()
   const [text, setText] = useState(() => drafts[chatId] ?? '')
   const [sending, setSending] = useState(false)
-  const [attachment, setAttachment] = useState<AttachmentData | null>(null)
+  const [attachment, setAttachment] = useState<AttachmentData | null>(preloadedAttachment ?? null)
   const [attachError, setAttachError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -199,46 +206,35 @@ function MessageInput({
 
   const handleSend = async () => {
     if (!canSend) return
-
     if (!tryRecord()) return
 
     const replyToData = buildReplyTo()
+    const a = attachment
+    const t = text.trim()
 
-    // Large-file path: chunk and send
-    if (attachment && attachment.data.length > INLINE_BASE64_THRESHOLD) {
-      const a = attachment
-      const t = text.trim()
-      setSending(true)
-      setText('')
-      setAttachment(null)
-      onCancelReply()
-      clearDraft(chatId)
-      setUploadProgress({ name: a.name, sent: 0, total: 1 })
-      try {
-        await onSendChunked(a, t, replyToData, (sent, total) => setUploadProgress({ name: a.name, sent, total }))
-      } catch (err) {
-        setAttachError(err instanceof Error ? err.message : 'Upload failed.')
-      } finally {
-        setSending(false)
-        setUploadProgress(null)
-        textareaRef.current?.focus()
-      }
-      return
-    }
-
-    // Inline path
-    const content = serializeMessage(text.trim(), attachment, replyToData)
     setSending(true)
     setText('')
     setAttachment(null)
     onCancelReply()
     clearDraft(chatId)
+
     try {
+      let finalAttachment = a
+      if (a && a.data && a.data.length > INLINE_BASE64_THRESHOLD) {
+        setUploadProgress({ name: a.name, sent: 0, total: 1 })
+        const server = await getMediaServer()
+        finalAttachment = await uploadAttachment(a, chatType, server, (loaded, total) =>
+          setUploadProgress({ name: a.name, sent: loaded, total }))
+      }
+      const content = serializeMessage(t, finalAttachment, replyToData)
       await onSend(content)
-    } catch {
-      setText(text)
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : 'Send failed.')
+      setText(t)
+      if (a) setAttachment(a)
     } finally {
       setSending(false)
+      setUploadProgress(null)
       textareaRef.current?.focus()
     }
   }
@@ -262,7 +258,7 @@ function MessageInput({
     }
 
     try {
-      // Images: compress first; if still over inline limit it will be chunked on send
+      // Images: compress first; large files are uploaded to the media server (Blossom) on send
       const data = file.type.startsWith('image/')
         ? await compressImage(file)
         : await encodeFile(file)
@@ -462,6 +458,7 @@ function MessageInput({
             <button
               onClick={handleSend}
               disabled={!canSend}
+              aria-label="Send"
               className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-700 hover:from-violet-400 hover:to-purple-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-all flex-shrink-0 shadow-[0_4px_12px_rgba(124,58,237,0.45)]"
             >
               <Send size={16} className="text-white" />
@@ -476,163 +473,9 @@ function MessageInput({
   )
 }
 
-function NewMessagesDivider({ divRef }: { divRef: React.RefObject<HTMLDivElement> }) {
-  return (
-    <div ref={divRef} className="flex items-center gap-3 py-2">
-      <div className="flex-1 border-t border-purple-500/40" />
-      <span className="text-xs text-purple-400 font-semibold px-2 flex-shrink-0">New messages</span>
-      <div className="flex-1 border-t border-purple-500/40" />
-    </div>
-  )
-}
-
-function DateSeparator({ date }: { date: Date }) {
-  const label = (() => {
-    const now = new Date()
-    const d = new Date(date)
-    if (d.toDateString() === now.toDateString()) return 'Today'
-    const yesterday = new Date(now)
-    yesterday.setDate(yesterday.getDate() - 1)
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
-    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
-  })()
-
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <div className="flex-1 border-t border-gray-800" />
-      <span className="text-xs text-gray-500 px-2">{label}</span>
-      <div className="flex-1 border-t border-gray-800" />
-    </div>
-  )
-}
-
-const NEAR_BOTTOM_PX = 120
-
-function MessageList({ messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
-  messages: Message[]
-  myPubkey: string
-  profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
-  onReply: (msg: Message) => void
-  onRetry: (msgId: string) => void
-  dividerTimestamp?: number
-  targetMessageId?: string
-}) {
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const dividerRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const mountedRef = useRef(false)
-  const atBottomRef = useRef(true)
-  const { clearTargetMessage } = useNostrStore()
-  const [showScrollButton, setShowScrollButton] = useState(false)
-
-  const handleScroll = () => {
-    const el = containerRef.current
-    if (!el) return
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
-    atBottomRef.current = isAtBottom
-    setShowScrollButton(!isAtBottom)
-  }
-
-  const scrollToBottom = () => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true
-      if (dividerRef.current) {
-        dividerRef.current.scrollIntoView({ block: 'start' })
-        atBottomRef.current = false
-      } else {
-        bottomRef.current?.scrollIntoView()
-      }
-      return
-    }
-    if (atBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-  }, [messages.length])
-
-  useEffect(() => {
-    if (!targetMessageId) return
-    const tryScroll = () => {
-      const el = containerRef.current?.querySelector<HTMLElement>(`[data-message-id="${targetMessageId}"]`)
-      if (!el) return
-      el.scrollIntoView({ block: 'center' })
-      el.classList.add('message-highlight')
-      el.addEventListener('animationend', () => el.classList.remove('message-highlight'), { once: true })
-      clearTargetMessage()
-    }
-    requestAnimationFrame(tryScroll)
-  }, [targetMessageId, messages.length, clearTargetMessage])
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center px-6">
-          <Wifi size={40} className="text-gray-700 mx-auto mb-3" />
-          <p className="text-gray-500 text-sm">No messages yet. Say hello!</p>
-        </div>
-      </div>
-    )
-  }
-
-  const elements: React.ReactNode[] = []
-  let lastDate = ''
-  let lastPubkey = ''
-  let dividerInserted = false
-
-  for (const msg of messages) {
-    const msgDate = new Date(msg.createdAt * 1000).toDateString()
-    if (msgDate !== lastDate) {
-      elements.push(<DateSeparator key={`date-${msgDate}`} date={new Date(msg.createdAt * 1000)} />)
-      lastDate = msgDate
-      lastPubkey = ''
-    }
-    if (!dividerInserted && dividerTimestamp !== undefined && msg.createdAt > dividerTimestamp) {
-      elements.push(<NewMessagesDivider key="new-messages-divider" divRef={dividerRef} />)
-      dividerInserted = true
-    }
-    const showAvatar = msg.pubkey !== lastPubkey && msg.pubkey !== myPubkey
-    lastPubkey = msg.pubkey
-    elements.push(
-      <MessageItem
-        key={msg.id}
-        message={msg}
-        profile={profiles[msg.pubkey]}
-        isOwn={msg.pubkey === myPubkey}
-        showAvatar={showAvatar}
-        onReply={onReply}
-        onRetry={onRetry}
-      />
-    )
-  }
-
-  return (
-    <div className="flex-1 relative min-h-0">
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin px-3 py-4 space-y-1.5"
-      >
-        {elements}
-        <div ref={bottomRef} />
-      </div>
-      {showScrollButton && (
-        <button
-          onClick={scrollToBottom}
-          className="absolute bottom-4 right-4 w-10 h-10 bg-gray-800/90 hover:bg-gray-700 border border-gray-700/50 rounded-full flex items-center justify-center shadow-lg transition-colors"
-          aria-label="Scroll to bottom"
-        >
-          <ChevronDown size={20} className="text-white" />
-        </button>
-      )}
-    </div>
-  )
-}
-
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const { publicKey, messages, profiles, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const writeR = useWriteRelays()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
@@ -648,10 +491,9 @@ function ChannelThread({ channelId }: { channelId: string }) {
   }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
+    if (!getSigner() || !publicKey) return
 
-    const event = buildChannelMessageEvent(sk, content, channelId, relays[0], replyTo?.id)
+    const event = await buildChannelMessageEvent(content, channelId, writeR[0], replyTo?.id)
 
     addMessage(channelId, {
       id: event.id,
@@ -669,7 +511,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
     pendingEventsRef.current.set(event.id, event)
 
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(channelId, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -682,30 +524,12 @@ function ChannelThread({ channelId }: { channelId: string }) {
     if (!event) return
     updateMessageStatus(channelId, msgId, 'sending')
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(channelId, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {
       updateMessageStatus(channelId, msgId, 'failed')
     }
-  }
-
-  const handleSendChunked = async (
-    attachment: AttachmentData,
-    text: string,
-    replyToData: ReplyTo | null,
-    onProgress: (sent: number, total: number) => void,
-  ) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
-    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'channel', channelId, relays, onProgress)
-    addMessage(channelId, {
-      id: `local-${Date.now()}`,
-      pubkey: publicKey,
-      content: serializeMessage(text, attachment, replyToData),
-      createdAt: Math.floor(Date.now() / 1000),
-      tags: [], kind: 42,
-    })
   }
 
   return (
@@ -715,9 +539,9 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
-          <MessageInput chatId={channelId} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
       )}
     </>
@@ -725,8 +549,9 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, relays, getPrivateKey, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
-    contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat } = useNostrStore()
+  const { publicKey, messages, profiles, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+    contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat, signerCaps } = useNostrStore()
+  const writeR = useWriteRelays()
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
@@ -743,12 +568,11 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   }, [theirPubkey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
 
     if (isPending) acceptMessageRequest(theirPubkey)
 
-    const event = await buildDMEvent(sk, theirPubkey, content)
+    const event = await buildDMEvent(theirPubkey, content)
 
     addMessage(theirPubkey, {
       id: event.id,
@@ -767,7 +591,9 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     pendingEventsRef.current.set(event.id, event)
 
     try {
-      await publishEvent(relays, event)
+      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+      const target = combineRelays(writeR, peerRead)
+      await publishEvent(target, event)
       updateMessageStatus(theirPubkey, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -780,31 +606,14 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     if (!event) return
     updateMessageStatus(theirPubkey, msgId, 'sending')
     try {
-      await publishEvent(relays, event)
+      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+      const target = combineRelays(writeR, peerRead)
+      await publishEvent(target, event)
       updateMessageStatus(theirPubkey, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {
       updateMessageStatus(theirPubkey, msgId, 'failed')
     }
-  }
-
-  const handleSendChunked = async (
-    attachment: AttachmentData,
-    text: string,
-    replyToData: ReplyTo | null,
-    onProgress: (sent: number, total: number) => void,
-  ) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
-    if (isPending) acceptMessageRequest(theirPubkey)
-    await sendChunkedFile(sk, publicKey, attachment.data, attachment.name, attachment.type, attachment.size, 'dm', theirPubkey, relays, onProgress)
-    addMessage(theirPubkey, {
-      id: `local-${Date.now()}`,
-      pubkey: publicKey,
-      content: serializeMessage(text, attachment, replyToData),
-      createdAt: Math.floor(Date.now() / 1000),
-      tags: [], kind: 4,
-    })
   }
 
   return (
@@ -837,9 +646,16 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
-          <MessageInput chatId={theirPubkey} onSend={handleSend} onSendChunked={handleSendChunked} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          {!signerCaps.nip04 && (
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
+              <p className="flex-1 text-sm text-gray-400">Your signer does not support encrypted messages yet</p>
+            </div>
+          )}
+          {signerCaps.nip04 && (
+            <MessageInput chatId={theirPubkey} chatType="dm" onSend={handleSend} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          )}
         </>
       )}
     </>
@@ -848,9 +664,10 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 
 function GroupThread({ groupId }: { groupId: string }) {
   const {
-    publicKey, messages, profiles, relays, getPrivateKey, groupKeys,
-    addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+    publicKey, messages, profiles, groupKeys,
+    addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId, signerCaps,
   } = useNostrStore()
+  const writeR = useWriteRelays()
   useGroupMessages(groupId)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
@@ -866,11 +683,10 @@ function GroupThread({ groupId }: { groupId: string }) {
   }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async (content: string) => {
-    const sk = getPrivateKey()
-    if (!sk || !publicKey || !groupKey) return
+    if (!getSigner() || !publicKey || !groupKey || !signerCaps.nip04) return
 
     const encryptedContent = await encryptWithGroupKey(content, groupKey)
-    const event = buildGroupMessageEvent(sk, encryptedContent, groupId, relays[0], replyTo?.id)
+    const event = await buildGroupMessageEvent(encryptedContent, groupId, writeR[0], replyTo?.id)
 
     addMessage(groupId, {
       id: event.id,
@@ -888,7 +704,7 @@ function GroupThread({ groupId }: { groupId: string }) {
     setReplyTo(null)
 
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(groupId, event.id, 'sent')
       pendingEventsRef.current.delete(event.id)
     } catch {
@@ -901,7 +717,7 @@ function GroupThread({ groupId }: { groupId: string }) {
     if (!event) return
     updateMessageStatus(groupId, msgId, 'sending')
     try {
-      await publishEvent(relays, event)
+      await publishEvent(writeR, event)
       updateMessageStatus(groupId, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {
@@ -931,6 +747,8 @@ function GroupThread({ groupId }: { groupId: string }) {
       ) : (
         <>
           <MessageList
+            chatId={groupId}
+            chatType="group"
             messages={messages[groupId] || []}
             myPubkey={publicKey || ''}
             profiles={profiles}
@@ -939,15 +757,22 @@ function GroupThread({ groupId }: { groupId: string }) {
             dividerTimestamp={dividerTimestampRef.current}
             targetMessageId={targetMessageId ?? undefined}
           />
-          <MessageInput
-            chatId={groupId}
-            onSend={handleSend}
-            onSendChunked={async () => { throw new Error('File attachments are not yet supported in groups.') }}
-            onTyping={() => {}}
-            placeholder="Message group…"
-            replyTo={replyTo}
-            onCancelReply={() => setReplyTo(null)}
-          />
+          {!signerCaps.nip04 && (
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
+              <p className="flex-1 text-sm text-gray-400">Your signer does not support encrypted messages yet</p>
+            </div>
+          )}
+          {signerCaps.nip04 && (
+            <MessageInput
+              chatId={groupId}
+              chatType="group"
+              onSend={handleSend}
+              onTyping={() => {}}
+              placeholder="Message group…"
+              replyTo={replyTo}
+              onCancelReply={() => setReplyTo(null)}
+            />
+          )}
         </>
       )}
     </>
@@ -978,11 +803,11 @@ export function MessageThread() {
   return (
     <div className="flex-1 flex flex-col bg-gray-950 overflow-hidden">
       {activeChatType === 'channel' ? (
-        <ChannelThread channelId={activeChatId} />
+        <ChannelThread key={activeChatId} channelId={activeChatId} />
       ) : activeChatType === 'group' ? (
-        <GroupThread groupId={activeChatId} />
+        <GroupThread key={activeChatId} groupId={activeChatId} />
       ) : (
-        <DMThread theirPubkey={activeChatId} />
+        <DMThread key={activeChatId} theirPubkey={activeChatId} />
       )}
     </div>
   )

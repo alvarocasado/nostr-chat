@@ -1,10 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { useNostrStore } from '../store/nostrStore'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { useNostrStore, applySyncResult } from '../store/nostrStore'
+import { getSigner } from '../lib/signer'
+import { openUserDb, closeUserDb, getUserDb } from '../lib/userDb'
+import { messageToRecord } from '../lib/db'
+import { installTestSigner } from '../test/signer'
+import { generateSecretKey } from 'nostr-tools'
+import type { Message } from '../store/nostrStore'
 
 // Reset store state before each test
 beforeEach(() => {
   useNostrStore.setState({
-    privateKeyHex: null,
     publicKey: null,
     nsec: null,
     npub: null,
@@ -13,8 +18,8 @@ beforeEach(() => {
     channels: [],
     joinedChannelIds: [],
     contacts: [],
-    groups: [],          // add
-    groupKeys: {},       // add
+    groups: [],
+    groupKeys: {},
     activeChatId: null,
     activeChatType: null,
     messages: {},
@@ -23,16 +28,24 @@ beforeEach(() => {
 })
 
 describe('generateAndLogin', () => {
-  it('sets publicKey, nsec, npub, and privateKeyHex', async () => {
+  it('sets publicKey, nsec, and npub (no plaintext key in state)', async () => {
     const { nsec, npub } = await useNostrStore.getState().generateAndLogin()
     const state = useNostrStore.getState()
 
     expect(state.publicKey).toMatch(/^[0-9a-f]{64}$/)
-    expect(state.privateKeyHex).toMatch(/^[0-9a-f]{64}$/)
     expect(state.nsec).toBe(nsec)
     expect(state.npub).toBe(npub)
     expect(nsec).toMatch(/^nsec1/)
     expect(npub).toMatch(/^npub1/)
+  })
+})
+
+describe('signer installation', () => {
+  it('installs a LocalSigner on login', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    const signer = getSigner()
+    expect(signer?.type).toBe('local')
+    expect(signer?.pubkey).toBe(useNostrStore.getState().publicKey)
   })
 })
 
@@ -41,7 +54,7 @@ describe('loginFromNsec', () => {
     const { nsec } = await useNostrStore.getState().generateAndLogin()
     const savedPk = useNostrStore.getState().publicKey
 
-    useNostrStore.setState({ privateKeyHex: null, publicKey: null, nsec: null, npub: null })
+    useNostrStore.setState({ publicKey: null, nsec: null, npub: null })
     const ok = await useNostrStore.getState().loginFromNsec(nsec)
 
     expect(ok).toBe(true)
@@ -61,11 +74,11 @@ describe('logout', () => {
     await useNostrStore.getState().generateAndLogin()
     useNostrStore.setState({ messages: { test: [{ id: '1', pubkey: 'pk', content: 'hi', createdAt: 0, tags: [], kind: 1 }] } })
 
-    useNostrStore.getState().logout()
+    await useNostrStore.getState().logout()
     const state = useNostrStore.getState()
 
     expect(state.publicKey).toBeNull()
-    expect(state.privateKeyHex).toBeNull()
+    expect(state.nsec).toBeNull()
     expect(state.messages).toEqual({})
   })
 
@@ -76,7 +89,7 @@ describe('logout', () => {
       groupKeys: { g1: 'deadbeef' },
     })
 
-    useNostrStore.getState().logout()
+    await useNostrStore.getState().logout()
     const state = useNostrStore.getState()
 
     expect(state.groups).toEqual([])
@@ -452,6 +465,113 @@ describe('message request actions', () => {
     const s = useNostrStore.getState()
     expect(s.contacts[0].pending).toBe(false)
     expect(s.dismissedRequests['req1']).toBeUndefined()
+  })
+})
+
+describe('prependMessages', () => {
+  it('prepends older messages, dedups by id, and keeps ascending order', () => {
+    const m = (id: string, t: number): Message => ({ id, pubkey: 'p', content: id, createdAt: t, tags: [], kind: 42 })
+    useNostrStore.setState({ messages: { chat: [m('c', 3), m('d', 4)] } })
+    useNostrStore.getState().prependMessages('chat', [m('a', 1), m('b', 2), m('c', 3)])
+    const ids = useNostrStore.getState().messages['chat'].map(x => x.id)
+    expect(ids).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('is a no-op for an empty input', () => {
+    useNostrStore.setState({ messages: { chat: [] } })
+    useNostrStore.getState().prependMessages('chat', [])
+    expect(useNostrStore.getState().messages['chat']).toEqual([])
+  })
+})
+
+describe('setActiveChat initial load cap', () => {
+  const PK = 'b'.repeat(64)
+  beforeEach(async () => {
+    openUserDb(PK)
+    const db = getUserDb()!
+    await db.messages.clear()
+    for (let t = 1; t <= 120; t++) {
+      await db.messages.put(messageToRecord('chatX', { id: `n${t}`, pubkey: 'p', content: `n${t}`, createdAt: t, tags: [], kind: 42 }))
+    }
+    useNostrStore.setState({ messages: {}, contacts: [], channels: [], groups: [] })
+  })
+  afterEach(async () => {
+    const db = getUserDb()
+    if (db) await db.messages.clear()
+    closeUserDb()
+  })
+
+  it('loads only the most recent INITIAL_PAGE messages, ascending', async () => {
+    useNostrStore.getState().setActiveChat('chatX', 'channel')
+    // setActiveChat loads asynchronously from Dexie; poll until the load settles
+    // (deterministic — a fixed setTimeout tick can fire before the Dexie promise).
+    await vi.waitFor(() => {
+      expect(useNostrStore.getState().messages['chatX'] ?? []).toHaveLength(50)
+    })
+    const loaded = useNostrStore.getState().messages['chatX']!
+    expect(loaded[0].createdAt).toBe(71)
+    expect(loaded[loaded.length - 1].createdAt).toBe(120)
+  })
+})
+
+describe('relay modes + routing', () => {
+  beforeEach(() => {
+    useNostrStore.setState({ relays: ['wss://a', 'wss://b'], relayModes: {} })
+  })
+
+  it('readRelays / writeRelays default to all relays', () => {
+    expect(useNostrStore.getState().readRelays()).toEqual(['wss://a', 'wss://b'])
+    expect(useNostrStore.getState().writeRelays()).toEqual(['wss://a', 'wss://b'])
+  })
+
+  it('setRelayMode splits read/write routing', () => {
+    useNostrStore.getState().setRelayMode('wss://a', true, false)  // read-only
+    useNostrStore.getState().setRelayMode('wss://b', false, true)  // write-only
+    expect(useNostrStore.getState().readRelays()).toEqual(['wss://a'])
+    expect(useNostrStore.getState().writeRelays()).toEqual(['wss://b'])
+  })
+
+  it('addRelay seeds both markers; removeRelay drops the mode', () => {
+    useNostrStore.getState().addRelay('wss://c')
+    expect(useNostrStore.getState().relayModes['wss://c']).toEqual({ read: true, write: true })
+    useNostrStore.getState().removeRelay('wss://c')
+    expect(useNostrStore.getState().relayModes['wss://c']).toBeUndefined()
+    expect(useNostrStore.getState().relays).not.toContain('wss://c')
+  })
+})
+
+describe('sync precedence: kind-10002 relay list vs settings-blob relays', () => {
+  beforeEach(() => {
+    installTestSigner(generateSecretKey())
+  })
+
+  it('applySyncResult: kind-10002 relay list wins over settings-blob relays', () => {
+    useNostrStore.setState({ relays: [], relayModes: {}, syncedSettingsAt: 0 })
+    const set = (patch: unknown) => useNostrStore.setState(patch as never)
+    const get = () => useNostrStore.getState()
+    applySyncResult({
+      contacts: null,
+      channels: null,
+      groupKeys: {},
+      relayList: { urls: ['wss://from-10002'], modes: { 'wss://from-10002': { read: true, write: true } }, createdAt: 100 },
+      settings: { createdAt: 200, settings: { relays: ['wss://from-blob'] } },
+    } as never, set as never, get as never)
+    expect(useNostrStore.getState().relays).toEqual(['wss://from-10002'])
+    expect(useNostrStore.getState().relayModes['wss://from-10002']).toEqual({ read: true, write: true })
+  })
+
+  it('applySyncResult: falls back to settings-blob relays when no kind-10002 list', () => {
+    useNostrStore.setState({ relays: [], relayModes: {}, syncedSettingsAt: 0 })
+    const set = (patch: unknown) => useNostrStore.setState(patch as never)
+    const get = () => useNostrStore.getState()
+    applySyncResult({
+      contacts: null,
+      channels: null,
+      groupKeys: {},
+      relayList: null,
+      settings: { createdAt: 200, settings: { relays: ['wss://from-blob'] } },
+    } as never, set as never, get as never)
+    expect(useNostrStore.getState().relays).toEqual(['wss://from-blob'])
   })
 })
 

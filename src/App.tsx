@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
 import { useNostrStore } from './store/nostrStore'
 import { LoginScreen } from './components/Auth/LoginScreen'
+import { UnlockScreen } from './components/Auth/UnlockScreen'
 import { Sidebar } from './components/Chat/Sidebar'
 import { MessageThread } from './components/Chat/MessageThread'
 import { SettingsScreen } from './components/Settings/SettingsScreen'
@@ -13,8 +14,14 @@ import { CallProvider, useCallContext } from './contexts/CallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
-import { getActivePubkey, openUserDb, evictOldMessages } from './lib/userDb'
-import { useGroupInviteListener, useGlobalInbox } from './hooks/useNostrSubscriptions'
+import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
+import { loadLocalKey, keyProtection } from './lib/keyStore'
+import { LocalSigner, Nip07Signer, setSigner, getSigner } from './lib/signer'
+import { encodeNsec } from './lib/nostr'
+import { hasNip07 } from './lib/nip07'
+import { migratePlaintextKeyIfNeeded } from './lib/migrate'
+import { useGlobalInbox } from './hooks/useNostrSubscriptions'
+import { ReconnectScreen } from './components/Auth/ReconnectScreen'
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -57,6 +64,8 @@ function consumeContactParam(): string | null {
 
 function App() {
   const [isHydrating, setIsHydrating] = useState(true)
+  const [locked, setLocked] = useState(false)
+  const [needsReconnect, setNeedsReconnect] = useState(false)
   const [contactLinkNpub, setContactLinkNpub] = useState<string | null>(null)
 
   const {
@@ -67,7 +76,6 @@ function App() {
     showAddGroup, setShowAddGroup,
   } = useNostrStore()
 
-  useGroupInviteListener()
   useGlobalInbox()
 
   const openCallSettings = useCallback(() => {
@@ -79,18 +87,53 @@ function App() {
     if (npub) setContactLinkNpub(npub)
   }, [])
 
+  async function acquireNip07Signer() {
+    if (hasNip07()) {
+      try {
+        setSigner(await Nip07Signer.create())
+        useNostrStore.getState().setSignerCaps(getSigner()!.caps)
+        setNeedsReconnect(false)
+      } catch {
+        setNeedsReconnect(true)
+      }
+    } else {
+      setNeedsReconnect(true)
+    }
+  }
+
   // Bootstrap: open the previously active user's DB and rehydrate Zustand.
   useEffect(() => {
     async function bootstrap() {
       const pubkey = getActivePubkey()
+      const method = getAuthMethod()
       if (pubkey) {
         openUserDb(pubkey)
-await evictOldMessages()
+        await evictOldMessages()
         await useNostrStore.persist.rehydrate()
+        await migratePlaintextKeyIfNeeded(pubkey)
+        if (method === 'local' || method === null) {
+          const protection = await keyProtection()
+          if (protection === 'device') {
+            const sk = await loadLocalKey()
+            if (sk) {
+              setSigner(new LocalSigner(sk))
+              useNostrStore.getState().setSignerCaps(getSigner()!.caps)
+              useNostrStore.setState({ nsec: encodeNsec(sk) })
+            }
+          }
+          if (protection === 'passphrase') {
+            setLocked(true)
+          }
+        }
+        if (method === 'nip07') {
+          await acquireNip07Signer()
+        }
       }
       setIsHydrating(false)
     }
     bootstrap()
+  // acquireNip07Signer is stable (no deps) — safe to omit from dep array
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (isHydrating) {
@@ -98,6 +141,19 @@ await evictOldMessages()
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
       </div>
+    )
+  }
+
+  if (locked) {
+    return <UnlockScreen onUnlocked={() => setLocked(false)} onLogout={() => { useNostrStore.getState().logout(); setLocked(false) }} />
+  }
+
+  if (needsReconnect) {
+    return (
+      <ReconnectScreen
+        onRetry={() => acquireNip07Signer()}
+        onLogout={() => { useNostrStore.getState().logout(); setNeedsReconnect(false) }}
+      />
     )
   }
 

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Zap, Key, Eye, EyeOff, Copy, Check, Shield } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
+import { hasNip07 } from '../../lib/nip07'
 
 export function LoginScreen() {
-  const { generateAndLogin, loginFromNsec, loginFromHex } = useNostrStore()
+  const { generateAndLogin, loginFromNsec, loginFromHex, loginWithExtension } = useNostrStore()
   const [mode, setMode] = useState<'welcome' | 'import' | 'newKey'>('welcome')
   const [inputValue, setInputValue] = useState('')
   const [error, setError] = useState('')
@@ -213,6 +214,23 @@ export function LoginScreen() {
             <Key size={20} />
             Login with Private Key
           </button>
+
+          {hasNip07() && (
+            <button
+              onClick={async () => {
+                setError('')
+                const ok = await loginWithExtension()
+                if (!ok) setError('Extension login failed or was rejected')
+              }}
+              className="w-full bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-3 border border-gray-700"
+            >
+              <Shield size={20} /> Login with Extension
+            </button>
+          )}
+
+          {error && (
+            <p className="text-red-400 text-sm text-center">{error}</p>
+          )}
 
           <p className="text-gray-500 text-xs text-center mt-4">
             Built on the{' '}

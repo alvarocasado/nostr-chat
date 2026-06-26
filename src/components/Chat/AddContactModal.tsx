@@ -115,7 +115,7 @@ function QRScannerView({ onDetected, onCancel }: { onDetected: (pk: string) => v
 }
 
 export function AddContactModal({ onClose, initialNpub }: AddContactModalProps) {
-  const { relays, addContact, setProfile, setActiveChat, setSidebarTab } = useNostrStore()
+  const { addContact, setProfile, setActiveChat, setSidebarTab } = useNostrStore()
   const [tab, setTab] = useState<'manual' | 'qr'>('manual')
   const [input, setInput] = useState(initialNpub ?? '')
   const [loading, setLoading] = useState(false)
@@ -145,7 +145,7 @@ export function AddContactModal({ onClose, initialNpub }: AddContactModalProps) 
     setFound(null)
     setLoading(true)
     try {
-      const event = await fetchEvent(relays, { kinds: [0], authors: [pk] })
+      const event = await fetchEvent(useNostrStore.getState().readRelays(), { kinds: [0], authors: [pk] })
       if (event) {
         const profile = parseProfile(event)
         setFound({ pubkey: pk, name: profile.display_name || profile.name, about: profile.about, picture: profile.picture })

@@ -1,8 +1,9 @@
 import type { Event } from 'nostr-tools'
-import { decryptDM, fetchEvent, parseProfile } from './nostr'
+import { decryptDM, fetchEvent, parseProfile, buildGroupKeyBackupEvent, publishEvent } from './nostr'
 import { decryptWithGroupKey } from './groupCrypto'
 import { useNostrStore, type Message, type Group } from '../store/nostrStore'
 import { fireNotification } from './notifications'
+import { getPeerRelays, combineRelays } from './peerRelays'
 import {
   parseTransferPayload,
   handleFileStart,
@@ -76,7 +77,8 @@ export function ensureProfile(pubkey: string, relays: string[]): void {
   const { profiles, setProfile } = useNostrStore.getState()
   if (profiles[pubkey] || fetchingProfiles.has(pubkey)) return
   fetchingProfiles.add(pubkey)
-  fetchEvent(relays, { kinds: [0], authors: [pubkey] })
+  getPeerRelays(pubkey, relays)
+    .then(pr => fetchEvent(combineRelays(relays, pr.write), { kinds: [0], authors: [pubkey] }))
     .then(profileEvent => { if (profileEvent) setProfile(profileEvent.pubkey, parseProfile(profileEvent)) })
     .catch(() => {})
     .finally(() => fetchingProfiles.delete(pubkey))
@@ -111,6 +113,40 @@ function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Eve
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Handle a decrypted group_invite DM: join the group and back up the key once.
+ * Idempotent — a group we already have is left untouched, so replays from
+ * per-chat subscriptions or relay backfill do not re-add or re-publish.
+ */
+async function handleGroupInvite(event: Event, decrypted: string, relays: string[]): Promise<void> {
+  try {
+    const payload = JSON.parse(decrypted) as { groupId?: string; groupKeyHex?: string; groupName?: string }
+    const { groupId, groupKeyHex, groupName } = payload
+    if (!groupId || !groupKeyHex || !groupName) return
+
+    const { groups, publicKey, addGroup, setGroupKey } = useNostrStore.getState()
+    if (groups.find(g => g.id === groupId)) return
+    if (!publicKey) return
+
+    addGroup({
+      id: groupId,
+      name: groupName,
+      creatorPubkey: event.pubkey,
+      memberPubkeys: [publicKey],
+      relayUrl: relays[0],
+      lastMessage: 'Joined via invite',
+      lastMessageAt: event.created_at,
+    })
+    setGroupKey(groupId, groupKeyHex)
+
+    // Publish own key backup so cross-device recovery works
+    const backup = await buildGroupKeyBackupEvent(groupId, groupKeyHex)
+    publishEvent(useNostrStore.getState().writeRelays(), backup).catch(() => {})
+  } catch {
+    // not a valid group invite or build/publish failed — ignore
+  }
+}
 
 /** Resolve the chat (channel/group) an event belongs to from its NIP-10 e tags. */
 export function extractRootChatId(tags: string[][]): string | null {
@@ -177,7 +213,6 @@ export async function processChannelEvent(
 
 export async function processDMEvent(
   event: Event,
-  sk: Uint8Array,
   myPubkey: string,
   relays: string[],
   opts: ProcessOpts,
@@ -191,7 +226,7 @@ export async function processDMEvent(
 
   let decrypted: string
   try {
-    decrypted = await decryptDM(sk, peer, event.content)
+    decrypted = await decryptDM(peer, event.content)
   } catch {
     return // decryption failed — skip
   }
@@ -204,10 +239,13 @@ export async function processDMEvent(
     return
   }
 
-  // Group invites are handled by useGroupInviteListener — not chat messages
+  // Group invites join a group, they are not chat messages. Handle and stop.
   if (decrypted.startsWith('{')) {
     try {
-      if ((JSON.parse(decrypted) as { type?: string })?.type === 'group_invite') return
+      if ((JSON.parse(decrypted) as { type?: string })?.type === 'group_invite') {
+        await handleGroupInvite(event, decrypted, relays)
+        return
+      }
     } catch { /* not JSON — regular message */ }
   }
 

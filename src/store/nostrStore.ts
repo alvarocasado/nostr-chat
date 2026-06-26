@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage, type StorageValue } from 'zustand/middleware'
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools'
 import { encodeNsec, encodePubkey, type NostrProfile, DEFAULT_RELAYS } from '../lib/nostr'
+import { LocalSigner, Nip07Signer, setSigner, clearSigner, getSigner } from '../lib/signer'
 import {
   openUserDb,
   closeUserDb,
@@ -10,19 +11,25 @@ import {
   setSetting,
   setActivePubkey,
   clearActivePubkey,
+  setAuthMethod,
+  clearAuthMethod,
 } from '../lib/userDb'
+import { saveLocalKey, clearLocalKey, hasLocalKey, keyProtection } from '../lib/keyStore'
 import { messageToRecord, recordToMessage } from '../lib/db'
+import { INITIAL_PAGE } from '../lib/pagination'
 import {
   syncFromRelays,
   publishContactList,
   publishChannelBookmarks,
   publishAppSettings,
+  publishRelayList,
   debounce,
   type CallsSyncedSettings,
 } from '../lib/nostrSync'
+import { filterRead, filterWrite, type RelayModes } from '../lib/relayRouting'
 
 export type ChatType = 'channel' | 'dm' | 'group'
-export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'notifications' | 'privacy'
+export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications' | 'privacy'
 
 export interface NotificationSettings {
   dmEnabled: boolean
@@ -104,7 +111,6 @@ export interface Message {
 
 interface NostrState {
   // Auth
-  privateKeyHex: string | null
   publicKey: string | null
   nsec: string | null
   npub: string | null
@@ -112,6 +118,7 @@ interface NostrState {
 
   // Relays
   relays: string[]
+  relayModes: RelayModes
 
   // Channels
   channels: Channel[]
@@ -160,18 +167,23 @@ interface NostrState {
   // Relay sync: created_at of the last kind-30078 settings event we received or published
   syncedSettingsAt: number | null
 
-  // Derived helper
-  getPrivateKey: () => Uint8Array | null
+  // Signer capabilities (runtime-only, never persisted)
+  signerCaps: { nip04: boolean }
 
   // Actions
+  setSignerCaps: (caps: { nip04: boolean }) => void
   generateAndLogin: () => Promise<{ nsec: string; npub: string }>
   loginFromNsec: (nsec: string) => Promise<boolean>
   loginFromHex: (hex: string) => Promise<boolean>
-  logout: () => void
+  loginWithExtension: () => Promise<boolean>
+  logout: () => Promise<void>
   updateProfile: (profile: Partial<NostrProfile>) => void
 
   addRelay: (url: string) => void
   removeRelay: (url: string) => void
+  setRelayMode: (url: string, read: boolean, write: boolean) => void
+  readRelays: () => string[]
+  writeRelays: () => string[]
 
   addChannel: (channel: Channel) => void
   joinChannel: (id: string) => void
@@ -194,6 +206,7 @@ interface NostrState {
   clearTargetMessage: () => void
 
   addMessage: (chatId: string, message: Message) => void
+  prependMessages: (chatId: string, msgs: Message[]) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
   updateContactLastMessage: (pubkey: string, content: string, at: number, opts?: { incrementUnread?: boolean }) => void
@@ -232,10 +245,6 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes
 }
 
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
-}
-
 // Rehydrate existing user data from Dexie before completing login.
 async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState>> {
   const db = getUserDb()
@@ -252,6 +261,70 @@ async function loadExistingUserState(pubkey: string): Promise<Partial<NostrState
   }
 }
 
+// Shared helper: merge relay sync result into store state. Non-fatal — caller wraps in .catch(()=>{}).
+export function applySyncResult(
+  result: Awaited<ReturnType<typeof syncFromRelays>>,
+  set: (s: Partial<NostrState>) => void,
+  get: () => NostrState,
+): void {
+  // Relay list (kind 10002): adopt as source of truth when present.
+  if (result.relayList && result.relayList.urls.length > 0) {
+    set({ relays: result.relayList.urls, relayModes: result.relayList.modes })
+  } else {
+    // No published relay list yet — publish current relays so future logins find it.
+    get().triggerSettingsSync()
+  }
+
+  // Contacts: additive merge — relay contacts added to local, never removed here
+  if (result.contacts) {
+    const current = get().contacts
+    const localSet = new Set(current.map(c => c.pubkey))
+    const incoming = result.contacts.pubkeys
+      .filter(p => !localSet.has(p))
+      .map(p => ({ pubkey: p }))
+    if (incoming.length > 0) {
+      set({ contacts: [...current, ...incoming] })
+    }
+  }
+
+  // Joined channels: additive merge
+  if (result.channels) {
+    const localSet = new Set(get().joinedChannelIds)
+    const incoming = result.channels.channelIds.filter(id => !localSet.has(id))
+    if (incoming.length > 0) {
+      set({ joinedChannelIds: [...get().joinedChannelIds, ...incoming] })
+    }
+  }
+
+  // Group keys: relay backup takes priority for keys we don't have locally
+  if (result.groupKeys && Object.keys(result.groupKeys).length > 0) {
+    const current = get().groupKeys
+    const merged = { ...result.groupKeys, ...current } // local keys take precedence
+    set({ groupKeys: merged })
+  }
+
+  // Settings: apply only when the relay event is newer than the last one we synced
+  if (result.settings) {
+    const lastSynced = get().syncedSettingsAt
+    if (!lastSynced || result.settings.createdAt > lastSynced) {
+      const s = result.settings.settings
+      set({
+        ...(s.notificationSettings !== undefined ? { notificationSettings: s.notificationSettings } : {}),
+        ...(s.mutedChats !== undefined ? { mutedChats: s.mutedChats } : {}),
+        ...(s.relays !== undefined && !result.relayList ? { relays: s.relays } : {}),
+        ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
+        ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
+        syncedSettingsAt: result.settings.createdAt,
+      })
+      if (s.callsSettings) {
+        void setSetting('turn_mode', s.callsSettings.turnMode)
+        if (s.callsSettings.turnMetered) void setSetting('turn_metered_config', s.callsSettings.turnMetered)
+        if (s.callsSettings.turnCustom) void setSetting('turn_custom_config', s.callsSettings.turnCustom)
+      }
+    }
+  }
+}
+
 async function completeLogin(
   sk: Uint8Array,
   pk: string,
@@ -259,13 +332,18 @@ async function completeLogin(
   set: (s: Partial<NostrState>) => void,
   get: () => NostrState,
 ): Promise<void> {
+  setSigner(new LocalSigner(sk))
+  set({ signerCaps: getSigner()!.caps })
   openUserDb(pk)
+  if (!(await hasLocalKey()) || (await keyProtection()) !== 'passphrase') {
+    await saveLocalKey(sk)
+  }
+  setAuthMethod('local')
   const existing = await loadExistingUserState(pk)
   if (existing.publicKey === pk) {
     set(existing)
   }
   set({
-    privateKeyHex: bytesToHex(sk),
     publicKey: pk,
     nsec: nsecStr,
     npub: encodePubkey(pk),
@@ -275,56 +353,7 @@ async function completeLogin(
 
   // Relay sync runs in background — never blocks login
   const relays = get().relays
-  syncFromRelays(sk, pk, relays).then(result => {
-    // Contacts: additive merge — relay contacts added to local, never removed here
-    if (result.contacts) {
-      const current = get().contacts
-      const localSet = new Set(current.map(c => c.pubkey))
-      const incoming = result.contacts.pubkeys
-        .filter(p => !localSet.has(p))
-        .map(p => ({ pubkey: p }))
-      if (incoming.length > 0) {
-        set({ contacts: [...current, ...incoming] })
-      }
-    }
-
-    // Joined channels: additive merge
-    if (result.channels) {
-      const localSet = new Set(get().joinedChannelIds)
-      const incoming = result.channels.channelIds.filter(id => !localSet.has(id))
-      if (incoming.length > 0) {
-        set({ joinedChannelIds: [...get().joinedChannelIds, ...incoming] })
-      }
-    }
-
-    // Group keys: relay backup takes priority for keys we don't have locally
-    if (result.groupKeys && Object.keys(result.groupKeys).length > 0) {
-      const current = get().groupKeys
-      const merged = { ...result.groupKeys, ...current } // local keys take precedence
-      set({ groupKeys: merged })
-    }
-
-    // Settings: apply only when the relay event is newer than the last one we synced
-    if (result.settings) {
-      const lastSynced = get().syncedSettingsAt
-      if (!lastSynced || result.settings.createdAt > lastSynced) {
-        const s = result.settings.settings
-        set({
-          ...(s.notificationSettings !== undefined ? { notificationSettings: s.notificationSettings } : {}),
-          ...(s.mutedChats !== undefined ? { mutedChats: s.mutedChats } : {}),
-          ...(s.relays !== undefined ? { relays: s.relays } : {}),
-          ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
-          ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
-          syncedSettingsAt: result.settings.createdAt,
-        })
-        if (s.callsSettings) {
-          void setSetting('turn_mode', s.callsSettings.turnMode)
-          if (s.callsSettings.turnMetered) void setSetting('turn_metered_config', s.callsSettings.turnMetered)
-          if (s.callsSettings.turnCustom) void setSetting('turn_custom_config', s.callsSettings.turnCustom)
-        }
-      }
-    }
-  }).catch(() => {}) // non-fatal
+  syncFromRelays(relays).then(result => applySyncResult(result, set, get)).catch(() => {}) // non-fatal
 }
 
 // Custom Dexie-backed storage adapter for Zustand persist.
@@ -357,26 +386,23 @@ export const useNostrStore = create<NostrState>()(
       // Debounced relay publish helpers — read fresh state at publish time
       const scheduleContactsSync = () => {
         debounce('contacts', () => {
-          const { contacts, relays, getPrivateKey } = get()
-          const sk = getPrivateKey()
-          if (sk) void publishContactList(sk, contacts, relays).catch(() => {})
+          const { contacts, relays } = get()
+          if (getSigner()) void publishContactList(contacts, relays).catch(() => {})
         })
       }
 
       const scheduleChannelsSync = () => {
         debounce('channels', () => {
-          const { joinedChannelIds, relays, getPrivateKey } = get()
-          const sk = getPrivateKey()
-          if (sk) void publishChannelBookmarks(sk, joinedChannelIds, relays).catch(() => {})
+          const { joinedChannelIds, relays } = get()
+          if (getSigner()) void publishChannelBookmarks(joinedChannelIds, relays).catch(() => {})
         })
       }
 
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, relays, publicKey, getPrivateKey, blockedPubkeys, dismissedRequests } = get()
-            const sk = getPrivateKey()
-            if (!sk || !publicKey) return
+            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests } = get()
+            if (!getSigner()) return
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
               getSetting<string>('turn_mode', 'none'),
@@ -392,20 +418,22 @@ export const useNostrStore = create<NostrState>()(
               ...(turnMetered ? { turnMetered } : {}),
               ...(turnCustom  ? { turnCustom  } : {}),
             }
-            void publishAppSettings(sk, publicKey, { notificationSettings, mutedChats, relays, callsSettings, blockedPubkeys, dismissedRequests }, relays)
-              .then(() => set({ syncedSettingsAt: now }))
-              .catch(() => {})
+            const wr = get().writeRelays()
+            void Promise.all([
+              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests }, wr),
+              publishRelayList(wr, get().relays, get().relayModes),
+            ]).then(() => set({ syncedSettingsAt: now })).catch(() => {})
           })()
         })
       }
 
       return {
-        privateKeyHex: null,
         publicKey: null,
         nsec: null,
         npub: null,
         profile: null,
         relays: DEFAULT_RELAYS,
+        relayModes: {},
         channels: [],
         joinedChannelIds: [],
         contacts: [],
@@ -430,11 +458,9 @@ export const useNostrStore = create<NostrState>()(
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
+        signerCaps: { nip04: true },
 
-        getPrivateKey: () => {
-          const hex = get().privateKeyHex
-          return hex ? hexToBytes(hex) : null
-        },
+        setSignerCaps: (caps) => set({ signerCaps: caps }),
 
         generateAndLogin: async () => {
           const sk = generateSecretKey()
@@ -469,9 +495,28 @@ export const useNostrStore = create<NostrState>()(
           }
         },
 
-        logout: () => {
+        loginWithExtension: async () => {
+          try {
+            const signer = await Nip07Signer.create()
+            setSigner(signer)
+            set({ signerCaps: signer.caps })
+            const pk = signer.pubkey
+            openUserDb(pk)
+            await clearLocalKey()
+            const existing = await loadExistingUserState(pk)
+            if (existing.publicKey === pk) set(existing)
+            set({ publicKey: pk, npub: encodePubkey(pk), nsec: null, profile: existing.profile ?? { pubkey: pk } })
+            setActivePubkey(pk)
+            setAuthMethod('nip07')
+            syncFromRelays(get().relays).then(r => applySyncResult(r, set, get)).catch(() => {})
+            return true
+          } catch {
+            return false
+          }
+        },
+
+        logout: async () => {
           set({
-            privateKeyHex: null,
             publicKey: null,
             nsec: null,
             npub: null,
@@ -481,7 +526,11 @@ export const useNostrStore = create<NostrState>()(
             messages: {},
             groups: [],
             groupKeys: {},
+            signerCaps: { nip04: true },
           })
+          clearSigner()
+          await clearLocalKey()
+          clearAuthMethod()
           closeUserDb()
           clearActivePubkey()
         },
@@ -494,15 +543,32 @@ export const useNostrStore = create<NostrState>()(
         addRelay: (url) => {
           const relays = get().relays
           if (!relays.includes(url)) {
-            set({ relays: [...relays, url] })
+            set({
+              relays: [...relays, url],
+              relayModes: { ...get().relayModes, [url]: { read: true, write: true } },
+            })
             scheduleSettingsSync()
           }
         },
 
         removeRelay: (url) => {
-          set({ relays: get().relays.filter(r => r !== url) })
+          const { [url]: _removed, ...restModes } = get().relayModes
+          set({
+            relays: get().relays.filter(r => r !== url),
+            relayModes: restModes,
+          })
           scheduleSettingsSync()
         },
+
+        setRelayMode: (url, read, write) => {
+          // never allow neither — keep at least read
+          const safe = read || write ? { read, write } : { read: true, write: false }
+          set({ relayModes: { ...get().relayModes, [url]: safe } })
+          scheduleSettingsSync()
+        },
+
+        readRelays: () => filterRead(get().relays, get().relayModes),
+        writeRelays: () => filterWrite(get().relays, get().relayModes),
 
         addChannel: (channel) => {
           const existing = get().channels.find(c => c.id === channel.id)
@@ -635,6 +701,8 @@ export const useNostrStore = create<NostrState>()(
             void db.messages
               .where('[chatId+createdAt]')
               .between([id, -Infinity], [id, Infinity])
+              .reverse()
+              .limit(INITIAL_PAGE)
               .toArray()
               .then(records => {
                 if (records.length === 0) return
@@ -666,6 +734,16 @@ export const useNostrStore = create<NostrState>()(
           set({ messages: { ...get().messages, [chatId]: sorted } })
           const db = getUserDb()
           if (db) void db.messages.put(messageToRecord(chatId, message))
+        },
+
+        prependMessages: (chatId, msgs) => {
+          if (msgs.length === 0) return
+          const existing = get().messages[chatId] || []
+          const existingIds = new Set(existing.map(m => m.id))
+          const fresh = msgs.filter(m => !existingIds.has(m.id))
+          if (fresh.length === 0) return
+          const merged = [...fresh, ...existing].sort((a, b) => a.createdAt - b.createdAt)
+          set({ messages: { ...get().messages, [chatId]: merged } })
         },
 
         updateMessageStatus: (chatId, msgId, status) => {
@@ -786,9 +864,6 @@ export const useNostrStore = create<NostrState>()(
       name: 'nostr-chat-storage',
       storage: createJSONStorage(() => dexieStorage),
       onRehydrateStorage: () => (state) => {
-        if (state?.privateKeyHex && !state.nsec) {
-          state.nsec = encodeNsec(hexToBytes(state.privateKeyHex))
-        }
         if (state?.notificationSettings) {
           const ns = state.notificationSettings
           if (ns.callEnabled === undefined) ns.callEnabled = true
@@ -796,11 +871,11 @@ export const useNostrStore = create<NostrState>()(
         }
       },
       partialize: (state) => ({
-        privateKeyHex: state.privateKeyHex,
         publicKey: state.publicKey,
         npub: state.npub,
         profile: state.profile,
         relays: state.relays,
+        relayModes: state.relayModes,
         channels: state.channels,
         joinedChannelIds: state.joinedChannelIds,
         contacts: state.contacts,

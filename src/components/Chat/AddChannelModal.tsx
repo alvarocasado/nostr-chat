@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { X, Hash, Search, Plus, Loader2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { useChannelDiscovery, createChannel } from '../../hooks/useNostrSubscriptions'
+import { getSigner } from '../../lib/signer'
 
 interface AddChannelModalProps {
   onClose: () => void
 }
 
 export function AddChannelModal({ onClose }: AddChannelModalProps) {
-  const { channels, relays, getPrivateKey, addChannel, joinChannel, setActiveChat } = useNostrStore()
+  const { channels, addChannel, joinChannel, setActiveChat } = useNostrStore()
   const [tab, setTab] = useState<'discover' | 'create'>('discover')
   const [search, setSearch] = useState('')
   const [creating, setCreating] = useState(false)
@@ -31,18 +32,18 @@ export function AddChannelModal({ onClose }: AddChannelModalProps) {
 
   const handleCreate = async () => {
     if (!name.trim()) { setError('Channel name is required'); return }
-    const sk = getPrivateKey()
-    if (!sk) return
+    if (!getSigner()) return
     setCreating(true)
     setError('')
     try {
-      const event = await createChannel(sk, name.trim(), about.trim(), relays)
+      const writeRelays = useNostrStore.getState().writeRelays()
+      const event = await createChannel(name.trim(), about.trim(), writeRelays)
       addChannel({
         id: event.id,
         name: name.trim(),
         about: about.trim(),
         creatorPubkey: event.pubkey,
-        relayUrl: relays[0],
+        relayUrl: writeRelays[0],
       })
       joinChannel(event.id)
       setActiveChat(event.id, 'channel')

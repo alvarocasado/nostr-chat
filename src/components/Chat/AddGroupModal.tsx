@@ -4,6 +4,7 @@ import { X, Plus, Users, Loader2 } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useNostrStore } from '../../store/nostrStore'
 import { generateGroupKey } from '../../lib/groupCrypto'
+import { getSigner } from '../../lib/signer'
 import {
   buildGroupMetadataEvent,
   buildGroupKeyBackupEvent,
@@ -16,7 +17,7 @@ interface AddGroupModalProps {
 }
 
 export function AddGroupModal({ onClose }: AddGroupModalProps) {
-  const { relays, publicKey, getPrivateKey, addGroup, setGroupKey, setActiveChat } = useNostrStore()
+  const { publicKey, addGroup, setGroupKey, setActiveChat } = useNostrStore()
   const [name, setName] = useState('')
   const [about, setAbout] = useState('')
   const [memberInput, setMemberInput] = useState('')
@@ -47,8 +48,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
 
   const handleCreate = async () => {
     if (!name.trim()) { setError('Group name is required'); return }
-    const sk = getPrivateKey()
-    if (!sk || !publicKey) return
+    if (!getSigner() || !publicKey) return
     setCreating(true)
     setError('')
     try {
@@ -56,10 +56,11 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
       const groupKeyHex = generateGroupKey()
       const allMembers = [publicKey, ...memberPubkeys]
 
-      await publishEvent(relays, await buildGroupMetadataEvent(sk, groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
-      await publishEvent(relays, await buildGroupKeyBackupEvent(sk, groupId, groupKeyHex))
+      const writeRelays = useNostrStore.getState().writeRelays()
+      await publishEvent(writeRelays, await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
+      await publishEvent(writeRelays, await buildGroupKeyBackupEvent(groupId, groupKeyHex))
       for (const memberPubkey of memberPubkeys) {
-        await publishEvent(relays, await buildGroupInviteEvent(sk, memberPubkey, groupId, groupKeyHex, name.trim()))
+        await publishEvent(writeRelays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim()))
       }
 
       addGroup({
@@ -68,7 +69,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
         about: about.trim() || undefined,
         creatorPubkey: publicKey,
         memberPubkeys: allMembers,
-        relayUrl: relays[0],
+        relayUrl: writeRelays[0],
       })
       setGroupKey(groupId, groupKeyHex)
       setActiveChat(groupId, 'group')

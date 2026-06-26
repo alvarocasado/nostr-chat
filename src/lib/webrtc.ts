@@ -1,6 +1,6 @@
-import { finalizeEvent, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
 import { getSetting } from './userDb'
+import { requireSigner } from './signer'
 
 export const CALL_SIGNAL_KIND = 24100
 
@@ -39,17 +39,17 @@ export interface CallSignal {
 }
 
 export async function buildCallSignalEvent(
-  sk: Uint8Array,
   recipientPubkey: string,
   signal: CallSignal,
 ): Promise<Event> {
-  const encrypted = await nip04.encrypt(sk, recipientPubkey, JSON.stringify(signal))
-  return finalizeEvent({
+  const signer = requireSigner()
+  const encrypted = await signer.nip04Encrypt(recipientPubkey, JSON.stringify(signal))
+  return signer.signEvent({
     kind: CALL_SIGNAL_KIND,
     created_at: Math.floor(Date.now() / 1000),
     tags: [['p', recipientPubkey]],
     content: encrypted,
-  }, sk)
+  })
 }
 
 const VALID_SIGNAL_TYPES: CallSignalType[] = ['call-offer', 'call-answer', 'ice-candidate', 'call-end']
@@ -117,12 +117,11 @@ export function mergeIceServers(local: RTCIceServer[], remote: RTCIceServer[]): 
 }
 
 export async function decryptCallSignal(
-  sk: Uint8Array,
   senderPubkey: string,
   content: string,
 ): Promise<CallSignal | null> {
   try {
-    const plain = await nip04.decrypt(sk, senderPubkey, content)
+    const plain = await requireSigner().nip04Decrypt(senderPubkey, content)
     const obj = JSON.parse(plain) as unknown
     return isValidCallSignal(obj) ? obj : null
   } catch {
