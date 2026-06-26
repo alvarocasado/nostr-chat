@@ -98,6 +98,29 @@ describe('MessageList', () => {
     expect(screen.getAllByText('Today')).toHaveLength(1)
   })
 
+  it('does not show the divider when the only new messages are my own', () => {
+    const today = Math.floor(Date.now() / 1000)
+    const messages = [
+      msg({ id: 'a', pubkey: THEM, createdAt: today - 30 }),
+      msg({ id: 'b', pubkey: ME, createdAt: today - 10 }),
+      msg({ id: 'c', pubkey: ME, createdAt: today - 5 }),
+    ]
+    render(<MessageList chatId="chat" chatType="dm" messages={messages} myPubkey={ME} profiles={{}} onReply={noop} onRetry={noop} dividerTimestamp={today - 25} />)
+    expect(screen.queryByText('New messages')).not.toBeInTheDocument()
+  })
+
+  it('anchors the divider on the first received message past the timestamp, skipping my own', () => {
+    const today = Math.floor(Date.now() / 1000)
+    const messages = [
+      msg({ id: 'a', pubkey: ME, createdAt: today - 20 }),
+      msg({ id: 'b', pubkey: THEM, createdAt: today - 10 }),
+      msg({ id: 'c', pubkey: ME, createdAt: today - 5 }),
+      msg({ id: 'd', pubkey: THEM, createdAt: today - 2 }),
+    ]
+    render(<MessageList chatId="chat" chatType="dm" messages={messages} myPubkey={ME} profiles={{}} onReply={noop} onRetry={noop} dividerTimestamp={today - 25} />)
+    expect(screen.getAllByText('New messages')).toHaveLength(1)
+  })
+
   it('shows a not-found notice when the jump target never loads', async () => {
     exhausted = false
     loadOlder.mockResolvedValue(0) // paging yields nothing new

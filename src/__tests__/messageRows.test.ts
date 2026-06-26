@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { decorateRow, sameDay } from '../lib/messageRows'
+import { decorateRow, sameDay, unreadAnchorId } from '../lib/messageRows'
 import type { Message } from '../store/nostrStore'
 
 const ME = 'me'.padEnd(64, '0')
@@ -23,24 +23,35 @@ describe('sameDay', () => {
 
 describe('decorateRow', () => {
   it('shows a date separator for the first message and on day change', () => {
-    expect(decorateRow(msg({ createdAt: DAY1_NOON }), undefined, undefined, ME).showDateSeparator).toBe(true)
-    expect(decorateRow(msg({ createdAt: DAY2 }), msg({ createdAt: DAY1_LATER }), undefined, ME).showDateSeparator).toBe(true)
-    expect(decorateRow(msg({ createdAt: DAY1_LATER }), msg({ createdAt: DAY1_NOON }), undefined, ME).showDateSeparator).toBe(false)
-  })
-
-  it('shows the divider only on the first message strictly newer than dividerTimestamp', () => {
-    const prev = msg({ createdAt: 1000 })
-    const cur = msg({ createdAt: 2000 })
-    expect(decorateRow(cur, prev, 1500, ME).showDivider).toBe(true)
-    // previous already past the divider -> not the boundary
-    expect(decorateRow(msg({ createdAt: 3000 }), msg({ createdAt: 2000 }), 1500, ME).showDivider).toBe(false)
-    // no divider timestamp
-    expect(decorateRow(cur, prev, undefined, ME).showDivider).toBe(false)
+    expect(decorateRow(msg({ createdAt: DAY1_NOON }), undefined, ME).showDateSeparator).toBe(true)
+    expect(decorateRow(msg({ createdAt: DAY2 }), msg({ createdAt: DAY1_LATER }), ME).showDateSeparator).toBe(true)
+    expect(decorateRow(msg({ createdAt: DAY1_LATER }), msg({ createdAt: DAY1_NOON }), ME).showDateSeparator).toBe(false)
   })
 
   it('hides the avatar for own messages and consecutive same-sender, shows it after a date change', () => {
-    expect(decorateRow(msg({ pubkey: ME }), undefined, undefined, ME).showAvatar).toBe(false)
-    expect(decorateRow(msg({ pubkey: THEM, createdAt: DAY1_LATER }), msg({ pubkey: THEM, createdAt: DAY1_NOON }), undefined, ME).showAvatar).toBe(false)
-    expect(decorateRow(msg({ pubkey: THEM, createdAt: DAY2 }), msg({ pubkey: THEM, createdAt: DAY1_LATER }), undefined, ME).showAvatar).toBe(true)
+    expect(decorateRow(msg({ pubkey: ME }), undefined, ME).showAvatar).toBe(false)
+    expect(decorateRow(msg({ pubkey: THEM, createdAt: DAY1_LATER }), msg({ pubkey: THEM, createdAt: DAY1_NOON }), ME).showAvatar).toBe(false)
+    expect(decorateRow(msg({ pubkey: THEM, createdAt: DAY2 }), msg({ pubkey: THEM, createdAt: DAY1_LATER }), ME).showAvatar).toBe(true)
+  })
+})
+
+describe('unreadAnchorId', () => {
+  it('anchors on the first received message past the timestamp, skipping my own', () => {
+    const messages = [
+      msg({ id: 'a', pubkey: ME, createdAt: 1000 }),
+      msg({ id: 'b', pubkey: ME, createdAt: 2000 }),
+      msg({ id: 'c', pubkey: THEM, createdAt: 3000 }),
+    ]
+    expect(unreadAnchorId(messages, 500, ME)).toBe('c')
+  })
+
+  it('is undefined when the only new messages are my own', () => {
+    const messages = [msg({ id: 'a', pubkey: ME, createdAt: 2000 })]
+    expect(unreadAnchorId(messages, 500, ME)).toBeUndefined()
+  })
+
+  it('is undefined without a divider timestamp', () => {
+    const messages = [msg({ id: 'a', pubkey: THEM, createdAt: 2000 })]
+    expect(unreadAnchorId(messages, undefined, ME)).toBeUndefined()
   })
 })

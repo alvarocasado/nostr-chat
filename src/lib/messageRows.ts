@@ -6,26 +6,36 @@ export function sameDay(aSec: number, bSec: number): boolean {
 
 export interface RowDecoration {
   showDateSeparator: boolean
-  showDivider: boolean
   showAvatar: boolean
 }
 
 /**
  * Per-row display flags for the message list. Pure: depends only on the message,
- * its predecessor, the unread-divider timestamp, and the local pubkey.
+ * its predecessor, and the local pubkey. The unread divider is positioned by
+ * unreadAnchorId (see below) since it needs whole-list context, not just prevMsg.
  */
 export function decorateRow(
   msg: Message,
   prevMsg: Message | undefined,
-  dividerTimestamp: number | undefined,
   myPubkey: string,
 ): RowDecoration {
   const showDateSeparator = !prevMsg || !sameDay(prevMsg.createdAt, msg.createdAt)
-  const showDivider =
-    dividerTimestamp !== undefined &&
-    msg.createdAt > dividerTimestamp &&
-    (!prevMsg || prevMsg.createdAt <= dividerTimestamp)
   const showAvatar =
     msg.pubkey !== myPubkey && (showDateSeparator || msg.pubkey !== prevMsg?.pubkey)
-  return { showDateSeparator, showDivider, showAvatar }
+  return { showDateSeparator, showAvatar }
+}
+
+/**
+ * Id of the message the "New messages" divider sits above: the first message
+ * newer than the last-seen timestamp that was received (not sent by me). Your
+ * own messages are always newer than the seen-timestamp, so anchoring on them
+ * would show the divider when you send. Undefined = no divider.
+ */
+export function unreadAnchorId(
+  messages: Message[],
+  dividerTimestamp: number | undefined,
+  myPubkey: string,
+): string | undefined {
+  if (dividerTimestamp === undefined) return undefined
+  return messages.find(m => m.createdAt > dividerTimestamp && m.pubkey !== myPubkey)?.id
 }
