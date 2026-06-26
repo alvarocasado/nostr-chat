@@ -22,8 +22,10 @@ vi.mock('react-virtuoso', () => ({
   Virtuoso: (props: Record<string, unknown>) => {
     lastVirtuosoProps = props
     const data = props.data as Message[]
+    const firstItemIndex = (props.firstItemIndex as number) ?? 0
     const itemContent = props.itemContent as (i: number, m: Message) => React.ReactNode
-    return <div data-testid="virtuoso">{data.map((m, i) => <div key={m.id}>{itemContent(i, m)}</div>)}</div>
+    // Real Virtuoso passes the absolute index (firstItemIndex + position), not the array index.
+    return <div data-testid="virtuoso">{data.map((m, i) => <div key={m.id}>{itemContent(firstItemIndex + i, m)}</div>)}</div>
   },
 }))
 
@@ -80,6 +82,20 @@ describe('MessageList', () => {
     const messages = [msg({ id: 'a', createdAt: 1 }), msg({ id: 'b', createdAt: 2 })]
     rerender(<MessageList chatId="c" chatType="dm" messages={messages} myPubkey={ME} profiles={{}} onReply={noop} onRetry={noop} />)
     expect(lastVirtuosoProps.initialTopMostItemIndex as number).toBeGreaterThanOrEqual(0)
+  })
+
+  it('does not repeat date separators or the new-messages divider on every row', () => {
+    // Regression: Virtuoso's absolute index was used to read messages[index-1], so prev was
+    // always undefined, putting a "Today" separator and "New messages" divider on every message.
+    const today = Math.floor(Date.now() / 1000)
+    const messages = [
+      msg({ id: 'a', createdAt: today - 30 }),
+      msg({ id: 'b', createdAt: today - 20 }),
+      msg({ id: 'c', createdAt: today - 10 }),
+    ]
+    render(<MessageList chatId="chat" chatType="channel" messages={messages} myPubkey={ME} profiles={{}} onReply={noop} onRetry={noop} dividerTimestamp={today - 25} />)
+    expect(screen.getAllByText('New messages')).toHaveLength(1)
+    expect(screen.getAllByText('Today')).toHaveLength(1)
   })
 
   it('shows a not-found notice when the jump target never loads', async () => {
