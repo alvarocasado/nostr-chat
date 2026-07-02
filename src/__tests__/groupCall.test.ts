@@ -6,7 +6,7 @@ import {
   GROUP_CALL_PRESENCE_KIND, MAX_GROUP_CALL_PARTICIPANTS,
   PRESENCE_INTERVAL_MS, PRESENCE_EXPIRY_MS,
   buildPresenceEvent, parsePresenceEvent,
-  deriveRoster, myOfferWins, deriveJoinState,
+  deriveRoster, myOfferWins, deriveJoinState, activeCallPeers,
   serializeCallStart, parseCallStartPayload,
   type Heartbeat,
 } from '../lib/groupCall'
@@ -75,6 +75,42 @@ describe('deriveRoster', () => {
     ])
     expect(deriveRoster(map, now)?.callId).toBe('aaa')
     expect(deriveRoster(map, now)?.participants).toEqual(['pk2'])
+  })
+})
+
+describe('activeCallPeers', () => {
+  const hb = (callId: string, receivedAt: number): Heartbeat => ({ callId, mediaType: 'audio', receivedAt })
+
+  it('returns only pubkeys live on the given callId', () => {
+    const now = 1_000_000
+    const map = new Map([
+      ['pkA', hb('c1', now - 1_000)],
+      ['pkB', hb('c1', now - 2_000)],
+      ['pkC', hb('c2', now - 1_000)],
+    ])
+    expect(activeCallPeers(map, 'c1', now).sort()).toEqual(['pkA', 'pkB'])
+  })
+
+  it('excludes heartbeats past PRESENCE_EXPIRY_MS even on the active call', () => {
+    const now = 1_000_000
+    const map = new Map([
+      ['pkA', hb('c1', now - PRESENCE_EXPIRY_MS - 1)],
+      ['pkB', hb('c1', now - 1_000)],
+    ])
+    expect(activeCallPeers(map, 'c1', now)).toEqual(['pkB'])
+  })
+
+  it('does not let a stale, lexicographically-smaller callId displace peers on the current call', () => {
+    // Regression: deriveRoster would converge on 'a-old' here (smallest live
+    // callId), wrongly dropping pkCurrent even though it is still heartbeating
+    // on the actually-active call 'c1'.
+    const now = 1_000_000
+    const map = new Map([
+      ['pkCurrent', hb('c1', now - 1_000)],
+      ['pkStale', hb('a-old', now - PRESENCE_EXPIRY_MS + 1)],
+    ])
+    expect(deriveRoster(map, now)?.callId).toBe('a-old')
+    expect(activeCallPeers(map, 'c1', now)).toEqual(['pkCurrent'])
   })
 })
 

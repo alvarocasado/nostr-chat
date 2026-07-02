@@ -82,6 +82,26 @@ export function deriveRoster(heartbeats: ReadonlyMap<string, Heartbeat>, nowMs: 
   return { callId, mediaType, participants: [...participants].sort() }
 }
 
+/**
+ * Pubkeys with a live heartbeat for one specific (already-active) call.
+ *
+ * This differs from deriveRoster, which converges on the lexicographically
+ * smallest *live* callId across the group — correct for deciding which call
+ * to join, but wrong for sweeping an in-progress call: a residual heartbeat
+ * from a recently-ended call (still inside PRESENCE_EXPIRY_MS) can sort
+ * smaller than the current callId and would otherwise evict peers that are
+ * legitimately still on the active call.
+ */
+export function activeCallPeers(heartbeats: ReadonlyMap<string, Heartbeat>, callId: string, nowMs: number): string[] {
+  const result: string[] = []
+  for (const [pubkey, hb] of heartbeats) {
+    if (hb.callId !== callId) continue
+    if (nowMs - hb.receivedAt > PRESENCE_EXPIRY_MS) continue
+    result.push(pubkey)
+  }
+  return result
+}
+
 /** Glare tie-break: when both sides of a pair sent offers, the offer from the lexicographically smaller pubkey wins. */
 export function myOfferWins(myPubkey: string, theirPubkey: string): boolean {
   return myPubkey < theirPubkey

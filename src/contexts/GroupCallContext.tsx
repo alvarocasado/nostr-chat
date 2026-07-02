@@ -14,7 +14,7 @@ import {
 } from '../lib/webrtc'
 import {
   GROUP_CALL_PRESENCE_KIND, PRESENCE_INTERVAL_MS,
-  buildPresenceEvent, parsePresenceEvent, deriveRoster, deriveJoinState, myOfferWins,
+  buildPresenceEvent, parsePresenceEvent, deriveRoster, deriveJoinState, myOfferWins, activeCallPeers,
   type Heartbeat, type LiveCall, type JoinState,
 } from '../lib/groupCall'
 
@@ -222,8 +222,12 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
   const sweepMeshRoster = useCallback(() => {
     const gid = activeGroupRef.current
     if (!gid || stateRef.current !== 'in-call') return
-    const roster = deriveRoster(heartbeatsRef.current.get(gid) ?? new Map(), Date.now())
-    const validPeers = new Set(roster?.participants ?? [])
+    // Uses activeCallPeers (membership in the active callId), not deriveRoster
+    // (which picks the smallest live callId) — see activeCallPeers' doc comment
+    // for why the latter would wrongly evict peers still on the current call.
+    const validPeers = new Set(
+      activeCallPeers(heartbeatsRef.current.get(gid) ?? new Map(), callIdRef.current, Date.now()),
+    )
     for (const peerPubkey of [...peersRef.current.keys()]) {
       if (!validPeers.has(peerPubkey)) removePeer(peerPubkey)
     }
