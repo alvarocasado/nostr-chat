@@ -82,6 +82,7 @@ export interface SyncedSettings {
   callsSettings?: CallsSyncedSettings
   blockedPubkeys?: string[]
   dismissedRequests?: Record<string, number>
+  readReceiptsEnabled?: boolean
 }
 
 async function buildAppSettingsEvent(settings: SyncedSettings): Promise<Event> {

@@ -633,3 +633,36 @@ describe('group store actions', () => {
     expect(g.unread).toBe(1)
   })
 })
+
+describe('read receipts state', () => {
+  it('setPeerReadUntil keeps the max watermark per peer', () => {
+    useNostrStore.setState({ readUntilByPeer: {} })
+    useNostrStore.getState().setPeerReadUntil('peer1', 100)
+    useNostrStore.getState().setPeerReadUntil('peer1', 50)   // stale, ignored
+    useNostrStore.getState().setPeerReadUntil('peer2', 70)
+    expect(useNostrStore.getState().readUntilByPeer).toEqual({ peer1: 100, peer2: 70 })
+  })
+
+  it('setReadReceiptsEnabled flips the flag', () => {
+    useNostrStore.setState({ readReceiptsEnabled: false })
+    useNostrStore.getState().setReadReceiptsEnabled(true)
+    expect(useNostrStore.getState().readReceiptsEnabled).toBe(true)
+  })
+
+  it('applySyncResult applies readReceiptsEnabled from newer synced settings', () => {
+    useNostrStore.setState({ readReceiptsEnabled: false, syncedSettingsAt: null })
+    applySyncResult(
+      {
+        contacts: null,
+        channels: null,
+        groupKeys: {},
+        relayList: null,
+        settings: { createdAt: 999, settings: { readReceiptsEnabled: true } },
+      },
+      s => useNostrStore.setState(s),
+      () => useNostrStore.getState(),
+    )
+    expect(useNostrStore.getState().readReceiptsEnabled).toBe(true)
+    expect(useNostrStore.getState().syncedSettingsAt).toBe(999)
+  })
+})

@@ -166,6 +166,12 @@ interface NostrState {
   blockedPubkeys: string[]
   dismissedRequests: Record<string, number>  // pubkey → unix-seconds of dismissal
 
+  // Read receipts (opt-in, reciprocal; DMs only). readUntilByPeer maps peer
+  // pubkey to the newest watermark received from them. The receipt events are
+  // ephemeral; this local copy is what survives reload (persisted like seenAt).
+  readReceiptsEnabled: boolean
+  readUntilByPeer: Record<string, number>
+
   // Drafts (session-only, not persisted)
   drafts: Record<string, string>
 
@@ -204,6 +210,9 @@ interface NostrState {
   dismissMessageRequest: (pubkey: string) => void
   blockPubkey: (pubkey: string) => void
   unblockPubkey: (pubkey: string) => void
+
+  setReadReceiptsEnabled: (enabled: boolean) => void
+  setPeerReadUntil: (peerPubkey: string, readUntil: number) => void
 
   setActiveChat: (id: string, type: ChatType) => void
   clearActiveChat: () => void
@@ -327,6 +336,7 @@ export function applySyncResult(
         ...(s.relays !== undefined && !result.relayList ? { relays: s.relays } : {}),
         ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
         ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
+        ...(s.readReceiptsEnabled !== undefined ? { readReceiptsEnabled: s.readReceiptsEnabled } : {}),
         syncedSettingsAt: result.settings.createdAt,
       })
       if (s.callsSettings) {
@@ -414,7 +424,7 @@ export const useNostrStore = create<NostrState>()(
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests } = get()
+            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests, readReceiptsEnabled } = get()
             if (!getSigner()) return
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
@@ -433,7 +443,7 @@ export const useNostrStore = create<NostrState>()(
             }
             const wr = get().writeRelays()
             void Promise.all([
-              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests }, wr),
+              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests, readReceiptsEnabled }, wr),
               publishRelayList(wr, get().relays, get().relayModes),
             ]).then(() => set({ syncedSettingsAt: now })).catch(() => {})
           })()
@@ -471,6 +481,8 @@ export const useNostrStore = create<NostrState>()(
         mutedChats: {},
         blockedPubkeys: [],
         dismissedRequests: {},
+        readReceiptsEnabled: false,
+        readUntilByPeer: {},
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
@@ -712,6 +724,17 @@ export const useNostrStore = create<NostrState>()(
           scheduleSettingsSync()
         },
 
+        setReadReceiptsEnabled: (enabled) => {
+          set({ readReceiptsEnabled: enabled })
+          scheduleSettingsSync()
+        },
+
+        setPeerReadUntil: (peerPubkey, readUntil) => {
+          const current = get().readUntilByPeer[peerPubkey] ?? 0
+          if (readUntil <= current) return
+          set({ readUntilByPeer: { ...get().readUntilByPeer, [peerPubkey]: readUntil } })
+        },
+
         setActiveChat: (id, type) => {
           set({ activeChatId: id, activeChatType: type })
           get().markRead(id)
@@ -947,6 +970,8 @@ export const useNostrStore = create<NostrState>()(
         syncedSettingsAt: state.syncedSettingsAt,
         blockedPubkeys: state.blockedPubkeys,
         dismissedRequests: state.dismissedRequests,
+        readReceiptsEnabled: state.readReceiptsEnabled,
+        readUntilByPeer: state.readUntilByPeer,
         deletedMessages: state.deletedMessages,
         editedMessages: state.editedMessages,
       }),
