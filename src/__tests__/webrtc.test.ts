@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { generateKeys } from '../lib/nostr'
 import { installTestSigner } from '../test/signer'
-import { clearSigner } from '../lib/signer'
+import { clearSigner, getSigner } from '../lib/signer'
 import {
   buildCallSignalEvent,
   decryptCallSignal,
+  isGroupSignal,
+  shouldReplyBusy,
   ICE_SERVERS,
   CALL_SIGNAL_KIND,
   type CallSignal,
@@ -217,5 +219,49 @@ describe('ICE_SERVERS', () => {
         expect(url).toMatch(/^stun:/)
       }
     }
+  })
+})
+
+// ─── group signal extension ──────────────────────────────────────────────────
+
+describe('group signal extension', () => {
+  beforeEach(() => {
+    installTestSigner(makeKeypair().sk)
+  })
+
+  afterEach(() => {
+    clearSigner()
+  })
+
+  it('accepts a signal with a valid groupId and preserves it through encrypt/decrypt', async () => {
+    const me = getSigner()!.pubkey
+    const event = await buildCallSignalEvent(me, { type: 'call-offer', callId: 'c1', groupId: 'g1', mediaType: 'audio', sdp: 'sdp' })
+    const parsed = await decryptCallSignal(me, event.content)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.groupId).toBe('g1')
+  })
+
+  it('rejects invalid groupId values', async () => {
+    const me = getSigner()!.pubkey
+    for (const groupId of ['', 'x'.repeat(129), 42 as unknown as string]) {
+      const event = await buildCallSignalEvent(me, { type: 'call-offer', callId: 'c1', groupId, sdp: 'sdp' })
+      expect(await decryptCallSignal(me, event.content)).toBeNull()
+    }
+  })
+
+  it('isGroupSignal detects the groupId marker', () => {
+    expect(isGroupSignal({ type: 'call-end', callId: 'c' })).toBe(false)
+    expect(isGroupSignal({ type: 'call-end', callId: 'c', groupId: 'g' })).toBe(true)
+  })
+})
+
+describe('shouldReplyBusy', () => {
+  it.each([
+    [false, true, 'none'],
+    [true, false, 'none'],
+    [true, true, 'group'],
+    [true, false, 'dm'],
+  ] as const)('returns %s for isIdle=%s activeCallType=%s', (expected, isIdle, act) => {
+    expect(shouldReplyBusy(isIdle, act)).toBe(expected)
   })
 })

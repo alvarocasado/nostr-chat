@@ -705,3 +705,13 @@ describe('read receipts state', () => {
     expect(useNostrStore.getState().syncedSettingsAt).toBe(999)
   })
 })
+
+describe('activeCallType', () => {
+  it('defaults to none and is settable', () => {
+    useNostrStore.setState({ activeCallType: 'none' })
+    useNostrStore.getState().setActiveCallType('group')
+    expect(useNostrStore.getState().activeCallType).toBe('group')
+    useNostrStore.getState().setActiveCallType('none')
+    expect(useNostrStore.getState().activeCallType).toBe('none')
+  })
+})

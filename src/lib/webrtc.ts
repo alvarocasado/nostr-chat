@@ -31,6 +31,7 @@ export type CallSignalType = 'call-offer' | 'call-answer' | 'ice-candidate' | 'c
 export interface CallSignal {
   type: CallSignalType
   callId: string
+  groupId?: string          // present on group-call signals; absent on 1:1
   mediaType?: MediaType
   sdp?: string
   candidate?: RTCIceCandidateInit
@@ -63,6 +64,10 @@ function isValidCallSignal(obj: unknown): obj is CallSignal {
 
   if (!VALID_SIGNAL_TYPES.includes(s.type as CallSignalType)) return false
   if (typeof s.callId !== 'string' || s.callId.length === 0 || s.callId.length > MAX_CALL_ID_LEN) return false
+
+  if (s.groupId !== undefined) {
+    if (typeof s.groupId !== 'string' || s.groupId.length === 0 || s.groupId.length > MAX_CALL_ID_LEN) return false
+  }
 
   if (s.sdp !== undefined) {
     if (typeof s.sdp !== 'string' || s.sdp.length > MAX_SDP_LEN) return false
@@ -127,4 +132,15 @@ export async function decryptCallSignal(
   } catch {
     return null
   }
+}
+
+export function isGroupSignal(s: CallSignal): boolean {
+  return s.groupId !== undefined
+}
+
+export type ActiveCallType = 'none' | 'dm' | 'group'
+
+/** A 1:1 offer gets a busy reply when a 1:1 call is active or a group call holds the media. */
+export function shouldReplyBusy(isIdle: boolean, activeCallType: ActiveCallType): boolean {
+  return !isIdle || activeCallType === 'group'
 }

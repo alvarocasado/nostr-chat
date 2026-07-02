@@ -27,6 +27,7 @@ import {
   type CallsSyncedSettings,
 } from '../lib/nostrSync'
 import { filterRead, filterWrite, type RelayModes } from '../lib/relayRouting'
+import type { ActiveCallType } from '../lib/webrtc'
 
 export type ChatType = 'channel' | 'dm' | 'group'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications' | 'privacy'
@@ -184,8 +185,12 @@ interface NostrState {
   // Signer capabilities (runtime-only, never persisted)
   signerCaps: { nip04: boolean }
 
+  // Which call engine holds the media (runtime-only, never persisted)
+  activeCallType: ActiveCallType
+
   // Actions
   setSignerCaps: (caps: { nip04: boolean }) => void
+  setActiveCallType: (t: ActiveCallType) => void
   generateAndLogin: () => Promise<{ nsec: string; npub: string }>
   loginFromNsec: (nsec: string) => Promise<boolean>
   loginFromHex: (hex: string) => Promise<boolean>
@@ -487,8 +492,10 @@ export const useNostrStore = create<NostrState>()(
         seenAt: {},
         syncedSettingsAt: null,
         signerCaps: { nip04: true },
+        activeCallType: 'none',
 
         setSignerCaps: (caps) => set({ signerCaps: caps }),
+        setActiveCallType: (t) => set({ activeCallType: t }),
 
         generateAndLogin: async () => {
           const sk = generateSecretKey()

@@ -11,6 +11,7 @@ import { fireCallNotification } from '../lib/notifications'
 import {
   buildCallSignalEvent, decryptCallSignal,
   getIceServers, fetchCallIceServers, mergeIceServers, CALL_SIGNAL_KIND,
+  isGroupSignal, shouldReplyBusy,
   type CallSignal, type MediaType,
 } from '../lib/webrtc'
 
@@ -77,6 +78,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   // Keep ref in sync so callbacks always see current state
   useEffect(() => { callStateRef.current = callState }, [callState])
+
+  // Publish 1:1 call activity so the group engine can mutually exclude
+  useEffect(() => {
+    const { activeCallType, setActiveCallType } = useNostrStore.getState()
+    if (callState !== 'idle') setActiveCallType('dm')
+    else if (activeCallType === 'dm') setActiveCallType('none')
+  }, [callState])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -326,9 +334,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const handleSignal = useCallback(async (senderPubkey: string, signal: CallSignal) => {
     if (!getSigner()) return
+    if (isGroupSignal(signal)) return  // group engine owns these
 
     if (signal.type === 'call-offer') {
-      if (callStateRef.current !== 'idle') {
+      if (shouldReplyBusy(callStateRef.current === 'idle', useNostrStore.getState().activeCallType)) {
         await sendSignal(senderPubkey, { type: 'call-end', callId: signal.callId, reason: 'busy' })
         return
       }
