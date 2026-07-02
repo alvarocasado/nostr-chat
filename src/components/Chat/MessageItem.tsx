@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2, SmilePlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, CheckCheck, Loader2, SmilePlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -231,8 +231,9 @@ function QuoteBlock({ replyTo, isOwn }: { replyTo: ReplyTo; isOwn: boolean }) {
   )
 }
 
-function StatusIndicator({ status, onRetry, msgId }: {
+function StatusIndicator({ status, read, onRetry, msgId }: {
   status?: 'sending' | 'sent' | 'failed'
+  read?: boolean
   onRetry?: (id: string) => void
   msgId: string
 }) {
@@ -251,6 +252,9 @@ function StatusIndicator({ status, onRetry, msgId }: {
     )
   }
   if (status === 'sent') {
+    if (read) {
+      return <CheckCheck size={13} aria-label="Read" className="text-purple-400 flex-shrink-0 mb-1" />
+    }
     return <Check size={12} className="text-gray-500 flex-shrink-0 mb-1" />
   }
   return null
@@ -264,6 +268,11 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
   const edit = useNostrStore(s => s.editedMessages[message.id])
   const isDeleted = deletion?.by === message.pubkey
   const isEdited = !!edit && edit.by === message.pubkey
+  const readUntil = useNostrStore(s =>
+    isOwn && s.readReceiptsEnabled && message.recipientPubkey
+      ? s.readUntilByPeer[message.recipientPubkey]
+      : undefined)
+  const isRead = readUntil !== undefined && message.createdAt <= readUntil
   const effectiveContent = isEdited ? edit.content : message.content
   const { text, attachment, replyTo } = parseMessageContent(effectiveContent)
   const [showPicker, setShowPicker] = useState(false)
@@ -439,7 +448,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
     return (
       <div ref={rowRef} data-message-id={message.id} className="flex flex-col items-end gap-1 group">
         <div className="flex items-end gap-2 max-w-[85%]">
-          <StatusIndicator status={message.status} onRetry={onRetry} msgId={message.id} />
+          <StatusIndicator status={message.status} read={isRead} onRetry={onRetry} msgId={message.id} />
           <span className="text-gray-700 text-xs mb-1">
             {time}{timeSuffix}
           </span>
