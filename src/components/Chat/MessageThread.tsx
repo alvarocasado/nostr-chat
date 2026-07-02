@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRateLimit } from '../../hooks/useRateLimit'
 import { useWriteRelays } from '../../hooks/useRelays'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
+import { useReadReceipts } from '../../hooks/useReadReceipts'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
 import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
@@ -626,6 +627,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
+  useReadReceipts(theirPubkey, !isPending)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
