@@ -122,6 +122,27 @@ coordinated entirely over Nostr relays.
   state. Controls: mute, camera toggle, hang up; shows duration and
   participant count.
 
+### Mobile rendering
+
+- The overlay is `fixed inset-0` fullscreen (same base as `CallOverlay`) and
+  must work at phone widths: the tile grid is responsive — 1 column for 2
+  participants, 2 columns for 3-6 (`grid-cols-1 sm:grid-cols-2` scaling with
+  count), tiles keep a 3:4-ish aspect on narrow screens so 6 fit without
+  scrolling.
+- Controls use the existing touch-friendly call-button sizing (44 px+ hit
+  targets) and sit in a bottom bar clear of home-indicator/safe-area
+  (`pb-[env(safe-area-inset-bottom)]` like the rest of the PWA where
+  applicable).
+- The banner and header call button must render in the mobile GroupThread
+  layout (single-pane view) exactly as other thread banners do.
+- Performance note: mesh video on phones is expensive (N-1 uplinks, decode
+  of up to 5 streams). Mitigations in v1: the 6-participant cap, the camera
+  toggle (audio-only participation), and 720p max capture (existing
+  `getUserMedia` constraint). No mobile-specific bitrate adaptation in v1 —
+  documented as a known limit.
+- Manual verification includes one phone-sized viewport (devtools emulation
+  at minimum, a real device for the live-network pass).
+
 ## State & persistence
 
 - All live call state is in-memory inside `GroupCallContext`; nothing is
