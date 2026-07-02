@@ -47,6 +47,7 @@ export function useReadReceipts(peerPubkey: string, active = true) {
       readR,
       { kinds: [READ_RECEIPT_KIND], authors: [peerPubkey], '#p': [publicKey] },
       (event) => {
+        if (event.pubkey !== peerPubkey) return  // don't trust the relay to honor the authors filter
         void parseReadReceiptEvent(event).then(readUntil => {
           if (readUntil !== null) setPeerReadUntil(peerPubkey, readUntil)
         })

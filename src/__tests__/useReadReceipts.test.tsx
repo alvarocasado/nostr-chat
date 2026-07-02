@@ -74,3 +74,23 @@ it('does not send when inactive (pending message request)', async () => {
   await new Promise(r => setTimeout(r, 50))
   expect(publishEvent).not.toHaveBeenCalled()
 })
+
+it('ignores a receipt event whose pubkey does not match the subscribed peer', async () => {
+  renderHook(() => useReadReceipts(PEER))
+  await waitFor(() => expect(subscribeEvents).toHaveBeenCalled())
+  const onEvent = (subscribeEvents.mock.calls[0] as unknown[])[2] as (event: Event) => void
+
+  const forged: Event = {
+    id: 'forged',
+    pubkey: 'not-the-peer'.padEnd(64, '0'),
+    kind: READ_RECEIPT_KIND,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [['p', getSigner()!.pubkey]],
+    content: 'irrelevant',
+    sig: 'sig',
+  }
+  onEvent(forged)
+  await new Promise(r => setTimeout(r, 50))
+
+  expect(useNostrStore.getState().readUntilByPeer).toEqual({})
+})

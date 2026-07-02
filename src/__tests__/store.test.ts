@@ -95,6 +95,20 @@ describe('logout', () => {
     expect(state.groups).toEqual([])
     expect(state.groupKeys).toEqual({})
   })
+
+  it('resets readReceiptsEnabled and readUntilByPeer so a new account does not inherit them', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    useNostrStore.setState({
+      readReceiptsEnabled: true,
+      readUntilByPeer: { peer1: 12345 },
+    })
+
+    await useNostrStore.getState().logout()
+    const state = useNostrStore.getState()
+
+    expect(state.readReceiptsEnabled).toBe(false)
+    expect(state.readUntilByPeer).toEqual({})
+  })
 })
 
 describe('relay management', () => {
@@ -197,6 +211,31 @@ describe('message management', () => {
   it('updateMessageStatus is a no-op for an unknown chat', () => {
     useNostrStore.getState().updateMessageStatus('unknown', 'm1', 'sent')
     expect(useNostrStore.getState().messages['unknown']).toBeUndefined()
+  })
+
+  describe('updateMessageStatus persistence', () => {
+    const PK = 'c'.repeat(64)
+    beforeEach(async () => {
+      openUserDb(PK)
+      const db = getUserDb()!
+      await db.messages.clear()
+      await db.messages.put(messageToRecord('ch1', { ...msg, status: 'sending' }))
+      useNostrStore.setState({ messages: { ch1: [{ ...msg, status: 'sending' }] } })
+    })
+    afterEach(async () => {
+      const db = getUserDb()
+      if (db) await db.messages.clear()
+      closeUserDb()
+    })
+
+    it('persists the new status to the Dexie record so it survives reload', async () => {
+      useNostrStore.getState().updateMessageStatus('ch1', 'm1', 'sent')
+      const db = getUserDb()!
+      await vi.waitFor(async () => {
+        const record = await db.messages.get('m1')
+        expect(record?.status).toBe('sent')
+      })
+    })
   })
 })
 

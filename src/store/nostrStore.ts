@@ -558,6 +558,8 @@ export const useNostrStore = create<NostrState>()(
             groups: [],
             groupKeys: {},
             signerCaps: { nip04: true },
+            readReceiptsEnabled: false,
+            readUntilByPeer: {},
           })
           clearSigner()
           await clearLocalKey()
@@ -837,6 +839,8 @@ export const useNostrStore = create<NostrState>()(
               [chatId]: msgs.map(m => m.id === msgId ? { ...m, status } : m),
             }
           })
+          const db = getUserDb()
+          if (db) void db.messages.update(msgId, { status })
         },
 
         markRead: (chatId) => {

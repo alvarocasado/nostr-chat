@@ -19,7 +19,7 @@ user explicitly opts in.
 ## Protocol
 
 - New ephemeral event kind `24102`, exported as `READ_RECEIPT_KIND` in
-  `src/lib/nostr.ts` alongside `TYPING_INDICATOR_KIND` (24101).
+  `src/lib/readReceipts.ts`.
 - Content: NIP-04-encrypted to the peer, plaintext JSON
   `{ "read_until": <unix seconds> }`.
 - Tags: `[['p', peerPubkey]]`.
@@ -52,9 +52,10 @@ Same hook (or a small shared subscription) subscribes to
 - Ignore entirely if `readReceiptsEnabled` is OFF (reciprocity).
 - Decrypt with NIP-04; validate that `read_until` is a finite number and not
   unreasonably in the future (clamp to `now + 5 min`); drop malformed events.
-- Store the max `read_until` per peer in a new Dexie table:
-  `readReceipts { peerPubkey (PK) -> readUntil: number }`, in the existing
-  per-user database (`src/lib/db.ts` schema version bump).
+- Store the max `read_until` per peer in the store's `readUntilByPeer` map,
+  persisted like other settings: via the store's persist `partialize` into
+  the per-user Dexie settings blob (the same `seenAt`-style pattern used for
+  other synced settings), not a new Dexie table or schema bump.
 - The Nostr event is ephemeral; the local copy persists so read ticks survive
   reload.
 
