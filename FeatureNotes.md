@@ -23,3 +23,13 @@
   relays may retain the original event, so the tombstone reflects local
   honoring rather than guaranteed erasure. Like reactions, edits and deletes
   in DMs and groups remain end-to-end encrypted.
+- **Read receipts (opt-in).** Turn on "Send read receipts" in Settings >
+  Privacy to see a purple double-check when a contact has read your direct
+  message. Off by default and reciprocal: you only see others' read status
+  while you share yours. DMs only. Receipts travel as ephemeral encrypted
+  events — relays never store them, so no persistent trail of who-read-what
+  is created. If the sender is offline at that moment, the receipt arrives
+  the next time you both have the conversation open.
+- **Reliable sent ticks.** Message send status is now stored locally, so
+  sent (and read) checkmarks survive a page reload instead of reverting to
+  a spinner.
