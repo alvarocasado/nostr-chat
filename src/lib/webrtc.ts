@@ -144,3 +144,19 @@ export type ActiveCallType = 'none' | 'dm' | 'group'
 export function shouldReplyBusy(isIdle: boolean, activeCallType: ActiveCallType): boolean {
   return !isIdle || activeCallType === 'group'
 }
+
+/** getUserMedia honoring the user's saved device preferences (same logic as the 1:1 call path). */
+export async function getCallUserMedia(type: MediaType): Promise<MediaStream> {
+  const [audioSetting, videoSetting] = await Promise.all([
+    getSetting<string>('media_audio_device', ''),
+    getSetting<string>('media_video_device', ''),
+  ])
+  const audioId = audioSetting || undefined
+  const videoId = videoSetting || undefined
+  return navigator.mediaDevices.getUserMedia({
+    audio: audioId ? { deviceId: { ideal: audioId } } : true,
+    video: type === 'video'
+      ? { width: 1280, height: 720, ...(videoId ? { deviceId: { ideal: videoId } } : { facingMode: 'user' as const }) }
+      : false,
+  })
+}
