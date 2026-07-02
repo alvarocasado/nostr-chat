@@ -1,0 +1,169 @@
+# Group Calls (mesh WebRTC, room model) — Design Spec
+
+Date: 2026-07-02
+Status: Approved for planning
+
+## Goal
+
+Live audio/video calls inside private encrypted groups, with no media server:
+full-mesh pairwise WebRTC between up to 6 participants, discovered and
+coordinated entirely over Nostr relays.
+
+## Scope
+
+- Private groups only (existing AES-GCM groups with known `memberPubkeys`).
+  No calls in public channels or DMs (1:1 calls already exist).
+- Room model: a member starts a call; others see a banner and join or leave
+  freely. No synchronized ringing. The call ends when the last participant
+  leaves.
+- Audio + video with the same mute/camera controls as 1:1 calls.
+- Hard cap: 6 participants (`MAX_GROUP_CALL_PARTICIPANTS`). Join refused when
+  full.
+- Out of scope (v1): call history / missed-call records (separate spec),
+  screen share in groups, active-speaker detection, channels, SFU / >6
+  participants.
+
+## Protocol
+
+### Presence (roster) — new ephemeral kind 24103
+
+- `GROUP_CALL_PRESENCE_KIND = 24103`, in the app's 241xx ephemeral block
+  (24100 call signals, 24101 typing, 24102 read receipts).
+- Tags: `[['e', groupId]]`. Content: encrypted with the group's AES key
+  (`encryptWithGroupKey`), plaintext JSON
+  `{ "type": "presence", "callId": string, "mediaType": "audio" | "video" }`.
+- Each participant publishes one presence event every 30 s
+  (`PRESENCE_INTERVAL_MS = 30_000`) while in the call.
+- Roster derivation: a pure function over received heartbeats; a participant
+  is live if their newest heartbeat is younger than 90 s
+  (`PRESENCE_EXPIRY_MS = 90_000`). Crashed clients age out automatically.
+- The heartbeat author is the event `pubkey` (signature-backed); the payload
+  carries no sender identity. Payload validation: `type === 'presence'`,
+  `callId` non-empty string <= 128 chars, `mediaType` in the allowed set;
+  drop malformed events silently.
+- Ephemeral range: relays relay but never store call metadata.
+- Concurrent starts: if heartbeats for more than one `callId` are live in a
+  group, clients treat the lexicographically smallest `callId` as the
+  group's call (banner, join, roster). Participants heartbeating another
+  callId age out of the merged view or re-join; the rule is deterministic so
+  all clients converge.
+
+### Pairwise signaling — existing kind 24100, extended
+
+- `CallSignal` (src/lib/webrtc.ts) gains an optional `groupId?: string`
+  field (validated: string <= 128 chars when present). Everything else about
+  the signal path is unchanged: NIP-04-encrypted per recipient, one `p` tag.
+- Routing rule: the existing 1:1 handler in `CallContext` ignores any signal
+  carrying `groupId`; the group engine handles only signals whose `groupId`
+  and `callId` match the call it is in (plus incoming offers for that call).
+- Auto-answer: an incoming group `call-offer` for the call I am currently in
+  is answered immediately — no incoming-call modal. The banner is the ring.
+- Join handshake: the joiner sends one `call-offer` (with `groupId`,
+  `callId`, `mediaType`, `sdp`, `iceServers`) to every live roster member;
+  each answers with `call-answer`. ICE candidates flow pairwise as today,
+  with the same pre-offer buffering.
+- Glare tie-break: if I have a pending outgoing offer to peer P and receive
+  an offer from P for the same call, the offer from the lexicographically
+  smaller pubkey wins; the larger-pubkey side discards its own offer and
+  answers the winner. Pure function `resolveGlare(myPubkey, theirPubkey)`.
+- Leave: send `call-end` (`reason: 'ended'`, with `groupId`) to every
+  connected peer, stop heartbeating, close all connections. Peers also drop
+  a participant when their heartbeat expires or the RTCPeerConnection
+  reaches `failed`/`disconnected`.
+
+### Call-start announcement — existing group transport
+
+- Starting a call also sends one group control message (group-key-encrypted
+  kind 1042, same rails as reactions/edits):
+  `{ "type": "call-start", "callId": string }`.
+- The inbox routes it like other control payloads: it renders no message
+  bubble, updates the group's last-message preview to "Call started", and
+  fires a group notification (respecting per-chat mutes and notification
+  settings).
+- Presence is the source of truth for call liveness; the announcement is
+  UX only. No call-end announcement: the banner disappears when the roster
+  empties.
+
+## Call engine — new GroupCallContext
+
+- New provider `src/contexts/GroupCallContext.tsx`, separate from the 1:1
+  `CallContext` (keeps the 424-line 1:1 path untouched). Reuses
+  `lib/webrtc.ts` helpers (`getIceServers`, `fetchCallIceServers`,
+  `mergeIceServers`, `buildCallSignalEvent`, `decryptCallSignal`).
+- State: `Map<pubkey, RTCPeerConnection>`, `Map<pubkey, MediaStream>`
+  (remote streams), own join state (`idle | joining | in-call`), roster,
+  local stream, mute/camera flags, duration.
+- Start = join with an empty roster + the call-start control message.
+  `callId` = random id, generated by the starter.
+- Mutual exclusion with 1:1 calls: a `callBusy: boolean` flag in the Zustand
+  store, set by whichever context has an active call. `CallContext` replies
+  `busy` to incoming 1:1 offers while it is set; the group Join button is
+  disabled while a 1:1 call is active, and vice versa.
+- Cap enforcement: join refused (button disabled, "Call full") when the live
+  roster has 6 participants.
+- Multi-device: if my own pubkey is already in the roster but I am not
+  locally in the call, the banner shows "In call on another device" and join
+  is blocked.
+- Per-peer failure isolation: an ICE/connection failure closes that peer's
+  connection and marks their tile failed; the call survives. Heartbeat
+  expiry (90 s) is the fallback for crashed clients.
+
+## UI
+
+- `GroupThread` header: call button (start when no live call, join when one
+  exists), following the DM-thread header pattern.
+- `src/components/Call/GroupCallBanner.tsx`: shown in `GroupThread` when a
+  live roster exists and I have not joined — "Call in progress · N/6" with a
+  Join button (disabled with reason when full, busy in another call, or in
+  call on another device).
+- `src/components/Call/GroupCallOverlay.tsx`: full-screen overlay (mounted
+  in App.tsx like `CallOverlay`), CSS grid of participant tiles — video when
+  a remote video track exists, avatar otherwise, per-tile connecting/failed
+  state. Controls: mute, camera toggle, hang up; shows duration and
+  participant count.
+
+## State & persistence
+
+- All live call state is in-memory inside `GroupCallContext`; nothing is
+  persisted (calls are ephemeral by nature).
+- Store additions: `callBusy` flag only.
+- The call-start control message flows through the existing inbox
+  persistence like other group messages.
+
+## Error handling
+
+- `getUserMedia` failure: abort the join cleanly; no heartbeat is ever
+  published.
+- Per-peer failures: drop the peer, keep the call (see engine section).
+- Malformed presence/signal payloads: drop silently (existing inbound
+  posture).
+- Heartbeat publish failures: ignored; the next 30 s tick retries.
+
+## Testing
+
+- Pure logic in `src/lib/groupCall.ts`, unit-tested without WebRTC:
+  presence payload build/parse round-trip (group-key encryption), payload
+  validation (malformed/oversized rejection), roster derivation with 90 s
+  expiry, `resolveGlare` tie-break, signal routing (groupId vs 1:1,
+  callId matching), cap check, banner-state derivation (join / full / busy /
+  other-device).
+- Provider tests with mocked `lib/nostr` and a stubbed RTCPeerConnection:
+  subscribes to presence for the active group, publishes heartbeats on an
+  interval while in-call and stops after leave, refuses join when full or
+  busy.
+- 1:1 regression: `CallContext` ignores group-tagged signals (test).
+- Manual verification (live relay, 3 browser profiles): start/join/leave,
+  late join, crash expiry (kill a tab, roster drops after 90 s), 1:1 busy
+  interaction, cap behavior.
+
+## Known limits (accepted)
+
+- Mesh bandwidth: each participant uploads N-1 streams; 6-person video
+  requires decent uplinks. The cap is the mitigation.
+- Roster convergence is heartbeat-based: up to ~30 s for a new participant
+  to appear to non-participants, up to 90 s for a crashed one to disappear.
+- Kinds 24103 and the extended 24100 payloads are app-custom; no
+  cross-client interop.
+- Anyone holding the group key (current model: any past or present member)
+  can see and join calls — inherits the group security model documented in
+  the functional analysis (Priority 1 item 3, out of scope here).
