@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { X, Copy, Check, MessageCircle } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, Copy, Check, MessageCircle, BadgeCheck, ShieldAlert } from 'lucide-react'
 import { nip19 } from 'nostr-tools'
 import { useNostrStore } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName } from '../../lib/fileUtils'
+import { verifyNip05 } from '../../lib/nip05'
 
 export function ProfileCard() {
   const {
@@ -12,6 +13,18 @@ export function ProfileCard() {
     setActiveChat, addContact,
   } = useNostrStore()
   const [copied, setCopied] = useState<string | null>(null)
+  const [verified, setVerified] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    setVerified(null)
+    if (!viewingProfilePubkey) return
+    const prof = profiles[viewingProfilePubkey] ?? contacts.find(c => c.pubkey === viewingProfilePubkey)?.profile
+    const nip05 = prof?.nip05
+    if (!nip05) return
+    let cancelled = false
+    verifyNip05(viewingProfilePubkey, nip05).then(ok => { if (!cancelled) setVerified(ok) })
+    return () => { cancelled = true }
+  }, [viewingProfilePubkey, profiles, contacts])
 
   if (!viewingProfilePubkey) return null
 
@@ -59,7 +72,16 @@ export function ProfileCard() {
             <div className="min-w-0">
               <p className="text-white font-semibold text-base truncate">{name}</p>
               {profile?.nip05 && (
-                <p className="text-green-400 text-sm truncate">{profile.nip05}</p>
+                <p className="flex items-center gap-1 text-sm min-w-0">
+                  {verified === true ? (
+                    <BadgeCheck size={14} className="text-green-400 flex-shrink-0" />
+                  ) : verified === false ? (
+                    <ShieldAlert size={14} className="text-yellow-500 flex-shrink-0" />
+                  ) : null}
+                  <span className={`truncate ${verified === true ? 'text-green-400' : 'text-gray-400'}`}>
+                    {profile.nip05}
+                  </span>
+                </p>
               )}
             </div>
           </div>

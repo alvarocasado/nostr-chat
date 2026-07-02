@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2 } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2, SmilePlus } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -10,6 +10,7 @@ import type { NostrProfile } from '../../lib/nostr'
 import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData, type ReplyTo } from '../../lib/fileUtils'
 import { useNostrStore } from '../../store/nostrStore'
 import { useBlossomAttachment } from '../../hooks/useBlossomAttachment'
+import { aggregateReactions, REACTION_EMOJIS } from '../../lib/reactions'
 
 interface MessageItemProps {
   message: Message
@@ -18,6 +19,54 @@ interface MessageItemProps {
   showAvatar: boolean
   onReply: (msg: Message) => void
   onRetry?: (msgId: string) => void
+  onReact?: (msg: Message, emoji: string) => void
+}
+
+function ReactionPicker({ onPick }: { onPick: (emoji: string) => void }) {
+  return (
+    <div className="flex items-center gap-0.5 bg-gray-800 border border-gray-700 rounded-full px-1.5 py-1 shadow-lg">
+      {REACTION_EMOJIS.map(e => (
+        <button
+          key={e}
+          type="button"
+          onClick={() => onPick(e)}
+          className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors text-base leading-none"
+        >
+          {e}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ReactionPills({ message, isOwn, onReact }: {
+  message: Message
+  isOwn: boolean
+  onReact: (msg: Message, emoji: string) => void
+}) {
+  const myPubkey = useNostrStore(s => s.publicKey) ?? ''
+  const byEmoji = useNostrStore(s => s.reactions[message.id])
+  const pills = aggregateReactions(byEmoji, myPubkey)
+  if (pills.length === 0) return null
+  return (
+    <div className={`flex flex-wrap gap-1 ${isOwn ? 'justify-end' : ''}`}>
+      {pills.map(p => (
+        <button
+          key={p.emoji}
+          type="button"
+          onClick={() => onReact(message, p.emoji)}
+          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs border transition-colors ${
+            p.mine
+              ? 'bg-purple-600/30 border-purple-500/60 text-white'
+              : 'bg-gray-800/80 border-gray-700 text-gray-300 hover:bg-gray-700/80'
+          }`}
+        >
+          <span className="leading-none">{p.emoji}</span>
+          <span className="tabular-nums">{p.count}</span>
+        </button>
+      ))}
+    </div>
+  )
 }
 
 const SWIPE_THRESHOLD = 60
@@ -205,11 +254,12 @@ function StatusIndicator({ status, onRetry, msgId }: {
   return null
 }
 
-export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRetry }: MessageItemProps) {
+export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRetry, onReact }: MessageItemProps) {
   const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
   const { text, attachment, replyTo } = parseMessageContent(message.content)
   const { setViewingProfilePubkey } = useNostrStore()
+  const [showPicker, setShowPicker] = useState(false)
 
   const rowRef        = useRef<HTMLDivElement>(null)
   const swipeDxRef    = useRef(0)
@@ -302,6 +352,28 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
     </button>
   )
 
+  const reactBtn = onReact ? (
+    <div className="relative flex-shrink-0 mb-1">
+      <button
+        onClick={() => setShowPicker(v => !v)}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-500 hover:text-purple-400 rounded-lg hover:bg-white/10"
+        title="React"
+      >
+        <SmilePlus size={15} />
+      </button>
+      {showPicker && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setShowPicker(false)} />
+          <div className={`absolute z-20 bottom-full mb-1 ${isOwn ? 'left-0' : 'right-0'}`}>
+            <ReactionPicker onPick={emoji => { onReact(message, emoji); setShowPicker(false) }} />
+          </div>
+        </>
+      )}
+    </div>
+  ) : null
+
+  const pills = onReact ? <ReactionPills message={message} isOwn={isOwn} onReact={onReact} /> : null
+
   if (isOwn) {
     return (
       <div ref={rowRef} data-message-id={message.id} className="flex flex-col items-end gap-1 group">
@@ -310,6 +382,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           <span className="text-gray-700 text-xs mb-1">
             {time}
           </span>
+          {reactBtn}
           {replyBtn}
           {swipeReplyIcon}
           <div
@@ -321,6 +394,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
             <MarkdownMessage content={text} isOwn={true} />
           </div>
         </div>
+        {pills}
       </div>
     )
   }
@@ -351,10 +425,12 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
             <MarkdownMessage content={text} isOwn={false} />
           </div>
           {replyBtn}
+          {reactBtn}
           <span className="text-gray-700 text-xs mb-1 flex-shrink-0">
             {time}
           </span>
         </div>
+        {pills}
       </div>
     </div>
   )

@@ -138,6 +138,9 @@ interface NostrState {
   // Messages keyed by channelId or pubkey
   messages: Record<string, Message[]>
 
+  // Reactions keyed by target messageId → emoji → reactor pubkeys (session-only)
+  reactions: Record<string, Record<string, string[]>>
+
   // Profiles cache
   profiles: Record<string, NostrProfile>
 
@@ -206,6 +209,7 @@ interface NostrState {
   clearTargetMessage: () => void
 
   addMessage: (chatId: string, message: Message) => void
+  applyReaction: (messageId: string, emoji: string, pubkey: string, op: 'add' | 'remove') => void
   prependMessages: (chatId: string, msgs: Message[]) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
@@ -443,6 +447,7 @@ export const useNostrStore = create<NostrState>()(
         activeChatType: null,
         targetMessageId: null,
         messages: {},
+        reactions: {},
         profiles: {},
         sidebarTab: 'channels',
         showSettings: false,
@@ -524,6 +529,7 @@ export const useNostrStore = create<NostrState>()(
             activeChatId: null,
             activeChatType: null,
             messages: {},
+            reactions: {},
             groups: [],
             groupKeys: {},
             signerCaps: { nip04: true },
@@ -734,6 +740,24 @@ export const useNostrStore = create<NostrState>()(
           set({ messages: { ...get().messages, [chatId]: sorted } })
           const db = getUserDb()
           if (db) void db.messages.put(messageToRecord(chatId, message))
+        },
+
+        applyReaction: (messageId, emoji, pubkey, op) => {
+          const all = get().reactions
+          const forMsg = all[messageId] ?? {}
+          const reactors = forMsg[emoji] ?? []
+          let nextReactors: string[]
+          if (op === 'add') {
+            if (reactors.includes(pubkey)) return // idempotent — echo of own/duplicate event
+            nextReactors = [...reactors, pubkey]
+          } else {
+            if (!reactors.includes(pubkey)) return
+            nextReactors = reactors.filter(p => p !== pubkey)
+          }
+          const nextForMsg = { ...forMsg }
+          if (nextReactors.length > 0) nextForMsg[emoji] = nextReactors
+          else delete nextForMsg[emoji]
+          set({ reactions: { ...all, [messageId]: nextForMsg } })
         },
 
         prependMessages: (chatId, msgs) => {

@@ -13,6 +13,8 @@ import {
   type IncomingTransfer,
 } from './fileTransfer'
 import { serializeMessage, getDisplayName, getPreviewText } from './fileUtils'
+import { parseReactionPayload } from './reactions'
+import { isMentioned } from './mentions'
 import { getUserDb } from './userDb'
 
 // Plaintext content limit (channels + decrypted DMs): covers inline attachments
@@ -103,6 +105,16 @@ function finishTransfer(t: IncomingTransfer) {
   })
 }
 
+/** Apply an incoming reaction control message to the store. Caller dedups by event id. */
+function routeReaction(content: string, event: Event): boolean {
+  const reaction = parseReactionPayload(content)
+  if (!reaction) return false
+  if (claimSideEffects(event.id)) {
+    useNostrStore.getState().applyReaction(reaction.target, reaction.emoji, event.pubkey, reaction.op)
+  }
+  return true
+}
+
 function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Event): void {
   if (transfer.type === 'file_start') {
     handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
@@ -179,6 +191,9 @@ export async function processChannelEvent(
     return
   }
 
+  // Route reaction control messages; not shown as messages
+  if (routeReaction(event.content, event)) return
+
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 
   const msg: Message = {
@@ -193,10 +208,8 @@ export async function processChannelEvent(
   useNostrStore.getState().addMessage(channelId, msg)
   if (!sideEffects) return
 
-  const { publicKey, npub, channels, profiles, updateChannelLastMessage } = useNostrStore.getState()
-  const isMention = !!(
-    publicKey && (event.content.includes(publicKey) || (npub && event.content.includes(npub)))
-  )
+  const { publicKey, channels, profiles, updateChannelLastMessage } = useNostrStore.getState()
+  const isMention = !!publicKey && isMentioned(publicKey, event.content, event.tags)
   updateChannelLastMessage(channelId, getPreviewText(event.content), event.created_at, isMention, {
     incrementUnread: shouldCountUnread(channelId, event.created_at, opts.live),
   })
@@ -248,6 +261,9 @@ export async function processDMEvent(
       }
     } catch { /* not JSON — regular message */ }
   }
+
+  // Route reaction control messages; not shown as messages
+  if (routeReaction(decrypted, event)) return
 
   // Request gate (incoming only)
   const incoming = event.pubkey !== myPubkey
@@ -314,6 +330,9 @@ export async function processGroupEvent(
   }
   if (plaintext.length > MAX_CONTENT_LEN) return
 
+  // Route reaction control messages; not shown as messages
+  if (routeReaction(plaintext, event)) return
+
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 
   const msg: Message = {
@@ -328,7 +347,7 @@ export async function processGroupEvent(
   if (!sideEffects) return
 
   const { publicKey, groups, profiles, updateGroupLastMessage } = useNostrStore.getState()
-  const isMention = !!(publicKey && plaintext.includes(publicKey))
+  const isMention = !!publicKey && isMentioned(publicKey, plaintext, event.tags)
   updateGroupLastMessage(groupId, getPreviewText(plaintext), event.created_at, isMention, {
     incrementUnread: shouldCountUnread(groupId, event.created_at, opts.live),
   })

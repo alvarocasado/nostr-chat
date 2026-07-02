@@ -6,11 +6,14 @@ import {
   buildChannelCreateEvent,
   buildChannelMessageEvent,
   buildDMEvent,
+  buildGroupMessageEvent,
   buildProfileEvent,
   GROUP_MESSAGE_KIND,
   LEGACY_GROUP_MESSAGE_KIND,
   type NostrProfile,
 } from '../lib/nostr'
+import { encryptWithGroupKey } from '../lib/groupCrypto'
+import { serializeReaction } from '../lib/reactions'
 import { useNostrStore, type Channel } from '../store/nostrStore'
 import {
   processChannelEvent,
@@ -235,6 +238,32 @@ export async function sendDM(
   relays: string[],
 ) {
   const event = await buildDMEvent(recipientPubkey, content)
+  await publishEvent(relays, event)
+  return event
+}
+
+// ─── Reactions ───────────────────────────────────────────────────────────────
+// Reactions ride the same transports as messages so DM/group reactions stay
+// encrypted; the inbox processors route them out before they reach the message
+// list. See lib/reactions.ts for the rationale.
+
+export async function sendChannelReaction(
+  target: string, emoji: string, op: 'add' | 'remove', channelId: string, relays: string[],
+) {
+  return sendChannelMessage(serializeReaction(target, emoji, op), channelId, relays)
+}
+
+export async function sendDMReaction(
+  target: string, emoji: string, op: 'add' | 'remove', peer: string, relays: string[],
+) {
+  return sendDM(serializeReaction(target, emoji, op), peer, relays)
+}
+
+export async function sendGroupReaction(
+  target: string, emoji: string, op: 'add' | 'remove', groupId: string, groupKey: string, relays: string[],
+) {
+  const encrypted = await encryptWithGroupKey(serializeReaction(target, emoji, op), groupKey)
+  const event = await buildGroupMessageEvent(encrypted, groupId, relays[0])
   await publishEvent(relays, event)
   return event
 }

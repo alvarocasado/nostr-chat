@@ -6,7 +6,10 @@ import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
 import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, useGroupMessages } from '../../hooks/useNostrSubscriptions'
+import {
+  useChannelMessages, useDMMessages, useGroupMessages,
+  sendChannelReaction, sendDMReaction, sendGroupReaction,
+} from '../../hooks/useNostrSubscriptions'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
 import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
@@ -26,6 +29,24 @@ import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRec
 import { AudioMessage } from './AudioMessage'
 import { formatDuration } from '../../lib/format'
 
+
+// Toggle my reaction on a message: optimistic local apply, then publish; revert on failure.
+async function reactWith(
+  publicKey: string,
+  msg: Message,
+  emoji: string,
+  send: (target: string, emoji: string, op: 'add' | 'remove') => Promise<unknown>,
+) {
+  const { reactions, applyReaction } = useNostrStore.getState()
+  const mine = reactions[msg.id]?.[emoji]?.includes(publicKey) ?? false
+  const op: 'add' | 'remove' = mine ? 'remove' : 'add'
+  applyReaction(msg.id, emoji, publicKey, op)
+  try {
+    await send(msg.id, emoji, op)
+  } catch {
+    applyReaction(msg.id, emoji, publicKey, op === 'add' ? 'remove' : 'add')
+  }
+}
 
 function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {
   const { channels, clearActiveChat } = useNostrStore()
@@ -532,6 +553,11 @@ function ChannelThread({ channelId }: { channelId: string }) {
     }
   }
 
+  const handleReact = (msg: Message, emoji: string) => {
+    if (!getSigner() || !publicKey) return
+    void reactWith(publicKey, msg, emoji, (t, e, o) => sendChannelReaction(t, e, o, channelId, writeR))
+  }
+
   return (
     <>
       <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
@@ -539,7 +565,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
@@ -616,6 +642,14 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     }
   }
 
+  const handleReact = (msg: Message, emoji: string) => {
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
+    void reactWith(publicKey, msg, emoji, async (t, e, o) => {
+      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+      return sendDMReaction(t, e, o, theirPubkey, combineRelays(writeR, peerRead))
+    })
+  }
+
   return (
     <>
       <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
@@ -646,7 +680,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           {!signerCaps.nip04 && (
             <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
@@ -725,6 +759,11 @@ function GroupThread({ groupId }: { groupId: string }) {
     }
   }
 
+  const handleReact = (msg: Message, emoji: string) => {
+    if (!getSigner() || !publicKey || !groupKey) return
+    void reactWith(publicKey, msg, emoji, (t, e, o) => sendGroupReaction(t, e, o, groupId, groupKey, writeR))
+  }
+
   if (!groupKey) {
     return (
       <>
@@ -754,6 +793,7 @@ function GroupThread({ groupId }: { groupId: string }) {
             profiles={profiles}
             onReply={setReplyTo}
             onRetry={handleRetry}
+            onReact={handleReact}
             dividerTimestamp={dividerTimestampRef.current}
             targetMessageId={targetMessageId ?? undefined}
           />
