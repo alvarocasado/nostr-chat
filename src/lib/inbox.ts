@@ -14,6 +14,7 @@ import {
 } from './fileTransfer'
 import { serializeMessage, getDisplayName, getPreviewText } from './fileUtils'
 import { parseReactionPayload } from './reactions'
+import { parseEditPayload, parseDeletePayload } from './messageOps'
 import { isMentioned } from './mentions'
 import { getUserDb } from './userDb'
 
@@ -115,6 +116,29 @@ function routeReaction(content: string, event: Event): boolean {
   return true
 }
 
+/**
+ * Apply an incoming edit/delete control message. `event.pubkey` is recorded as
+ * the requester; the store only honours it at render time when it matches the
+ * target message's own author, so nobody can edit or delete another's message.
+ */
+function routeMessageOp(content: string, event: Event): boolean {
+  const edit = parseEditPayload(content)
+  if (edit) {
+    if (claimSideEffects(event.id)) {
+      useNostrStore.getState().applyEdit(edit.target, event.pubkey, edit.content, event.created_at)
+    }
+    return true
+  }
+  const del = parseDeletePayload(content)
+  if (del) {
+    if (claimSideEffects(event.id)) {
+      useNostrStore.getState().applyDelete(del.target, event.pubkey)
+    }
+    return true
+  }
+  return false
+}
+
 function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Event): void {
   if (transfer.type === 'file_start') {
     handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
@@ -191,8 +215,9 @@ export async function processChannelEvent(
     return
   }
 
-  // Route reaction control messages; not shown as messages
+  // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(event.content, event)) return
+  if (routeMessageOp(event.content, event)) return
 
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 
@@ -262,8 +287,9 @@ export async function processDMEvent(
     } catch { /* not JSON — regular message */ }
   }
 
-  // Route reaction control messages; not shown as messages
+  // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(decrypted, event)) return
+  if (routeMessageOp(decrypted, event)) return
 
   // Request gate (incoming only)
   const incoming = event.pubkey !== myPubkey
@@ -330,8 +356,9 @@ export async function processGroupEvent(
   }
   if (plaintext.length > MAX_CONTENT_LEN) return
 
-  // Route reaction control messages; not shown as messages
+  // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(plaintext, event)) return
+  if (routeMessageOp(plaintext, event)) return
 
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 

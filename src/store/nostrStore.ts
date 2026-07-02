@@ -141,6 +141,11 @@ interface NostrState {
   // Reactions keyed by target messageId → emoji → reactor pubkeys (session-only)
   reactions: Record<string, Record<string, string[]>>
 
+  // Edit/delete overlays keyed by target messageId. `by` is the requester; a
+  // change is only honoured when `by` matches the message's own author.
+  deletedMessages: Record<string, { by: string }>
+  editedMessages: Record<string, { by: string; content: string; at: number }>
+
   // Profiles cache
   profiles: Record<string, NostrProfile>
 
@@ -210,6 +215,10 @@ interface NostrState {
 
   addMessage: (chatId: string, message: Message) => void
   applyReaction: (messageId: string, emoji: string, pubkey: string, op: 'add' | 'remove') => void
+  applyDelete: (messageId: string, by: string) => void
+  removeDelete: (messageId: string) => void
+  applyEdit: (messageId: string, by: string, content: string, at: number) => void
+  removeEdit: (messageId: string) => void
   prependMessages: (chatId: string, msgs: Message[]) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
@@ -448,6 +457,8 @@ export const useNostrStore = create<NostrState>()(
         targetMessageId: null,
         messages: {},
         reactions: {},
+        deletedMessages: {},
+        editedMessages: {},
         profiles: {},
         sidebarTab: 'channels',
         showSettings: false,
@@ -530,6 +541,8 @@ export const useNostrStore = create<NostrState>()(
             activeChatType: null,
             messages: {},
             reactions: {},
+            deletedMessages: {},
+            editedMessages: {},
             groups: [],
             groupKeys: {},
             signerCaps: { nip04: true },
@@ -760,6 +773,28 @@ export const useNostrStore = create<NostrState>()(
           set({ reactions: { ...all, [messageId]: nextForMsg } })
         },
 
+        applyDelete: (messageId, by) => {
+          if (get().deletedMessages[messageId]) return
+          set({ deletedMessages: { ...get().deletedMessages, [messageId]: { by } } })
+        },
+
+        removeDelete: (messageId) => {
+          const { [messageId]: _removed, ...rest } = get().deletedMessages
+          set({ deletedMessages: rest })
+        },
+
+        applyEdit: (messageId, by, content, at) => {
+          const existing = get().editedMessages[messageId]
+          // Keep the newest edit — events can arrive out of order.
+          if (existing && existing.at >= at) return
+          set({ editedMessages: { ...get().editedMessages, [messageId]: { by, content, at } } })
+        },
+
+        removeEdit: (messageId) => {
+          const { [messageId]: _removed, ...rest } = get().editedMessages
+          set({ editedMessages: rest })
+        },
+
         prependMessages: (chatId, msgs) => {
           if (msgs.length === 0) return
           const existing = get().messages[chatId] || []
@@ -912,6 +947,8 @@ export const useNostrStore = create<NostrState>()(
         syncedSettingsAt: state.syncedSettingsAt,
         blockedPubkeys: state.blockedPubkeys,
         dismissedRequests: state.dismissedRequests,
+        deletedMessages: state.deletedMessages,
+        editedMessages: state.editedMessages,
       }),
     }
   )

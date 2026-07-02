@@ -8,8 +8,14 @@ const clearTargetMessage = vi.fn()
 const storeMessages: Record<string, Message[]> = {}
 vi.mock('../store/nostrStore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../store/nostrStore')>()
-  const hook = (selector?: (s: { clearTargetMessage: () => void }) => unknown) => {
-    const state = { clearTargetMessage }
+  const hook = (selector?: (s: Record<string, unknown>) => unknown) => {
+    const state: Record<string, unknown> = {
+      clearTargetMessage,
+      deletedMessages: {},
+      editedMessages: {},
+      reactions: {},
+      publicKey: null,
+    }
     return selector ? selector(state) : state
   }
   hook.getState = () => ({ messages: storeMessages })

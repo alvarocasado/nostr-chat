@@ -259,13 +259,19 @@ export async function sendDMReaction(
   return sendDM(serializeReaction(target, emoji, op), peer, relays)
 }
 
-export async function sendGroupReaction(
-  target: string, emoji: string, op: 'add' | 'remove', groupId: string, groupKey: string, relays: string[],
-) {
-  const encrypted = await encryptWithGroupKey(serializeReaction(target, emoji, op), groupKey)
+// Send an already-serialized control message (reaction/edit/delete) to a group,
+// encrypted with the group key so it rides the same transport as messages.
+export async function sendGroupControl(content: string, groupId: string, groupKey: string, relays: string[]) {
+  const encrypted = await encryptWithGroupKey(content, groupKey)
   const event = await buildGroupMessageEvent(encrypted, groupId, relays[0])
   await publishEvent(relays, event)
   return event
+}
+
+export async function sendGroupReaction(
+  target: string, emoji: string, op: 'add' | 'remove', groupId: string, groupKey: string, relays: string[],
+) {
+  return sendGroupControl(serializeReaction(target, emoji, op), groupId, groupKey, relays)
 }
 
 // Create a new channel

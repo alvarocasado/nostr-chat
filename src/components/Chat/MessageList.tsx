@@ -38,7 +38,7 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-export function MessageList({ chatId, chatType, messages, myPubkey, profiles, onReply, onRetry, onReact, dividerTimestamp, targetMessageId }: {
+export function MessageList({ chatId, chatType, messages, myPubkey, profiles, onReply, onRetry, onReact, onEdit, onDelete, dividerTimestamp, targetMessageId }: {
   chatId: string
   chatType: 'dm' | 'channel' | 'group'
   messages: Message[]
@@ -47,6 +47,8 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
   onReply: (msg: Message) => void
   onRetry: (msgId: string) => void
   onReact?: (msg: Message, emoji: string) => void
+  onEdit?: (msg: Message, newText: string) => void
+  onDelete?: (msg: Message) => void
   dividerTimestamp?: number
   targetMessageId?: string
 }) {
@@ -169,6 +171,8 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
                   onReply={onReply}
                   onRetry={onRetry}
                   onReact={onReact}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
                 />
               </div>
             </div>

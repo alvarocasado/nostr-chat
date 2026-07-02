@@ -9,7 +9,9 @@ import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
 import {
   useChannelMessages, useDMMessages, useGroupMessages,
   sendChannelReaction, sendDMReaction, sendGroupReaction,
+  sendChannelMessage, sendDM, sendGroupControl,
 } from '../../hooks/useNostrSubscriptions'
+import { serializeEdit, serializeDelete } from '../../lib/messageOps'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
 import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
@@ -45,6 +47,39 @@ async function reactWith(
     await send(msg.id, emoji, op)
   } catch {
     applyReaction(msg.id, emoji, publicKey, op === 'add' ? 'remove' : 'add')
+  }
+}
+
+// Edit my own message: optimistic overlay, then publish the edit; revert on failure.
+async function editMessage(
+  publicKey: string,
+  msg: Message,
+  newText: string,
+  send: (content: string) => Promise<unknown>,
+) {
+  const { applyEdit, removeEdit, editedMessages } = useNostrStore.getState()
+  const prev = editedMessages[msg.id]
+  applyEdit(msg.id, publicKey, newText, Math.floor(Date.now() / 1000))
+  try {
+    await send(serializeEdit(msg.id, newText))
+  } catch {
+    removeEdit(msg.id)
+    if (prev) applyEdit(msg.id, prev.by, prev.content, prev.at)
+  }
+}
+
+// Delete my own message: optimistic tombstone, then publish the delete; revert on failure.
+async function deleteMessage(
+  publicKey: string,
+  msg: Message,
+  send: (content: string) => Promise<unknown>,
+) {
+  const { applyDelete, removeDelete } = useNostrStore.getState()
+  applyDelete(msg.id, publicKey)
+  try {
+    await send(serializeDelete(msg.id))
+  } catch {
+    removeDelete(msg.id)
   }
 }
 
@@ -558,6 +593,16 @@ function ChannelThread({ channelId }: { channelId: string }) {
     void reactWith(publicKey, msg, emoji, (t, e, o) => sendChannelReaction(t, e, o, channelId, writeR))
   }
 
+  const handleEdit = (msg: Message, newText: string) => {
+    if (!getSigner() || !publicKey) return
+    void editMessage(publicKey, msg, newText, content => sendChannelMessage(content, channelId, writeR))
+  }
+
+  const handleDelete = (msg: Message) => {
+    if (!getSigner() || !publicKey) return
+    void deleteMessage(publicKey, msg, content => sendChannelMessage(content, channelId, writeR))
+  }
+
   return (
     <>
       <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
@@ -565,7 +610,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} onEdit={handleEdit} onDelete={handleDelete} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
@@ -642,12 +687,25 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     }
   }
 
+  const dmTargetRelays = async () => {
+    const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+    return combineRelays(writeR, peerRead)
+  }
+
   const handleReact = (msg: Message, emoji: string) => {
     if (!getSigner() || !publicKey || !signerCaps.nip04) return
-    void reactWith(publicKey, msg, emoji, async (t, e, o) => {
-      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
-      return sendDMReaction(t, e, o, theirPubkey, combineRelays(writeR, peerRead))
-    })
+    void reactWith(publicKey, msg, emoji, async (t, e, o) =>
+      sendDMReaction(t, e, o, theirPubkey, await dmTargetRelays()))
+  }
+
+  const handleEdit = (msg: Message, newText: string) => {
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
+    void editMessage(publicKey, msg, newText, async content => sendDM(content, theirPubkey, await dmTargetRelays()))
+  }
+
+  const handleDelete = (msg: Message) => {
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
+    void deleteMessage(publicKey, msg, async content => sendDM(content, theirPubkey, await dmTargetRelays()))
   }
 
   return (
@@ -680,7 +738,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} onEdit={handleEdit} onDelete={handleDelete} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           {!signerCaps.nip04 && (
             <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
@@ -764,6 +822,16 @@ function GroupThread({ groupId }: { groupId: string }) {
     void reactWith(publicKey, msg, emoji, (t, e, o) => sendGroupReaction(t, e, o, groupId, groupKey, writeR))
   }
 
+  const handleEdit = (msg: Message, newText: string) => {
+    if (!getSigner() || !publicKey || !groupKey) return
+    void editMessage(publicKey, msg, newText, content => sendGroupControl(content, groupId, groupKey, writeR))
+  }
+
+  const handleDelete = (msg: Message) => {
+    if (!getSigner() || !publicKey || !groupKey) return
+    void deleteMessage(publicKey, msg, content => sendGroupControl(content, groupId, groupKey, writeR))
+  }
+
   if (!groupKey) {
     return (
       <>
@@ -794,6 +862,8 @@ function GroupThread({ groupId }: { groupId: string }) {
             onReply={setReplyTo}
             onRetry={handleRetry}
             onReact={handleReact}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
             dividerTimestamp={dividerTimestampRef.current}
             targetMessageId={targetMessageId ?? undefined}
           />

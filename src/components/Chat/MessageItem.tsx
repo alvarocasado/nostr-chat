@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
-import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2, SmilePlus } from 'lucide-react'
+import { Download, FileText, Film, Music, File, X, ZoomIn, Reply, AlertCircle, Check, Loader2, SmilePlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { Avatar } from './Avatar'
 import { AudioMessage } from './AudioMessage'
 import { MarkdownMessage } from './MarkdownMessage'
@@ -20,6 +20,8 @@ interface MessageItemProps {
   onReply: (msg: Message) => void
   onRetry?: (msgId: string) => void
   onReact?: (msg: Message, emoji: string) => void
+  onEdit?: (msg: Message, newText: string) => void
+  onDelete?: (msg: Message) => void
 }
 
 function ReactionPicker({ onPick }: { onPick: (emoji: string) => void }) {
@@ -254,12 +256,20 @@ function StatusIndicator({ status, onRetry, msgId }: {
   return null
 }
 
-export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRetry, onReact }: MessageItemProps) {
+export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRetry, onReact, onEdit, onDelete }: MessageItemProps) {
   const name = getDisplayName(profile, message.pubkey, 10)
   const time = format(new Date(message.createdAt * 1000), 'HH:mm')
-  const { text, attachment, replyTo } = parseMessageContent(message.content)
   const { setViewingProfilePubkey } = useNostrStore()
+  const deletion = useNostrStore(s => s.deletedMessages[message.id])
+  const edit = useNostrStore(s => s.editedMessages[message.id])
+  const isDeleted = deletion?.by === message.pubkey
+  const isEdited = !!edit && edit.by === message.pubkey
+  const effectiveContent = isEdited ? edit.content : message.content
+  const { text, attachment, replyTo } = parseMessageContent(effectiveContent)
   const [showPicker, setShowPicker] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState('')
 
   const rowRef        = useRef<HTMLDivElement>(null)
   const swipeDxRef    = useRef(0)
@@ -374,14 +384,66 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
 
   const pills = onReact ? <ReactionPills message={message} isOwn={isOwn} onReact={onReact} /> : null
 
+  // Edit/delete are offered only on your own messages; edit is text-only.
+  const canEdit = isOwn && !!onEdit && !attachment
+  const canDelete = isOwn && !!onDelete
+  const moreMenu = (canEdit || canDelete) ? (
+    <div className="relative flex-shrink-0 mb-1">
+      <button
+        onClick={() => setShowMenu(v => !v)}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 text-gray-500 hover:text-purple-400 rounded-lg hover:bg-white/10"
+        title="More"
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      {showMenu && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+          <div className="absolute z-20 bottom-full mb-1 left-0 bg-gray-800 border border-gray-700 rounded-lg shadow-lg py-1 min-w-[120px]">
+            {canEdit && (
+              <button
+                onClick={() => { setShowMenu(false); setEditText(text); setEditing(true) }}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-gray-200 hover:bg-white/10"
+              >
+                <Pencil size={13} /> Edit
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={() => { setShowMenu(false); onDelete!(message) }}
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-red-400 hover:bg-white/10"
+              >
+                <Trash2 size={13} /> Delete
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  ) : null
+
+  if (isDeleted) {
+    return (
+      <div data-message-id={message.id} className={`flex ${isOwn ? 'justify-end' : 'items-end gap-2'}`}>
+        {!isOwn && <div className="w-8 flex-shrink-0" />}
+        <div className="text-xs text-gray-600 italic px-4 py-2 rounded-[18px] border border-dashed border-gray-700/70">
+          This message was deleted
+        </div>
+      </div>
+    )
+  }
+
+  const timeSuffix = isEdited ? ' · edited' : ''
+
   if (isOwn) {
     return (
       <div ref={rowRef} data-message-id={message.id} className="flex flex-col items-end gap-1 group">
         <div className="flex items-end gap-2 max-w-[85%]">
           <StatusIndicator status={message.status} onRetry={onRetry} msgId={message.id} />
           <span className="text-gray-700 text-xs mb-1">
-            {time}
+            {time}{timeSuffix}
           </span>
+          {moreMenu}
           {reactBtn}
           {replyBtn}
           {swipeReplyIcon}
@@ -389,9 +451,34 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
             style={bubbleSwipeStyle}
             className="bg-gradient-to-br from-violet-500 to-purple-700 rounded-[18px] rounded-br-[4px] px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden shadow-[0_4px_16px_rgba(124,58,237,0.35)]"
           >
-            {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
-            {attachment && <AttachmentView attachment={attachment} isOwn />}
-            <MarkdownMessage content={text} isOwn={true} />
+            {editing ? (
+              <div className="flex flex-col gap-2 min-w-[200px]">
+                <textarea
+                  value={editText}
+                  onChange={e => setEditText(e.target.value)}
+                  rows={2}
+                  autoFocus
+                  className="bg-purple-900/40 text-white rounded-lg p-2 text-sm resize-none outline-none scrollbar-thin"
+                />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setEditing(false)} className="text-xs text-purple-200 px-2 py-1 hover:text-white">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { const t = editText.trim(); if (t && t !== text) onEdit!(message, t); setEditing(false) }}
+                    className="text-xs bg-white/20 hover:bg-white/30 text-white rounded px-2 py-1"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
+                {attachment && <AttachmentView attachment={attachment} isOwn />}
+                <MarkdownMessage content={text} isOwn={true} />
+              </>
+            )}
           </div>
         </div>
         {pills}
@@ -427,7 +514,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           {replyBtn}
           {reactBtn}
           <span className="text-gray-700 text-xs mb-1 flex-shrink-0">
-            {time}
+            {time}{timeSuffix}
           </span>
         </div>
         {pills}
