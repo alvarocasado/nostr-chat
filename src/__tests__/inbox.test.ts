@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
-import { extractRootChatId, processChannelEvent, processDMEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
+import { extractRootChatId, processChannelEvent, processDMEvent, processGroupEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
 import { useNostrStore } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'
 import { fetchEvent, publishEvent } from '../lib/nostr'
+import { serializeCallStart } from '../lib/groupCall'
+import { generateGroupKey, encryptWithGroupKey } from '../lib/groupCrypto'
 
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
@@ -258,6 +260,48 @@ describe('processDMEvent — request gate', () => {
     useNostrStore.setState({ contacts: [{ pubkey: senderPk, pending: false }], blockedPubkeys: [], dismissedRequests: {} })
     await processDMEvent(event, myPk, RELAYS, { live: true })
     expect(fireNotification).toHaveBeenCalled()
+  })
+})
+
+describe('processGroupEvent call-start control messages', () => {
+  const GROUP_ID = 'grp1'
+
+  async function makeGroupEvent(plaintext: string, key: string): Promise<Event> {
+    const senderSk = generateSecretKey()
+    const content = await encryptWithGroupKey(plaintext, key)
+    return finalizeEvent({
+      kind: 1042,
+      created_at: 1000,
+      tags: [['e', GROUP_ID, RELAYS[0], 'root']],
+      content,
+    }, senderSk)
+  }
+
+  function seedGroup() {
+    useNostrStore.setState({
+      groups: [{ id: GROUP_ID, name: 'Test group', creatorPubkey: 'p', memberPubkeys: [], relayUrl: RELAYS[0], unread: 0 }],
+    })
+  }
+
+  it('routes call-start: no message stored, preview updated', async () => {
+    const key = generateGroupKey()
+    seedGroup()
+    const event = await makeGroupEvent(serializeCallStart('c1'), key)
+    await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
+
+    const state = useNostrStore.getState()
+    expect(state.messages[GROUP_ID] ?? []).toHaveLength(0)
+    expect(state.groups.find(g => g.id === GROUP_ID)?.lastMessage).toBe('Call started')
+  })
+
+  it('treats malformed call-start payloads as normal messages', async () => {
+    const key = generateGroupKey()
+    seedGroup()
+    const bad = JSON.stringify({ type: 'call-start', callId: '' })
+    const event = await makeGroupEvent(bad, key)
+    await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
+
+    expect((useNostrStore.getState().messages[GROUP_ID] ?? []).length).toBe(1)
   })
 })
 

@@ -14,6 +14,7 @@ import {
 } from '../lib/nostr'
 import { encryptWithGroupKey } from '../lib/groupCrypto'
 import { serializeReaction } from '../lib/reactions'
+import { serializeCallStart } from '../lib/groupCall'
 import { useNostrStore, type Channel } from '../store/nostrStore'
 import {
   processChannelEvent,
@@ -272,6 +273,10 @@ export async function sendGroupReaction(
   target: string, emoji: string, op: 'add' | 'remove', groupId: string, groupKey: string, relays: string[],
 ) {
   return sendGroupControl(serializeReaction(target, emoji, op), groupId, groupKey, relays)
+}
+
+export async function sendGroupCallStart(callId: string, groupId: string, groupKey: string, relays: string[]) {
+  return sendGroupControl(serializeCallStart(callId), groupId, groupKey, relays)
 }
 
 // Create a new channel

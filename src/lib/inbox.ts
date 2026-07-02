@@ -15,6 +15,7 @@ import {
 import { serializeMessage, getDisplayName, getPreviewText } from './fileUtils'
 import { parseReactionPayload } from './reactions'
 import { parseEditPayload, parseDeletePayload } from './messageOps'
+import { parseCallStartPayload } from './groupCall'
 import { isMentioned } from './mentions'
 import { getUserDb } from './userDb'
 
@@ -137,6 +138,23 @@ function routeMessageOp(content: string, event: Event): boolean {
     return true
   }
   return false
+}
+
+/** Route a group call-start announcement: preview + notification, no message bubble. */
+function routeCallStart(content: string, groupId: string, event: Event, live: boolean): boolean {
+  const payload = parseCallStartPayload(content)
+  if (!payload) return false
+  if (claimSideEffects(event.id)) {
+    const { publicKey, groups, profiles, updateGroupLastMessage } = useNostrStore.getState()
+    updateGroupLastMessage(groupId, 'Call started', event.created_at, false, {
+      incrementUnread: shouldCountUnread(groupId, event.created_at, live),
+    })
+    if (live && event.pubkey !== publicKey) {
+      const groupName = groups.find((g: Group) => g.id === groupId)?.name || 'Group'
+      fireNotification(groupId, 'channel', groupName, `${getDisplayName(profiles[event.pubkey], event.pubkey)} started a call`)
+    }
+  }
+  return true
 }
 
 function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Event): void {
@@ -359,6 +377,7 @@ export async function processGroupEvent(
   // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(plaintext, event)) return
   if (routeMessageOp(plaintext, event)) return
+  if (routeCallStart(plaintext, groupId, event, opts.live)) return
 
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 
