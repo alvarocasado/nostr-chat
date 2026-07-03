@@ -141,11 +141,20 @@ function routeMessageOp(content: string, event: Event): boolean {
   return false
 }
 
-/** Route a group call-start announcement: preview + notification, no message bubble. */
-function routeCallStart(content: string, groupId: string, event: Event, live: boolean): boolean {
+/** Route a group call-start announcement: stored as a call row, preview + notification. */
+async function routeCallStart(content: string, groupId: string, event: Event, live: boolean): Promise<boolean> {
   const payload = parseCallStartPayload(content)
   if (!payload) return false
-  if (claimSideEffects(event.id)) {
+  const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
+  useNostrStore.getState().addMessage(groupId, {
+    id: event.id,
+    pubkey: event.pubkey,
+    content,
+    createdAt: event.created_at,
+    tags: event.tags,
+    kind: event.kind,
+  })
+  if (sideEffects) {
     const { publicKey, groups, profiles, updateGroupLastMessage } = useNostrStore.getState()
     updateGroupLastMessage(groupId, 'Call started', event.created_at, false, {
       incrementUnread: shouldCountUnread(groupId, event.created_at, live),
@@ -386,7 +395,7 @@ export async function processGroupEvent(
   // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(plaintext, event)) return
   if (routeMessageOp(plaintext, event)) return
-  if (routeCallStart(plaintext, groupId, event, opts.live)) return
+  if (await routeCallStart(plaintext, groupId, event, opts.live)) return
 
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 

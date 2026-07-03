@@ -284,14 +284,15 @@ describe('processGroupEvent call-start control messages', () => {
     })
   }
 
-  it('routes call-start: no message stored, preview updated', async () => {
+  it('routes call-start: stores a call row and updates the preview', async () => {
     const key = generateGroupKey()
     seedGroup()
     const event = await makeGroupEvent(serializeCallStart('c1'), key)
     await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
 
     const state = useNostrStore.getState()
-    expect(state.messages[GROUP_ID] ?? []).toHaveLength(0)
+    expect(state.messages[GROUP_ID]).toHaveLength(1)
+    expect(state.messages[GROUP_ID][0].content).toBe(serializeCallStart('c1'))
     expect(state.groups.find(g => g.id === GROUP_ID)?.lastMessage).toBe('Call started')
   })
 
