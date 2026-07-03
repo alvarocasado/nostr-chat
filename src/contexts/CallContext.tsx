@@ -2,12 +2,13 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ReactNode,
 } from 'react'
-import { subscribeEvents, publishEvent } from '../lib/nostr'
+import { subscribeEvents, publishEvent, buildDMEvent } from '../lib/nostr'
 import { getSetting } from '../lib/userDb'
 import { useNostrStore } from '../store/nostrStore'
 import { useReadRelays } from '../hooks/useRelays'
 import { getSigner } from '../lib/signer'
 import { fireCallNotification } from '../lib/notifications'
+import { serializeCallLog, deriveCallOutcome } from '../lib/callLog'
 import {
   buildCallSignalEvent, decryptCallSignal,
   getIceServers, fetchCallIceServers, mergeIceServers, CALL_SIGNAL_KIND,
@@ -76,6 +77,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const durationTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
   const callStateRef       = useRef<CallState>('idle')
 
+  // Call-log bookkeeping: only the initiating device writes history (spec:
+  // one event, one writer), and only after its offer actually went out.
+  const isInitiatorRef  = useRef(false)
+  const offerSentRef    = useRef(false)
+  const wasConnectedRef = useRef(false)
+  const mediaTypeRef    = useRef<MediaType>('audio')
+  const durationSecRef  = useRef(0)
+
   // Keep ref in sync so callbacks always see current state
   useEffect(() => { callStateRef.current = callState }, [callState])
 
@@ -117,13 +126,60 @@ export function CallProvider({ children }: { children: ReactNode }) {
     preOfferCandidates.current.clear()
     pendingOffer.current = null
     if (durationTimer.current) { clearInterval(durationTimer.current); durationTimer.current = null }
+    isInitiatorRef.current  = false
+    offerSentRef.current    = false
+    wasConnectedRef.current = false
+    durationSecRef.current  = 0
     setCallState('idle')
     setPeer(null)
   }, [stopLocalStream])
 
   const startDurationTimer = useCallback(() => {
     if (durationTimer.current) return
-    durationTimer.current = setInterval(() => setDuration(d => d + 1), 1000)
+    durationTimer.current = setInterval(() => {
+      durationSecRef.current += 1
+      setDuration(d => d + 1)
+    }, 1000)
+  }, [])
+
+  // Publish the durable history record for a call this device initiated.
+  // Guarded to fire at most once per call; the callee never publishes.
+  const publishCallLog = useCallback((peerPubkey: string, endReason?: string) => {
+    if (!isInitiatorRef.current || !offerSentRef.current) return
+    offerSentRef.current = false
+    const outcome = deriveCallOutcome(wasConnectedRef.current, endReason)
+    const content = serializeCallLog({
+      callId: callIdRef.current,
+      mediaType: mediaTypeRef.current,
+      outcome,
+      ...(outcome === 'completed' && { duration: durationSecRef.current }),
+    })
+    void (async () => {
+      let eventId = ''
+      try {
+        const event = await buildDMEvent(peerPubkey, content)
+        eventId = event.id
+        const { publicKey, addMessage } = useNostrStore.getState()
+        if (!publicKey) return
+        addMessage(peerPubkey, {
+          id: event.id,
+          pubkey: publicKey,
+          content,
+          createdAt: event.created_at,
+          tags: event.tags,
+          kind: 4,
+          recipientPubkey: peerPubkey,
+          decrypted: true,
+          status: 'sending',
+        })
+        await publishEvent(useNostrStore.getState().writeRelays(), event)
+        useNostrStore.getState().updateMessageStatus(peerPubkey, event.id, 'sent')
+      } catch {
+        // ponytail: best-effort history; a failed publish shows the row as
+        // "failed" locally (or nothing if signing failed) and is not retried.
+        if (eventId) useNostrStore.getState().updateMessageStatus(peerPubkey, eventId, 'failed')
+      }
+    })()
   }, [])
 
   const getUserMedia = useCallback(async (type: MediaType): Promise<MediaStream> => {
@@ -161,11 +217,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
+        wasConnectedRef.current = true
         setIsRtcConnected(true)
         setIceConnFailed(false)
         startDurationTimer()
       }
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        publishCallLog(peerPubkey)
         cleanup()
       }
     }
@@ -178,7 +236,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     pcRef.current = pc
     return pc
-  }, [sendSignal, startDurationTimer, cleanup])
+  }, [sendSignal, startDurationTimer, cleanup, publishCallLog])
 
   const flushPendingCandidates = useCallback(async () => {
     const pc = pcRef.current
@@ -199,6 +257,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!getSigner()?.caps.nip04) return
     const callId = Date.now().toString(36)
     callIdRef.current = callId
+    isInitiatorRef.current  = true
+    offerSentRef.current    = false
+    wasConnectedRef.current = false
+    mediaTypeRef.current    = type
+    durationSecRef.current  = 0
     setIceConnFailed(false)
     setMediaType(type)
     setPeer({ pubkey: peerPubkey })
@@ -223,6 +286,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         sdp: offer.sdp,
         iceServers,
       })
+      offerSentRef.current = true
     } catch {
       cleanup()
     }
@@ -279,9 +343,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         callId: callIdRef.current,
         reason: 'ended',
       })
+      publishCallLog(peer.pubkey)
     }
     cleanup()
-  }, [peer, sendSignal, cleanup])
+  }, [peer, sendSignal, publishCallLog, cleanup])
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current
@@ -346,6 +411,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       if (typeof signal.sdp !== 'string') return
       callIdRef.current = signal.callId
+      isInitiatorRef.current = false
       setIceConnFailed(false)
       // Recover ICE candidates that arrived before this offer (relay ordering not guaranteed)
       const preOffer = preOfferCandidates.current.get(signal.callId) ?? []
@@ -389,9 +455,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     if (signal.type === 'call-end') {
+      publishCallLog(senderPubkey, signal.reason)
       cleanup()
     }
-  }, [sendSignal, flushPendingCandidates, cleanup])
+  }, [sendSignal, flushPendingCandidates, cleanup, publishCallLog])
 
   // ── Nostr subscription for call signals ──────────────────────────────────
 
