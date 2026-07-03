@@ -9,6 +9,7 @@ import { clearSigner } from '../lib/signer'
 import { fetchEvent, publishEvent } from '../lib/nostr'
 import { serializeCallStart } from '../lib/groupCall'
 import { generateGroupKey, encryptWithGroupKey } from '../lib/groupCrypto'
+import { serializeCallLog } from '../lib/callLog'
 
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
@@ -318,5 +319,70 @@ describe('ensureProfile routing', () => {
         return r.includes('wss://myread') && r.includes('wss://authorwrite')
       })).toBe(true)
     })
+  })
+})
+
+describe('processDMEvent call-log control messages', () => {
+  async function incomingCallLog(plaintext: string, createdAt = 1000) {
+    const senderSk = generateSecretKey()
+    const senderPk = getPublicKey(senderSk)
+    const mySk = generateSecretKey()
+    const { signer } = installTestSigner(mySk)
+    const myPk = signer.pubkey
+    useNostrStore.setState({
+      publicKey: myPk,
+      // known, accepted contact so the request gate and pending-mute do not interfere
+      contacts: [{ pubkey: senderPk, pending: false, unread: 0 }],
+    })
+    const encrypted = await nip04.encrypt(senderSk, myPk, plaintext)
+    const event = finalizeEvent({ kind: 4, created_at: createdAt, tags: [['p', myPk]], content: encrypted }, senderSk)
+    return { event, senderPk, myPk }
+  }
+
+  it('stores a missed call-log, sets the preview, counts unread, and notifies', async () => {
+    const { event, senderPk, myPk } = await incomingCallLog(
+      serializeCallLog({ callId: 'c1', mediaType: 'audio', outcome: 'missed' }))
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+
+    const s = useNostrStore.getState()
+    expect(s.messages[senderPk]).toHaveLength(1)
+    const contact = s.contacts.find(c => c.pubkey === senderPk)
+    expect(contact?.lastMessage).toBe('Missed voice call')
+    expect(contact?.unread).toBe(1)
+    expect(fireNotification).toHaveBeenCalledWith(
+      senderPk, 'dm', expect.any(String), 'Missed voice call', undefined)
+  })
+
+  it('stores a completed call-log silently: preview updates, no unread, no notification', async () => {
+    const { event, senderPk, myPk } = await incomingCallLog(
+      serializeCallLog({ callId: 'c2', mediaType: 'video', outcome: 'completed', duration: 61 }))
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+
+    const s = useNostrStore.getState()
+    expect(s.messages[senderPk]).toHaveLength(1)
+    const contact = s.contacts.find(c => c.pubkey === senderPk)
+    expect(contact?.lastMessage).toBe('Video call · 1:01')
+    expect(contact?.unread).toBe(0)
+    expect(fireNotification).not.toHaveBeenCalled()
+  })
+
+  it('counts a backfilled missed call newer than seenAt (app was closed during the call)', async () => {
+    const { event, senderPk, myPk } = await incomingCallLog(
+      serializeCallLog({ callId: 'c3', mediaType: 'audio', outcome: 'missed' }), 2000)
+    useNostrStore.setState({ seenAt: { [senderPk]: 1000 } })
+    await processDMEvent(event, myPk, RELAYS, { live: false })
+
+    expect(useNostrStore.getState().contacts.find(c => c.pubkey === senderPk)?.unread).toBe(1)
+    expect(fireNotification).not.toHaveBeenCalled() // backfill never notifies
+  })
+
+  it('treats a malformed call-log as a normal text message', async () => {
+    const bad = JSON.stringify({ type: 'call-log', callId: 'c4', mediaType: 'audio', outcome: 'exploded' })
+    const { event, senderPk, myPk } = await incomingCallLog(bad)
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+
+    const s = useNostrStore.getState()
+    expect(s.messages[senderPk]).toHaveLength(1)
+    expect(s.contacts.find(c => c.pubkey === senderPk)?.unread).toBe(1)
   })
 })

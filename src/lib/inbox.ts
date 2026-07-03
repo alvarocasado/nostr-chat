@@ -16,6 +16,7 @@ import { serializeMessage, getDisplayName, getPreviewText } from './fileUtils'
 import { parseReactionPayload } from './reactions'
 import { parseEditPayload, parseDeletePayload } from './messageOps'
 import { parseCallStartPayload } from './groupCall'
+import { parseCallLogPayload, callLogLabel } from './callLog'
 import { isMentioned } from './mentions'
 import { getUserDb } from './userDb'
 
@@ -309,6 +310,10 @@ export async function processDMEvent(
   if (routeReaction(decrypted, event)) return
   if (routeMessageOp(decrypted, event)) return
 
+  // 1:1 call history record: stored as a message (rendered as a call row),
+  // but with its own preview text and quieter badge/notification rules.
+  const callLog = parseCallLogPayload(decrypted)
+
   // Request gate (incoming only)
   const incoming = event.pubkey !== myPubkey
   if (incoming) {
@@ -346,12 +351,16 @@ export async function processDMEvent(
   if (!sideEffects || event.pubkey === myPubkey) return
 
   const { profiles, updateContactLastMessage } = useNostrStore.getState()
-  const preview = getPreviewText(decrypted)
+  const preview = callLog ? callLogLabel(callLog, false) : getPreviewText(decrypted)
+  // Completed/declined call rows are records of a call you took part in —
+  // nothing is unread. Only missed/busy behave like an unread message.
+  const isMissedCall = callLog !== null && (callLog.outcome === 'missed' || callLog.outcome === 'busy')
+  const countsAsUnread = callLog === null || isMissedCall
   updateContactLastMessage(peer, preview, event.created_at, {
-    incrementUnread: shouldCountUnread(peer, event.created_at, opts.live),
+    incrementUnread: countsAsUnread && shouldCountUnread(peer, event.created_at, opts.live),
   })
 
-  if (opts.live && !isPending) {
+  if (opts.live && !isPending && (callLog === null || isMissedCall)) {
     const senderName = getDisplayName(profiles[event.pubkey], event.pubkey)
     fireNotification(peer, 'dm', senderName, preview, profiles[event.pubkey]?.picture)
   }
