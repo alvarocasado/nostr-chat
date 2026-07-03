@@ -40,3 +40,19 @@
   relays never store. Late joining works; if someone's app crashes they
   disappear from the call within about 90 seconds. Group calls and 1:1 calls
   are mutually exclusive - you are "busy" to one while in the other.
+- **Call history / missed-call records** (2026-07-03). Spec:
+  `docs/superpowers/specs/2026-07-03-call-history-design.md`. Plan:
+  `docs/superpowers/plans/2026-07-03-call-history.md`. 1:1 calls leave inline
+  system rows in the DM thread: the caller publishes one kind-4 control DM
+  (`{type:'call-log'}` with outcome completed/missed/declined/busy, plus
+  duration for completed) at call end, riding the existing DM sync/backfill
+  so missed calls surface even if the callee's app was closed. Missed/busy
+  outcomes bump the unread badge and fire a notification; completed/declined
+  are silent. Rows are perspective-aware, clickable to call back, and
+  excluded from search, reply, edit, and reactions. Group threads store and
+  render "X started a call" rows from the existing call-start control.
+  Accepted limits: if the caller's app crashes before it can publish the
+  control DM, no record is created; group calls only get start-only records
+  (no per-member join/leave or outcome rows); there is no dedicated Calls tab
+  in v1 (history lives inline in the thread); and there is no ring timeout —
+  a call is logged missed only when the caller gives up and hangs up.
