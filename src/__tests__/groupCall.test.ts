@@ -4,11 +4,11 @@ import { clearSigner } from '../lib/signer'
 import { generateGroupKey } from '../lib/groupCrypto'
 import {
   GROUP_CALL_PRESENCE_KIND, MAX_GROUP_CALL_PARTICIPANTS,
-  PRESENCE_INTERVAL_MS, PRESENCE_EXPIRY_MS,
+  PRESENCE_EXPIRY_MS,
   buildPresenceEvent, parsePresenceEvent,
   deriveRoster, myOfferWins, deriveJoinState, activeCallPeers,
   serializeCallStart, parseCallStartPayload,
-  type Heartbeat,
+  type Heartbeat, type JoinState,
 } from '../lib/groupCall'
 
 beforeEach(() => { installTestSigner() })
@@ -123,13 +123,13 @@ describe('myOfferWins', () => {
 
 describe('deriveJoinState', () => {
   const base = { participants: ['p1', 'p2'], myPubkey: 'me', inCallLocally: false, busyWithDmCall: false }
-  it.each([
+  it.each<[JoinState, Parameters<typeof deriveJoinState>[0]]>([
     ['can-join', base],
     ['in-call', { ...base, inCallLocally: true }],
     ['busy', { ...base, busyWithDmCall: true }],
     ['other-device', { ...base, participants: ['p1', 'me'] }],
     ['full', { ...base, participants: ['1', '2', '3', '4', '5', '6'] }],
-  ] as const)('returns %s', (expected, args) => {
+  ])('returns %s', (expected, args) => {
     expect(deriveJoinState(args)).toBe(expected)
   })
 

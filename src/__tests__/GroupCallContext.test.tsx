@@ -2,7 +2,7 @@ import { it, expect, vi, beforeEach, afterEach, describe } from 'vitest'
 import { render, screen, act, waitFor } from '@testing-library/react'
 import type { Event } from 'nostr-tools'
 
-const publishEvent = vi.fn(async () => {})
+const publishEvent = vi.fn(async (..._args: unknown[]) => {})
 const subCallbacks: Array<(e: Event) => void> = []
 const subscribeEvents = vi.fn((_r: unknown, _f: unknown, cb: (e: Event) => void) => {
   subCallbacks.push(cb)
@@ -68,7 +68,7 @@ beforeEach(() => {
   // src/test/setup.ts already defines navigator.mediaDevices as writable
   // (but not configurable), so plain assignment replaces it per-test instead
   // of Object.defineProperty, which throws on a non-configurable property.
-  navigator.mediaDevices = { getUserMedia: vi.fn(async () => fakeStream()) } as unknown as MediaDevices
+  ;(navigator as unknown as { mediaDevices: unknown }).mediaDevices = { getUserMedia: vi.fn(async () => fakeStream()) }
   useNostrStore.setState({
     publicKey: getSigner()!.pubkey,
     groupKeys: { [GROUP_ID]: KEY },

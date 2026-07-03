@@ -12,7 +12,8 @@ class FakePC {
   localDescription: unknown = null
   closed = false
   addedTracks: unknown[] = []
-  constructor(public config: unknown) { FakePC.instances.push(this) }
+  config: unknown
+  constructor(config: unknown) { this.config = config; FakePC.instances.push(this) }
   addTrack(t: unknown) { this.addedTracks.push(t) }
   async createOffer() { return { type: 'offer', sdp: 'offer-sdp' } }
   async createAnswer() { return { type: 'answer', sdp: 'answer-sdp' } }
@@ -23,9 +24,9 @@ class FakePC {
   close() { this.closed = true }
 }
 vi.stubGlobal('RTCPeerConnection', FakePC as unknown as typeof RTCPeerConnection)
-vi.stubGlobal('RTCIceCandidate', class { constructor(public c: unknown) {} } as unknown as typeof RTCIceCandidate)
+vi.stubGlobal('RTCIceCandidate', class { c: unknown; constructor(c: unknown) { this.c = c } } as unknown as typeof RTCIceCandidate)
 
-const publishEvent = vi.fn(async () => {})
+const publishEvent = vi.fn(async (..._args: unknown[]) => {})
 const subCallbacks = new Map<string, (e: Event) => void>()
 const subscribeEvents = vi.fn((_r: unknown, filter: { kinds: number[] }, cb: (e: Event) => void) => {
   subCallbacks.set(filter.kinds.join(','), cb)
@@ -98,7 +99,7 @@ beforeEach(() => {
   // src/test/setup.ts defines navigator.mediaDevices as writable but not
   // configurable, so plain assignment replaces it per-test (Object.defineProperty
   // would throw trying to redefine a non-configurable property).
-  navigator.mediaDevices = { getUserMedia: vi.fn(async () => fakeStream()) } as unknown as MediaDevices
+  ;(navigator as unknown as { mediaDevices: unknown }).mediaDevices = { getUserMedia: vi.fn(async () => fakeStream()) }
   useNostrStore.setState({
     publicKey: getSigner()!.pubkey,
     groupKeys: { [GROUP_ID]: KEY },
