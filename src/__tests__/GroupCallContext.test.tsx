@@ -122,6 +122,37 @@ it('leave stops the call and clears the busy flag', async () => {
   expect(useNostrStore.getState().activeCallType).toBe('none')
 })
 
+describe('re-entrancy', () => {
+  it('a second join click during the getUserMedia prompt does not start a duplicate call', async () => {
+    let resolveMedia: (s: MediaStream) => void = () => {}
+    const mediaPromise = new Promise<MediaStream>(resolve => { resolveMedia = resolve })
+    const getUserMediaMock = vi.fn(() => mediaPromise)
+    ;(navigator as unknown as { mediaDevices: unknown }).mediaDevices = { getUserMedia: getUserMediaMock }
+
+    render(<GroupCallProvider><Probe /></GroupCallProvider>)
+
+    // First click starts the getUserMedia prompt; state flips to 'joining'
+    // synchronously, before the permission promise resolves.
+    act(() => screen.getByText('join').click())
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('joining'))
+
+    // Second click while the prompt is still pending must be a no-op.
+    act(() => screen.getByText('join').click())
+    act(() => screen.getByText('join').click())
+
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('state').textContent).toBe('joining')
+
+    await act(async () => { resolveMedia(fakeStream()) })
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('in-call'))
+
+    // Still only one getUserMedia call, one call-start announcement, and one
+    // heartbeat interval's worth of initial publish.
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1)
+    expect(sendGroupCallStart).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('join refusals', () => {
   it('refuses when a 1:1 call is active', async () => {
     useNostrStore.setState({ activeCallType: 'dm' })

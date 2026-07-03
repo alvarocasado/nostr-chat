@@ -109,6 +109,15 @@ describe('logout', () => {
     expect(state.readReceiptsEnabled).toBe(false)
     expect(state.readUntilByPeer).toEqual({})
   })
+
+  it('resets activeCallType so a stale call flag cannot survive account switch', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    useNostrStore.setState({ activeCallType: 'group' })
+
+    await useNostrStore.getState().logout()
+
+    expect(useNostrStore.getState().activeCallType).toBe('none')
+  })
 })
 
 describe('relay management', () => {

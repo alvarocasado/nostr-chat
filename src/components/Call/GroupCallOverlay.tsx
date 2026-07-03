@@ -78,7 +78,10 @@ export function GroupCallOverlay() {
               {showVideo ? (
                 <VideoEl
                   stream={stream}
-                  muted={isSelf}
+                  // Always muted: self is local playback (no echo wanted),
+                  // and remote audio is already played once via RemoteAudio
+                  // above — unmuting this element would double it up.
+                  muted
                   className={`w-full h-full object-cover ${isSelf ? 'scale-x-[-1]' : ''}`}
                 />
               ) : (

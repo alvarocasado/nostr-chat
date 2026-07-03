@@ -567,6 +567,7 @@ export const useNostrStore = create<NostrState>()(
             signerCaps: { nip04: true },
             readReceiptsEnabled: false,
             readUntilByPeer: {},
+            activeCallType: 'none',
           })
           clearSigner()
           await clearLocalKey()

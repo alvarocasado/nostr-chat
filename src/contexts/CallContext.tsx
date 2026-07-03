@@ -193,6 +193,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const initiateCall = useCallback(async (peerPubkey: string, type: MediaType) => {
     if (callStateRef.current !== 'idle') return
+    // Defense-in-depth: never start a 1:1 call while a group call is active,
+    // even if callStateRef somehow lagged behind the group-call flag.
+    if (useNostrStore.getState().activeCallType === 'group') return
     if (!getSigner()?.caps.nip04) return
     const callId = Date.now().toString(36)
     callIdRef.current = callId

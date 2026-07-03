@@ -18,7 +18,7 @@ import {
   type Heartbeat, type LiveCall, type JoinState,
 } from '../lib/groupCall'
 
-export type GroupCallState = 'idle' | 'in-call'
+export type GroupCallState = 'idle' | 'joining' | 'in-call'
 
 // Roster staleness is re-evaluated on this cadence even without new events.
 const ROSTER_TICK_MS = 10_000
@@ -311,7 +311,7 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
       { kinds: [CALL_SIGNAL_KIND], '#p': [publicKey] } as Parameters<typeof subscribeEvents>[1],
       (event) => {
         void decryptCallSignal(event.pubkey, event.content).then(signal => {
-          if (signal) void handleGroupSignal(event.pubkey, signal)
+          if (signal) void handleGroupSignal(event.pubkey, signal).catch(() => {})
         })
       },
     )
@@ -423,19 +423,32 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
     const callId = roster?.callId ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
     const type = roster?.mediaType ?? requested
 
+    // Flip to 'joining' synchronously, before the getUserMedia await, so a
+    // second click during the permission prompt is blocked by the guard at
+    // the top of this function instead of racing past it.
+    stateRef.current = 'joining'
+    setGroupCallState('joining')
+    activeGroupRef.current = groupId
+    setActiveGroupId(groupId)
+
     try {
       const stream = await getCallUserMedia(type)
       localStreamRef.current = stream
       setLocalStream(stream)
     } catch {
-      return // getUserMedia failed: abort before any heartbeat
+      // getUserMedia failed: abort before any heartbeat, and undo the
+      // 'joining' flip so a retry is possible.
+      stateRef.current = 'idle'
+      setGroupCallState('idle')
+      activeGroupRef.current = null
+      setActiveGroupId(null)
+      return
     }
 
     callIdRef.current = callId
-    activeGroupRef.current = groupId
-    setActiveGroupId(groupId)
     setMediaType(type)
     mediaTypeRef.current = type
+    stateRef.current = 'in-call'
     setGroupCallState('in-call')
     store.setActiveCallType('group')
 
@@ -463,15 +476,22 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
     setIsCameraOff(v => !v)
   }, [])
 
-  // Cleanup on unmount
-  useEffect(() => () => { cleanup() }, [cleanup])
+  // Cleanup on unmount only. `cleanup` is recreated whenever its deps change
+  // (e.g. watchGroup switching groups triggers recomputeWatched to change),
+  // and a naive `useEffect(() => () => cleanup(), [cleanup])` would re-run
+  // the *previous* closure's cleanup on every such change — tearing down a
+  // live call or corrupting the banner. Keep the latest cleanup in a ref and
+  // only ever run it on true unmount.
+  const cleanupRef = useRef(cleanup)
+  useEffect(() => { cleanupRef.current = cleanup }, [cleanup])
+  useEffect(() => () => { cleanupRef.current() }, [])
 
   const activeCallType = useNostrStore(s => s.activeCallType)
   const myPubkey = publicKey ?? ''
   const joinState = deriveJoinState({
     participants: liveCall?.participants ?? [],
     myPubkey,
-    inCallLocally: groupCallState === 'in-call' && activeGroupId === watchedGroupId,
+    inCallLocally: groupCallState !== 'idle' && activeGroupId === watchedGroupId,
     busyWithDmCall: activeCallType === 'dm',
   })
 
