@@ -5,6 +5,8 @@ import { useTypingIndicator } from '../../hooks/useTypingIndicator'
 import { useReadReceipts } from '../../hooks/useReadReceipts'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
+import { useGroupCallContext } from '../../contexts/GroupCallContext'
+import { GroupCallBanner } from '../Call/GroupCallBanner'
 import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
 import {
@@ -174,6 +176,7 @@ function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: ()
 function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGallery: () => void }) {
   const { groups, clearActiveChat } = useNostrStore()
   const group = groups.find((g: Group) => g.id === groupId)
+  const { startOrJoin, liveCall, joinState } = useGroupCallContext()
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
@@ -196,6 +199,22 @@ function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGaller
           </span>
         </div>
       </div>
+      <button
+        onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'audio')}
+        disabled={joinState !== 'can-join'}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        title={liveCall ? 'Join call' : 'Start voice call'}
+      >
+        <Phone size={18} />
+      </button>
+      <button
+        onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'video')}
+        disabled={joinState !== 'can-join'}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        title={liveCall ? 'Join call' : 'Start video call'}
+      >
+        <Video size={18} />
+      </button>
       <button
         onClick={onOpenGallery}
         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
@@ -763,6 +782,11 @@ function GroupThread({ groupId }: { groupId: string }) {
   } = useNostrStore()
   const writeR = useWriteRelays()
   useGroupMessages(groupId)
+  const { watchGroup } = useGroupCallContext()
+  useEffect(() => {
+    watchGroup(groupId)
+    return () => watchGroup(null)
+  }, [groupId, watchGroup])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
@@ -851,6 +875,7 @@ function GroupThread({ groupId }: { groupId: string }) {
   return (
     <>
       <GroupHeader groupId={groupId} onOpenGallery={() => setShowGallery(true)} />
+      <GroupCallBanner groupId={groupId} />
       {showGallery ? (
         <MediaGallery messages={messages[groupId] || []} onClose={() => setShowGallery(false)} />
       ) : (

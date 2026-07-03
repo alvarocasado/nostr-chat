@@ -33,3 +33,10 @@
 - **Reliable sent ticks.** Message send status is now stored locally, so
   sent (and read) checkmarks survive a page reload instead of reverting to
   a spinner.
+- **Group calls.** Start a voice or video call from a group's header; members
+  see a "Call in progress" banner and join or leave freely (up to 6
+  participants). Calls are serverless: media flows peer-to-peer between all
+  participants, and coordination rides ephemeral encrypted Nostr events that
+  relays never store. Late joining works; if someone's app crashes they
+  disappear from the call within about 90 seconds. Group calls and 1:1 calls
+  are mutually exclusive - you are "busy" to one while in the other.
