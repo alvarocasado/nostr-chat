@@ -162,6 +162,8 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
           const prev = messages[index - firstItemIndex - 1]
           const { showDateSeparator, showAvatar } = decorateRow(msg, prev, myPubkey)
           const showDivider = msg.id === dividerAnchorId
+          // Call records render as centered system rows, not bubbles. Scoped
+          // by chat type so identical JSON pasted elsewhere stays plain text.
           const callLog = chatType === 'dm' ? parseCallLogPayload(msg.content) : null
           const callStart = chatType === 'group' ? parseCallStartPayload(msg.content) : null
           return (
