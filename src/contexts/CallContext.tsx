@@ -4,6 +4,7 @@ import {
 } from 'react'
 import { subscribeEvents, publishEvent, buildDMEvent } from '../lib/nostr'
 import { getSetting } from '../lib/userDb'
+import { getPeerRelays, combineRelays } from '../lib/peerRelays'
 import { useNostrStore } from '../store/nostrStore'
 import { useReadRelays } from '../hooks/useRelays'
 import { getSigner } from '../lib/signer'
@@ -84,6 +85,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const wasConnectedRef = useRef(false)
   const mediaTypeRef    = useRef<MediaType>('audio')
   const durationSecRef  = useRef(0)
+  // The call's peer, mirrored from setPeer. call-answer/call-end are only
+  // honoured from this pubkey, and the call-log is always addressed to it —
+  // never to a signal's sender, which an observer could forge.
+  const peerPubkeyRef   = useRef<string | null>(null)
 
   // Keep ref in sync so callbacks always see current state
   useEffect(() => { callStateRef.current = callState }, [callState])
@@ -130,6 +135,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     offerSentRef.current    = false
     wasConnectedRef.current = false
     durationSecRef.current  = 0
+    peerPubkeyRef.current   = null
     setCallState('idle')
     setPeer(null)
   }, [stopLocalStream])
@@ -172,11 +178,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
           decrypted: true,
           status: 'sending',
         })
-        await publishEvent(useNostrStore.getState().writeRelays(), event)
+        // Same relay targeting as every other DM: the peer's read relays must
+        // receive the log or the offline missed-call guarantee fails.
+        const peerRead = await getPeerRelays(peerPubkey, useNostrStore.getState().readRelays())
+          .then(pr => pr.read)
+          .catch(() => [] as string[])
+        await publishEvent(combineRelays(useNostrStore.getState().writeRelays(), peerRead), event)
         useNostrStore.getState().updateMessageStatus(peerPubkey, event.id, 'sent')
       } catch {
-        // ponytail: best-effort history; a failed publish shows the row as
-        // "failed" locally (or nothing if signing failed) and is not retried.
+        // ponytail: best-effort history; a failed publish marks the stored row
+        // "failed" (CallRow shows no status indicator and there is no retry —
+        // accepted limit), or stores nothing if signing failed.
         if (eventId) useNostrStore.getState().updateMessageStatus(peerPubkey, eventId, 'failed')
       }
     })()
@@ -255,21 +267,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // even if callStateRef somehow lagged behind the group-call flag.
     if (useNostrStore.getState().activeCallType === 'group') return
     if (!getSigner()?.caps.nip04) return
-    const callId = Date.now().toString(36)
+    // Random id: a timestamp-derived callId is guessable from the offer's
+    // public created_at, letting an observer forge matching call-end signals.
+    const callId = crypto.randomUUID()
     callIdRef.current = callId
     isInitiatorRef.current  = true
     offerSentRef.current    = false
     wasConnectedRef.current = false
     mediaTypeRef.current    = type
     durationSecRef.current  = 0
+    peerPubkeyRef.current   = peerPubkey
     setIceConnFailed(false)
     setMediaType(type)
     setPeer({ pubkey: peerPubkey })
     setCallState('calling')
 
+    // If cleanup ran during any await below (user hung up, possibly started a
+    // new call), this continuation is stale: it must not touch refs or state,
+    // or it could ring the old peer and enable a phantom call-log.
+    const stale = () => callIdRef.current !== callId
+
     try {
       const iceServers = await fetchCallIceServers()
+      if (stale()) return
       const stream = await getUserMedia(type)
+      if (stale()) {
+        stream.getTracks().forEach(t => t.stop())
+        return
+      }
       localStreamRef.current = stream
       setLocalStream(stream)
 
@@ -277,7 +302,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       const offer = await pc.createOffer()
+      if (stale()) return
       await pc.setLocalDescription(offer)
+      if (stale()) return
 
       await sendSignal(peerPubkey, {
         type: 'call-offer',
@@ -286,9 +313,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         sdp: offer.sdp,
         iceServers,
       })
+      if (stale()) return
       offerSentRef.current = true
     } catch {
-      cleanup()
+      if (!stale()) cleanup()
     }
   }, [getUserMedia, createPeerConnection, sendSignal, cleanup])
 
@@ -419,6 +447,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pendingCandidates.current.push(...preOffer)
       pendingOffer.current = { sdp: signal.sdp, peerPubkey: senderPubkey, iceServers: signal.iceServers }
       setMediaType(signal.mediaType ?? 'audio')
+      peerPubkeyRef.current = senderPubkey
       setPeer({ pubkey: senderPubkey })
       setCallState('incoming')
       return
@@ -434,6 +463,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     if (signal.callId !== callIdRef.current) return
+
+    // Only the call's peer may answer or end it — a matching callId alone is
+    // not proof of identity (relay observers see who we signalled).
+    if ((signal.type === 'call-answer' || signal.type === 'call-end') &&
+        senderPubkey !== peerPubkeyRef.current) return
 
     if (signal.type === 'call-answer') {
       const pc = pcRef.current
@@ -455,7 +489,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     if (signal.type === 'call-end') {
-      publishCallLog(senderPubkey, signal.reason)
+      if (peerPubkeyRef.current) publishCallLog(peerPubkeyRef.current, signal.reason)
       cleanup()
     }
   }, [sendSignal, flushPendingCandidates, cleanup, publishCallLog])

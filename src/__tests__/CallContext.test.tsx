@@ -18,6 +18,10 @@ vi.mock('../lib/nostr', async (importOriginal) => {
   }
 })
 vi.mock('../lib/notifications', () => ({ fireCallNotification: vi.fn(() => () => {}) }))
+vi.mock('../lib/peerRelays', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/peerRelays')>()
+  return { ...actual, getPeerRelays: vi.fn().mockResolvedValue({ read: ['wss://peer-read'], write: [] }) }
+})
 
 import { CallProvider, useCallContext } from '../contexts/CallContext'
 import { useNostrStore } from '../store/nostrStore'
@@ -166,6 +170,53 @@ describe('caller publishes exactly one call-log at the terminal transition', () 
     render(<CallProvider><Probe /></CallProvider>)
     act(() => screen.getByText('call').click())
     await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('idle'))
+    expect(publishedKind4s()).toHaveLength(0)
+  })
+})
+
+describe('final-review hardening', () => {
+  it('publishes the call-log to own write relays plus the peer read relays', async () => {
+    await startCall()
+    act(() => screen.getByText('hangup').click())
+    await waitFor(() => expect(publishedKind4s()).toHaveLength(1))
+    const logCall = publishEvent.mock.calls.find(c => (c[1] as Event).kind === 4)!
+    expect(logCall[0]).toContain('wss://peer-read')
+    expect(logCall[0]).toContain('wss://test.example')
+  })
+
+  it('ignores a call-end forged by a third party with the right callId', async () => {
+    await startCall()
+    const offer = publishEvent.mock.calls.map(c => c[1] as Event).find(e => e.kind === CALL_SIGNAL_KIND)!
+    const myPk = getSigner()!.pubkey
+    const { callId } = JSON.parse(await nip04.decrypt(peerSk, myPk, offer.content)) as { callId: string }
+    const mallorySk = generateSecretKey()
+    const content = await nip04.encrypt(mallorySk, myPk, JSON.stringify({ type: 'call-end', callId, reason: 'rejected' }))
+    const forged = finalizeEvent(
+      { kind: CALL_SIGNAL_KIND, created_at: Math.floor(Date.now() / 1000), tags: [['p', myPk]], content },
+      mallorySk,
+    )
+    await act(async () => { subCallbacks.forEach(cb => cb(forged)) })
+    // the forged signal is dropped: still ringing, no history row published anywhere
+    expect(screen.getByTestId('state').textContent).toBe('calling')
+    expect(publishedKind4s()).toHaveLength(0)
+  })
+
+  it('a hangup during getUserMedia leaves no stale offer and no call-log', async () => {
+    let resolveStream!: (s: MediaStream) => void
+    ;(navigator as unknown as { mediaDevices: unknown }).mediaDevices = {
+      getUserMedia: vi.fn(() => new Promise<MediaStream>(res => { resolveStream = res })),
+    }
+    render(<CallProvider><Probe /></CallProvider>)
+    act(() => screen.getByText('call').click())
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('calling'))
+    act(() => screen.getByText('hangup').click())
+    await waitFor(() => expect(screen.getByTestId('state').textContent).toBe('idle'))
+    await act(async () => { resolveStream(fakeStream()) })
+    // only the hangup's call-end went out; the stale continuation sent no offer
+    const signals = publishEvent.mock.calls.map(c => c[1] as Event).filter(e => e.kind === CALL_SIGNAL_KIND)
+    expect(signals).toHaveLength(1)
+    expect(publishedKind4s()).toHaveLength(0)
+    act(() => screen.getByText('hangup').click())
     expect(publishedKind4s()).toHaveLength(0)
   })
 })
