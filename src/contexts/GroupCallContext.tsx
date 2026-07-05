@@ -328,7 +328,7 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
       if (!key) return null
       return subscribeEvents(
         readR,
-        { kinds: [GROUP_CALL_PRESENCE_KIND], '#e': [gid] },
+        { kinds: [GROUP_CALL_PRESENCE_KIND], '#h': [gid] },
         (event) => {
           void parsePresenceEvent(event, key).then(p => {
             if (!p) return

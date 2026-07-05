@@ -57,7 +57,7 @@ async function presenceEvent(pubkey: string, callId: string): Promise<Event> {
   const content = await encryptWithGroupKey(JSON.stringify({ type: 'presence', callId, mediaType: 'audio' }), KEY)
   return {
     id: Math.random().toString(36).slice(2), pubkey, created_at: Math.floor(Date.now() / 1000),
-    kind: GROUP_CALL_PRESENCE_KIND, tags: [['e', GROUP_ID]], content, sig: 'sig',
+    kind: GROUP_CALL_PRESENCE_KIND, tags: [['h', GROUP_ID]], content, sig: 'sig',
   }
 }
 
@@ -85,7 +85,7 @@ it('watchGroup subscribes to presence for the group', async () => {
   await waitFor(() => {
     expect(subscribeEvents).toHaveBeenCalledWith(
       expect.anything(),
-      { kinds: [GROUP_CALL_PRESENCE_KIND], '#e': [GROUP_ID] },
+      { kinds: [GROUP_CALL_PRESENCE_KIND], '#h': [GROUP_ID] },
       expect.any(Function),
     )
   })

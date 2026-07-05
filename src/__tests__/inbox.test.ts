@@ -273,7 +273,7 @@ describe('processGroupEvent call-start control messages', () => {
     return finalizeEvent({
       kind: 1042,
       created_at: 1000,
-      tags: [['e', GROUP_ID, RELAYS[0], 'root']],
+      tags: [['h', GROUP_ID, RELAYS[0]]],
       content,
     }, senderSk)
   }

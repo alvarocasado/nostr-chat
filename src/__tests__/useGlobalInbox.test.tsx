@@ -61,3 +61,15 @@ it('subscribes immediately when the signer is already present at mount', () => {
   const filters = subscribeEvents.mock.calls.map(c => JSON.stringify(c[1]))
   expect(filters.some(f => f.includes('"kinds":[4]') && f.includes(PK))).toBe(true)
 })
+
+it('subscribes to groups with an #h filter and routes by the h tag', () => {
+  installTestSigner()
+  useNostrStore.setState({
+    publicKey: PK,
+    groups: [{ id: 'uuid-1', name: 'g', creatorPubkey: 'x', memberPubkeys: [], relayUrl: 'wss://test.example', unread: 0 }],
+  })
+  render(<Probe />)
+  const filters = subscribeEvents.mock.calls.map(c => JSON.stringify(c[1]))
+  expect(filters.some(f => f.includes('"#h":["uuid-1"]'))).toBe(true)
+  expect(filters.some(f => f.includes('"#e":["uuid-1"]'))).toBe(false)
+})

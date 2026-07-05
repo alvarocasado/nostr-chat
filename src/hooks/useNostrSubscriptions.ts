@@ -21,6 +21,7 @@ import {
   processDMEvent,
   processGroupEvent,
   extractRootChatId,
+  extractGroupId,
 } from '../lib/inbox'
 import { useStableArray } from './useStableArray'
 import { useReadRelays } from './useRelays'
@@ -150,7 +151,7 @@ export function useGroupMessages(groupId: string | null) {
     let live = false
     const sub = subscribeEvents(
       stableRelays,
-      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': [groupId], limit: INITIAL_PAGE },
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': [groupId], limit: INITIAL_PAGE },
       (event) => { void processGroupEvent(event, groupId, groupKey, stableRelays, { live }) },
       () => { live = true },
     )
@@ -211,9 +212,9 @@ export function useGlobalInbox() {
     let live = false
     const sub = subscribeEvents(
       stableRelays,
-      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': groupIds, limit: 50 },
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': groupIds, limit: 50 },
       (event) => {
-        const chatId = extractRootChatId(event.tags)
+        const chatId = extractGroupId(event.tags)
         if (!chatId || !ids.has(chatId)) return
         const key = useNostrStore.getState().groupKeys[chatId]
         if (key) void processGroupEvent(event, chatId, key, stableRelays, { live })

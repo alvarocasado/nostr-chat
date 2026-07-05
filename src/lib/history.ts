@@ -27,7 +27,7 @@ export function olderFilterFor(
     return [{ kinds: [42], '#e': [chatId], until, limit }]
   }
   if (chatType === 'group') {
-    return [{ kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': [chatId], until, limit }]
+    return [{ kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': [chatId], until, limit }]
   }
   return [
     { kinds: [4], authors: [myPubkey], '#p': [chatId], until, limit },
