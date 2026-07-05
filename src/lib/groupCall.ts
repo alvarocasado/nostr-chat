@@ -32,7 +32,7 @@ export async function buildPresenceEvent(
   return requireSigner().signEvent({
     kind: GROUP_CALL_PRESENCE_KIND,
     created_at: Math.floor(Date.now() / 1000),
-    tags: [['e', groupId]],
+    tags: [['h', groupId]],
     content,
   })
 }

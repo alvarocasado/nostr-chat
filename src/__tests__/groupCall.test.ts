@@ -23,7 +23,7 @@ describe('presence events', () => {
     expect(event.kind).toBe(GROUP_CALL_PRESENCE_KIND)
     expect(event.kind).toBeGreaterThanOrEqual(20000)
     expect(event.kind).toBeLessThan(30000)
-    expect(event.tags).toEqual([['e', GROUP_ID]])
+    expect(event.tags).toEqual([['h', GROUP_ID]])
     expect(event.content).not.toContain('presence')
   })
 

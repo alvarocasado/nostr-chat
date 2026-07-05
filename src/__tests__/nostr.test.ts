@@ -6,6 +6,7 @@ import {
   parseProfile,
   shortPubkey,
   buildGroupMessageEvent,
+  buildChannelMessageEvent,
   buildTypingEvent,
   GROUP_MESSAGE_KIND,
   LEGACY_GROUP_MESSAGE_KIND,
@@ -75,6 +76,19 @@ describe('event kinds', () => {
     expect(event.kind).toBeLessThan(30000)
     expect(event.kind).not.toBe(24133)
     expect(event.kind).toBe(TYPING_INDICATOR_KIND)
+  })
+
+  it('tags group messages with h - group ids are UUIDs, strict relays reject non-hex e tags', async () => {
+    const event = await buildGroupMessageEvent('ciphertext', 'group-uuid', 'wss://relay.example', 'a'.repeat(64))
+    expect(event.tags).toEqual([
+      ['h', 'group-uuid', 'wss://relay.example'],
+      ['e', 'a'.repeat(64), '', 'reply'],
+    ])
+  })
+
+  it('keeps channel messages on e tags - channel ids are real event ids', async () => {
+    const event = await buildChannelMessageEvent('hi', 'c'.repeat(64), 'wss://relay.example')
+    expect(event.tags[0]).toEqual(['e', 'c'.repeat(64), 'wss://relay.example', 'root'])
   })
 })
 

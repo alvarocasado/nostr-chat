@@ -168,7 +168,10 @@ export async function buildGroupMessageEvent(
   relayUrl: string,
   replyEventId?: string,
 ): Promise<Event> {
-  const tags: string[][] = [['e', groupId, relayUrl, 'root']]
+  // Group ids are UUIDs, not event ids: strict relays reject them in e tags,
+  // so groups are addressed NIP-29-style via h. Replies still e-tag the
+  // real target event id.
+  const tags: string[][] = [['h', groupId, relayUrl]]
   if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
   return requireSigner().signEvent({ kind: GROUP_MESSAGE_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent })
 }
