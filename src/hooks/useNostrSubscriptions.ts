@@ -75,6 +75,11 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
   const stableRelays = useReadRelays()
   const peer = usePeerRelays(theirPubkey)
   const receivedRelays = useStableArray(combineRelays(stableRelays, peer.write))
+  // On restored sessions the signer is installed asynchronously after the
+  // store rehydrates; setSignerCaps stores a fresh object, so depending on it
+  // re-runs this effect once the signer exists (the getSigner guard below
+  // otherwise kills the subscription for the whole session).
+  const signerCaps = useNostrStore(s => s.signerCaps)
 
   useEffect(() => {
     if (!myPubkey || !theirPubkey) return
@@ -100,7 +105,7 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
       sub1.close()
       sub2.close()
     }
-  }, [myPubkey, theirPubkey, stableRelays, receivedRelays])
+  }, [myPubkey, theirPubkey, stableRelays, receivedRelays, signerCaps])
 }
 
 // Hook to discover public channels
@@ -157,7 +162,7 @@ export function useGroupMessages(groupId: string | null) {
 // working for chats that are not currently open. Per-chat hooks above provide
 // history backfill; the shared processors deduplicate side effects between them.
 export function useGlobalInbox() {
-  const { publicKey, joinedChannelIds, groups } = useNostrStore()
+  const { publicKey, joinedChannelIds, groups, signerCaps } = useNostrStore()
   const stableRelays = useReadRelays()
   const stableJoined = useStableArray(joinedChannelIds)
   const groupIds = useStableArray(groups.map(g => g.id))
@@ -175,7 +180,9 @@ export function useGlobalInbox() {
       () => { live = true },
     )
     return () => sub.close()
-  }, [publicKey, stableRelays])
+    // signerCaps: restored sessions install the signer after rehydration; the
+    // fresh caps object re-runs this effect so the inbox subscribes at all.
+  }, [publicKey, stableRelays, signerCaps])
 
   // All joined channels in one subscription
   useEffect(() => {

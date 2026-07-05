@@ -53,7 +53,7 @@ export function useCallContext() {
 }
 
 export function CallProvider({ children }: { children: ReactNode }) {
-  const { publicKey } = useNostrStore()
+  const { publicKey, signerCaps } = useNostrStore()
   const readR = useReadRelays()
 
   const [callState, setCallState]       = useState<CallState>('idle')
@@ -507,7 +507,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       },
     )
     return () => sub.close()
-  }, [publicKey, readR, handleSignal])
+    // signerCaps: restored sessions install the signer after rehydration; the
+    // fresh caps object re-runs this effect so the call sub starts reliably.
+  }, [publicKey, readR, handleSignal, signerCaps])
 
   // Ringtone + browser banner while the incoming call modal is showing
   const peerPubkey = peer?.pubkey
