@@ -9,8 +9,8 @@ Private-group events carry the group id (a UUID) in an `e` tag. Strict public
 relays validate `e` tags as 64-hex event ids and reject such events with
 "invalid: unexpected size for fixed-size tag: e" — verified live against
 relay.damus.io, nos.lol, and relay.snort.social on 2026-07-05. Every group
-message (kind 1042), group typing indicator (kind 24101), and group-call
-presence heartbeat (kind 24103) is affected. The bug went unnoticed because
+message (kind 1042) and group-call presence heartbeat (kind 24103) is
+affected. The bug went unnoticed because
 senders render their own messages optimistically and groups were never tested
 cross-account over a live network.
 
@@ -81,10 +81,10 @@ changes.
 
 ## Testing
 
-- Unit: tag assertions for `buildGroupMessageEvent` (h root + e reply),
-  `buildTypingEvent('group', …)`, `buildPresenceEvent`; `extractGroupId`
+- Unit: tag assertions for `buildGroupMessageEvent` (h root + e reply)
+  and `buildPresenceEvent`; `extractGroupId`
   (present / absent / malformed tags); filter-shape assertions updated in
-  history, groupCall, typing, and subscription tests; a regression test
+  history, groupCall, and subscription tests; a regression test
   pins that channel messages and channel typing still use `e`/`#e`, and DM
   typing still uses `p`.
 - Live cross-account verification (two accounts over public relays, same
@@ -95,7 +95,7 @@ changes.
 
 ## Known limits (accepted)
 
-- `h` is the NIP-29 group tag; this app's kinds (1042, 24101, 24103) are
+- `h` is the NIP-29 group tag; this app's kinds (1042, 24103) are
   app-custom, so no cross-client interop is implied or attempted.
 - Relays that index only a fixed allowlist of tag letters (rare) would not
   serve `#h` filters; the four default relays are verified working.
