@@ -68,13 +68,13 @@
 
 ### Known issues discovered during live verification (2026-07-05)
 
-- **Private groups cannot publish to strict public relays (critical).**
-  Group ids are UUIDs and ride in `e` tags; damus, nos.lol, and snort reject
-  such events with "invalid: unexpected size for fixed-size tag: e". All
-  group messages, call-start announcements, and group-call presence
-  heartbeats are affected — single-client testing never noticed because
-  senders render their own copy optimistically. Fix needs a 64-hex group id
-  (or a different tag scheme) plus a migration for existing groups.
+- **Private groups on strict public relays — FIXED.** Group events now ride
+  NIP-29-style `['h', groupId]` tags instead of non-hex `e` tags (which
+  damus, nos.lol, and snort rejected). Group ids, storage, invites, and key
+  backups are unchanged; no migration. Spec:
+  `docs/superpowers/specs/2026-07-05-group-h-tag-design.md`. Live
+  cross-account verification pending (group message both ways, group call
+  banner + "started a call" row).
 - **Ghost ring on app open.** Some relays replay "ephemeral" kind-24100
   call-offers on subscription; an offer from an already-ended call rings the
   callee on reload. Needs a freshness check (drop offers older than ~60 s).
