@@ -56,3 +56,27 @@
   (no per-member join/leave or outcome rows); there is no dedicated Calls tab
   in v1 (history lives inline in the thread); and there is no ring timeout —
   a call is logged missed only when the caller gives up and hangs up.
+  Live verification (2026-07-05, two accounts over public relays): missed,
+  completed, declined, call-back-from-row, offline missed call (app closed
+  during the call, record appeared on next open via backfill), badge rules
+  (only missed counts), search exclusion, and phone-width rendering all
+  verified. The group "started a call" row could not be live-verified —
+  blocked by the pre-existing group transport issue below (it is covered by
+  unit tests). Verification surfaced and fixed a session-restore bug: inbox
+  subscriptions never started on restored sessions because the signer is
+  installed after the store rehydrates (see `useGlobalInbox` signerCaps dep).
+
+### Known issues discovered during live verification (2026-07-05)
+
+- **Private groups cannot publish to strict public relays (critical).**
+  Group ids are UUIDs and ride in `e` tags; damus, nos.lol, and snort reject
+  such events with "invalid: unexpected size for fixed-size tag: e". All
+  group messages, call-start announcements, and group-call presence
+  heartbeats are affected — single-client testing never noticed because
+  senders render their own copy optimistically. Fix needs a 64-hex group id
+  (or a different tag scheme) plus a migration for existing groups.
+- **Ghost ring on app open.** Some relays replay "ephemeral" kind-24100
+  call-offers on subscription; an offer from an already-ended call rings the
+  callee on reload. Needs a freshness check (drop offers older than ~60 s).
+- **Mobile drawer renders empty after a live desktop-to-phone resize**
+  (reload at phone width is fine). Cosmetic, dev-tools-emulation scenario.
