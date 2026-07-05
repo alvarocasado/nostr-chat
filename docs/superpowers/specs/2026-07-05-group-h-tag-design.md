@@ -27,25 +27,23 @@ changes.
 
 ## Scope
 
-### Publish surfaces (3)
+### Publish surfaces (2)
 
 - `buildGroupMessageEvent` (src/lib/nostr.ts): root tag becomes
   `['h', groupId, relayUrl]`. A reply tag remains `['e', replyEventId, '',
   'reply']` — reply targets are real 64-hex event ids, valid and semantically
   correct as `e`.
-- `buildTypingEvent` (src/lib/nostr.ts) + `useTypingIndicator`
-  (src/hooks/useTypingIndicator.ts): gain an explicit `'group'` chat type
-  that tags `['h', chatId]` and filters `'#h'`. The group thread passes
-  `'group'` instead of reusing `'channel'`. DMs (p tags) and channels
-  (hex-id e tags) are unchanged.
+- Typing indicators: verified during planning that `useTypingIndicator` is
+  mounted only for channels and DMs (`MessageThread.tsx`) — groups have no
+  typing indicator, so no typing change is needed. If group typing is added
+  later it must use `['h', groupId]` / `'#h'`.
 - `buildPresenceEvent` (src/lib/groupCall.ts): tags `['h', groupId]`.
 
-### Read surfaces (5 filters + routing)
+### Read surfaces (4 filters + routing)
 
 - Per-group message subscription (`useGroupMessages`) and the global groups
   subscription (`useGlobalInbox`) filter `'#h': [...]`.
 - Group history backfill (src/lib/history.ts, group branch) filters `'#h'`.
-- Group typing subscription filters `'#h'`.
 - Group-call presence subscription (GroupCallContext) filters `'#h'`.
 - Routing: new pure helper `extractGroupId(tags: string[][]): string | null`
   in src/lib/inbox.ts returns the first `h` tag value (null when absent).
@@ -91,10 +89,9 @@ changes.
   typing still uses `p`.
 - Live cross-account verification (two accounts over public relays, same
   setup as the 2026-07-05 session): group message send/receive both ways
-  (previously impossible), group typing indicator, group call start →
-  banner + notification on the other account, and the call-history
-  "started a call" row — closing the item deferred from the call-history
-  checklist.
+  (previously impossible), group call start → banner + notification on the
+  other account, and the call-history "started a call" row — closing the
+  item deferred from the call-history checklist.
 
 ## Known limits (accepted)
 

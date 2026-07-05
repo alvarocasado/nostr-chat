@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
-import { extractRootChatId, processChannelEvent, processDMEvent, processGroupEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
+import { extractRootChatId, extractGroupId, processChannelEvent, processDMEvent, processGroupEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
 import { useNostrStore } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
 import { installTestSigner } from '../test/signer'
@@ -385,5 +385,20 @@ describe('processDMEvent call-log control messages', () => {
     const s = useNostrStore.getState()
     expect(s.messages[senderPk]).toHaveLength(1)
     expect(s.contacts.find(c => c.pubkey === senderPk)?.unread).toBe(1)
+  })
+})
+
+describe('extractGroupId', () => {
+  it('returns the h tag value, ignoring e tags', () => {
+    expect(extractGroupId([['e', 'reply-id', '', 'reply'], ['h', 'group-uuid']])).toBe('group-uuid')
+  })
+
+  it('returns null when there is no h tag', () => {
+    expect(extractGroupId([['e', 'x'], ['p', 'y']])).toBeNull()
+    expect(extractGroupId([])).toBeNull()
+  })
+
+  it('returns null for a malformed h tag with no value', () => {
+    expect(extractGroupId([['h']])).toBeNull()
   })
 })

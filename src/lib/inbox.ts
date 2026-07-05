@@ -219,6 +219,15 @@ export function extractRootChatId(tags: string[][]): string | null {
   return tags.find(t => t[0] === 'e')?.[1] ?? null
 }
 
+/**
+ * Resolve the private group an event belongs to from its h tag. Group ids
+ * are UUIDs, not event ids, so they ride h tags — strict relays reject
+ * non-hex values in e tags ("unexpected size for fixed-size tag").
+ */
+export function extractGroupId(tags: string[][]): string | null {
+  return tags.find(t => t[0] === 'h')?.[1] ?? null
+}
+
 export interface ProcessOpts {
   /** True when the event arrived after EOSE (a live message, not relay backfill). */
   live: boolean
