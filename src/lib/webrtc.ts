@@ -4,6 +4,15 @@ import { requireSigner } from './signer'
 
 export const CALL_SIGNAL_KIND = 24100
 
+// Kind 24100 is ephemeral, but some relays store and replay it on subscribe,
+// ringing the callee for calls that ended minutes ago. Calls are real-time:
+// any signal older than this is a replay, not a live call.
+export const MAX_CALL_SIGNAL_AGE_SEC = 60
+
+export function isStaleCallSignal(createdAtSec: number, nowMs = Date.now()): boolean {
+  return createdAtSec < Math.floor(nowMs / 1000) - MAX_CALL_SIGNAL_AGE_SEC
+}
+
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },

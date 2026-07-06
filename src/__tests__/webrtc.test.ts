@@ -9,6 +9,8 @@ import {
   shouldReplyBusy,
   ICE_SERVERS,
   CALL_SIGNAL_KIND,
+  isStaleCallSignal,
+  MAX_CALL_SIGNAL_AGE_SEC,
   type CallSignal,
 } from '../lib/webrtc'
 
@@ -263,5 +265,30 @@ describe('shouldReplyBusy', () => {
     [true, false, 'dm'],
   ] as const)('returns %s for isIdle=%s activeCallType=%s', (expected, isIdle, act) => {
     expect(shouldReplyBusy(isIdle, act)).toBe(expected)
+  })
+})
+
+// ─── isStaleCallSignal ───────────────────────────────────────────────────────
+
+describe('isStaleCallSignal', () => {
+  const NOW_MS = 1_000_000_000_000 // fixed clock so the boundary is exact
+  const NOW_SEC = 1_000_000_000
+
+  it('fresh events are not stale', () => {
+    expect(isStaleCallSignal(NOW_SEC, NOW_MS)).toBe(false)
+    expect(isStaleCallSignal(NOW_SEC - 30, NOW_MS)).toBe(false)
+  })
+
+  it('exactly 60 s old is not stale (strict boundary)', () => {
+    expect(isStaleCallSignal(NOW_SEC - MAX_CALL_SIGNAL_AGE_SEC, NOW_MS)).toBe(false)
+  })
+
+  it('older than 60 s is stale', () => {
+    expect(isStaleCallSignal(NOW_SEC - MAX_CALL_SIGNAL_AGE_SEC - 1, NOW_MS)).toBe(true)
+    expect(isStaleCallSignal(NOW_SEC - 3600, NOW_MS)).toBe(true)
+  })
+
+  it('future-dated events are never stale', () => {
+    expect(isStaleCallSignal(NOW_SEC + 300, NOW_MS)).toBe(false)
   })
 })
