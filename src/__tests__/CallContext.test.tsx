@@ -239,3 +239,19 @@ describe('callee never publishes a call-log', () => {
     expect(publishedKind4s()).toHaveLength(0)
   })
 })
+
+describe('stale signal gate', () => {
+  it('a replayed call-offer older than 60 s does not ring', async () => {
+    render(<CallProvider><Probe /></CallProvider>)
+    const myPk = getSigner()!.pubkey
+    const content = await nip04.encrypt(peerSk, myPk, JSON.stringify({
+      type: 'call-offer', callId: 'ghost1', mediaType: 'audio', sdp: 'offer-sdp',
+    }))
+    const stale = finalizeEvent(
+      { kind: CALL_SIGNAL_KIND, created_at: Math.floor(Date.now() / 1000) - 120, tags: [['p', myPk]], content },
+      peerSk,
+    )
+    await act(async () => { subCallbacks.forEach(cb => cb(stale)) })
+    expect(screen.getByTestId('state').textContent).toBe('idle')
+  })
+})

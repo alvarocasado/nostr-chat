@@ -9,7 +9,7 @@ import { getSigner } from '../lib/signer'
 import { sendGroupCallStart } from '../hooks/useNostrSubscriptions'
 import {
   getCallUserMedia, buildCallSignalEvent, decryptCallSignal,
-  fetchCallIceServers, CALL_SIGNAL_KIND,
+  fetchCallIceServers, CALL_SIGNAL_KIND, isStaleCallSignal,
   type CallSignal, type MediaType,
 } from '../lib/webrtc'
 import {
@@ -310,6 +310,7 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
       readR,
       { kinds: [CALL_SIGNAL_KIND], '#p': [publicKey] } as Parameters<typeof subscribeEvents>[1],
       (event) => {
+        if (isStaleCallSignal(event.created_at)) return
         void decryptCallSignal(event.pubkey, event.content).then(signal => {
           if (signal) void handleGroupSignal(event.pubkey, signal).catch(() => {})
         })

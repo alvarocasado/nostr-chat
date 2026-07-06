@@ -13,7 +13,7 @@ import { serializeCallLog, deriveCallOutcome } from '../lib/callLog'
 import {
   buildCallSignalEvent, decryptCallSignal,
   getIceServers, fetchCallIceServers, mergeIceServers, CALL_SIGNAL_KIND,
-  isGroupSignal, shouldReplyBusy,
+  isGroupSignal, shouldReplyBusy, isStaleCallSignal,
   type CallSignal, type MediaType,
 } from '../lib/webrtc'
 
@@ -502,6 +502,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       readR,
       { kinds: [CALL_SIGNAL_KIND], '#p': [publicKey] } as Parameters<typeof subscribeEvents>[1],
       async (event) => {
+        if (isStaleCallSignal(event.created_at)) return
         const signal = await decryptCallSignal(event.pubkey, event.content)
         if (signal) await handleSignal(event.pubkey, signal)
       },
