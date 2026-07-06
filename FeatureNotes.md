@@ -68,13 +68,21 @@
 
 ### Known issues discovered during live verification (2026-07-05)
 
-- **Private groups on strict public relays — FIXED.** Group events now ride
-  NIP-29-style `['h', groupId]` tags instead of non-hex `e` tags (which
-  damus, nos.lol, and snort rejected). Group ids, storage, invites, and key
-  backups are unchanged; no migration. Spec:
+- **Private groups on strict public relays — FIXED and live-verified.**
+  Group events now ride NIP-29-style `['h', groupId]` tags instead of
+  non-hex `e` tags (which damus, nos.lol, and snort rejected). Group ids,
+  storage, invites, and key backups are unchanged; no migration. Spec:
   `docs/superpowers/specs/2026-07-05-group-h-tag-design.md`. Live
-  cross-account verification pending (group message both ways, group call
-  banner + "started a call" row).
+  cross-account verification (2026-07-06, two accounts over public relays):
+  group message delivered both ways; group call banner + join; two-party
+  mesh connected ("2 in call" on both sides, presence heartbeats over
+  `#h`); "started a call" rows rendered on both sides — closing the last
+  deferred call-history checklist item. Note: the started-a-call
+  notification is correctly suppressed when the recipient is already
+  viewing that group with the tab visible (`notifications.ts` contextual
+  suppression). New minor found: the invitee's group header shows
+  "1 members" (invite handler stores only the joiner in `memberPubkeys`);
+  cosmetic, count is wrong only on the invitee side.
 - **Ghost ring on app open.** Some relays replay "ephemeral" kind-24100
   call-offers on subscription; an offer from an already-ended call rings the
   callee on reload. Needs a freshness check (drop offers older than ~60 s).
