@@ -83,8 +83,13 @@
   suppression). New minor found: the invitee's group header shows
   "1 members" (invite handler stores only the joiner in `memberPubkeys`);
   cosmetic, count is wrong only on the invitee side.
-- **Ghost ring on app open.** Some relays replay "ephemeral" kind-24100
-  call-offers on subscription; an offer from an already-ended call rings the
-  callee on reload. Needs a freshness check (drop offers older than ~60 s).
+- **Ghost ring on app open — FIXED.** Call signals (kind 24100) older than
+  60 seconds are dropped before decryption in both the 1:1 and group signal
+  subscriptions (`isStaleCallSignal` in `src/lib/webrtc.ts`), so relays
+  that replay "ephemeral" call-offers can no longer ring the callee for an
+  already-ended call, and replayed duplicate offers can no longer disturb a
+  live group call. Trade-off: a caller whose clock runs more than 60 s slow
+  cannot ring you (NTP keeps real devices within seconds). Spec:
+  `docs/superpowers/specs/2026-07-06-stale-call-signal-gate-design.md`.
 - **Mobile drawer renders empty after a live desktop-to-phone resize**
   (reload at phone width is fine). Cosmetic, dev-tools-emulation scenario.
