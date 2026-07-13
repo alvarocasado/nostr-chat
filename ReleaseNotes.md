@@ -1,5 +1,50 @@
 # Release Notes
 
+## 1.0.0-alpha.16 — 2026-07-13
+
+### Features
+
+#### Mentions (NIP-27)
+Mentions are now detected from `p` tags and decoded `npub`/`nprofile` references instead of a fragile substring match, so unread "mention" counts and mention notifications are reliable. Outgoing channel messages emit mention `p` tags, and mentions render as clickable chips that open the mentioned profile.
+
+#### NIP-05 Identifiers
+Add a contact by typing a `name@domain` identifier — it is resolved to a pubkey via the domain's `.well-known/nostr.json`. Verified NIP-05 identities show a badge on the profile card (amber warning when the identifier does not match).
+
+#### Reactions
+Hover a message to pick an emoji; tap a reaction pill to toggle your own. Works in channels, DMs, and groups. Reactions in DMs and groups stay end-to-end encrypted (they ride the existing encrypted transport rather than public reaction events), so they are not visible to relays.
+
+#### Edit & Delete
+Edit or delete your own messages from the "⋯" menu. Edited messages show a "· edited" marker; deleted messages show a tombstone. Editing is limited to text messages. Note: deletion is advisory on Nostr — relays may retain the original event, so the tombstone reflects local honoring rather than guaranteed erasure. Like reactions, edits and deletes in DMs and groups remain end-to-end encrypted.
+
+#### Read Receipts (Opt-in)
+Turn on "Send read receipts" in Settings → Privacy to see a purple double-check when a contact has read your direct message. Off by default and reciprocal: you only see others' read status while you share yours. DMs only. Receipts travel as ephemeral encrypted events — relays never store them, so no persistent trail of who-read-what is created. If the sender is offline at that moment, the receipt arrives the next time you both have the conversation open.
+
+#### Reliable Sent Ticks
+Message send status is now stored locally, so sent (and read) checkmarks survive a page reload instead of reverting to a spinner.
+
+#### Group Calls
+Start a voice or video call from a group's header; members see a "Call in progress" banner and join or leave freely (up to 6 participants). Calls are serverless: media flows peer-to-peer between all participants, and coordination rides ephemeral encrypted Nostr events that relays never store. Late joining works; if someone's app crashes they disappear from the call within about 90 seconds. Group calls and 1:1 calls are mutually exclusive — you are "busy" to one while in the other.
+
+#### Call History / Missed-Call Records
+1:1 calls leave inline system rows in the DM thread: the caller publishes one encrypted control DM (`{type:'call-log'}` with outcome completed/missed/declined/busy, plus duration for completed) at call end, riding the existing DM sync/backfill so missed calls surface even if the callee's app was closed. Missed/busy outcomes bump the unread badge and fire a notification; completed/declined are silent. Rows are perspective-aware, clickable to call back, and excluded from search, reply, edit, and reactions. Group threads store and render "X started a call" rows from the existing call-start control. Accepted limits: if the caller's app crashes before it can publish the control DM, no record is created; group calls only get start-only records; there is no dedicated Calls tab in v1 (history lives inline in the thread); and a call is logged missed only when the caller gives up and hangs up. Live-verified across two accounts over public relays, including the offline missed-call backfill path.
+
+### Bug Fixes
+
+#### Private Groups on Strict Public Relays
+Group events now ride NIP-29-style `['h', groupId]` tags instead of non-hex `e` tags, which strict public relays (damus, nos.lol, snort) rejected. Group ids, storage, invites, and key backups are unchanged; no migration needed. Live cross-account verification confirmed group messages, group call banner/join, two-party mesh, and "started a call" rows all work over public relays.
+
+#### Ghost Ring on App Open
+Call signals (kind 24100) older than 60 seconds are dropped before decryption in both the 1:1 and group signal subscriptions, so relays that replay "ephemeral" call-offers can no longer ring the callee for an already-ended call, and replayed duplicate offers can no longer disturb a live group call. Trade-off: a caller whose clock runs more than 60 s slow cannot ring you (NTP keeps real devices within seconds).
+
+#### Inbox Subscriptions on Restored Sessions
+Fixed a session-restore bug where inbox subscriptions never started on restored sessions because the signer is installed after the store rehydrates.
+
+### Known Issues
+- The invitee's group header shows "1 members" (invite handler stores only the joiner); cosmetic, count is wrong only on the invitee side.
+- Mobile drawer renders empty after a live desktop-to-phone resize (reload at phone width is fine). Cosmetic, dev-tools-emulation scenario.
+
+---
+
 ## 1.0.0-alpha.15 — 2026-06-25
 
 ### Features
