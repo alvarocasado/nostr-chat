@@ -66,8 +66,8 @@ export function useChatHistory(
       for (const ev of events) {
         if (chatType === 'channel') await processChannelEvent(ev, chatId, relays, { live: false })
         else if (chatType === 'group') {
-          const key = useNostrStore.getState().groupKeys[chatId]
-          if (key) await processGroupEvent(ev, chatId, key, relays, { live: false })
+          const keys = useNostrStore.getState().allGroupKeys(chatId)
+          if (keys.length > 0) await processGroupEvent(ev, chatId, keys, relays, { live: false })
         } else await processDMEvent(ev, myPubkey, relays, { live: false })
       }
       const after = (useNostrStore.getState().messages[chatId] || []).length

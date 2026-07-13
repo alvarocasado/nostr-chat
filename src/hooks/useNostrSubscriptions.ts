@@ -152,7 +152,7 @@ export function useGroupMessages(groupId: string | null) {
     const sub = subscribeEvents(
       stableRelays,
       { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': [groupId], limit: INITIAL_PAGE },
-      (event) => { void processGroupEvent(event, groupId, groupKey, stableRelays, { live }) },
+      (event) => { void processGroupEvent(event, groupId, useNostrStore.getState().allGroupKeys(groupId), stableRelays, { live }) },
       () => { live = true },
     )
     return () => sub.close()
@@ -216,8 +216,8 @@ export function useGlobalInbox() {
       (event) => {
         const chatId = extractGroupId(event.tags)
         if (!chatId || !ids.has(chatId)) return
-        const key = useNostrStore.getState().groupKeys[chatId]
-        if (key) void processGroupEvent(event, chatId, key, stableRelays, { live })
+        const keys = useNostrStore.getState().allGroupKeys(chatId)
+        if (keys.length > 0) void processGroupEvent(event, chatId, keys, stableRelays, { live })
       },
       () => { live = true },
     )

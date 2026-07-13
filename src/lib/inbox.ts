@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools'
 import { decryptDM, fetchEvent, parseProfile, buildGroupKeyBackupEvent, publishEvent } from './nostr'
-import { decryptWithGroupKey } from './groupCrypto'
+import { decryptWithGroupKeys } from './groupCrypto'
+import { parseGroupRekeyPayload, parseGroupRemovePayload, parseMembersPayload, isHex64 } from './groupMembership'
 import { useNostrStore, type Message, type Group } from '../store/nostrStore'
 import { fireNotification } from './notifications'
 import { getPeerRelays, combineRelays } from './peerRelays'
@@ -118,6 +119,19 @@ function routeReaction(content: string, event: Event): boolean {
   return true
 }
 
+/** Apply a creator-signed members update; never shown as a chat message. */
+function routeMembers(content: string, groupId: string, event: Event): boolean {
+  const payload = parseMembersPayload(content)
+  if (!payload) return false
+  if (claimSideEffects(event.id)) {
+    const group = useNostrStore.getState().groups.find(g => g.id === groupId)
+    if (group && event.pubkey === group.creatorPubkey) {
+      useNostrStore.getState().setGroupMembers(groupId, payload.memberPubkeys)
+    }
+  }
+  return true
+}
+
 /**
  * Apply an incoming edit/delete control message. `event.pubkey` is recorded as
  * the requester; the store only honours it at render time when it matches the
@@ -185,7 +199,7 @@ function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Eve
  */
 async function handleGroupInvite(event: Event, decrypted: string, relays: string[]): Promise<void> {
   try {
-    const payload = JSON.parse(decrypted) as { groupId?: string; groupKeyHex?: string; groupName?: string }
+    const payload = JSON.parse(decrypted) as { groupId?: string; groupKeyHex?: string; groupName?: string; memberPubkeys?: unknown }
     const { groupId, groupKeyHex, groupName } = payload
     if (!groupId || !groupKeyHex || !groupName) return
 
@@ -197,7 +211,11 @@ async function handleGroupInvite(event: Event, decrypted: string, relays: string
       id: groupId,
       name: groupName,
       creatorPubkey: event.pubkey,
-      memberPubkeys: [publicKey],
+      memberPubkeys: Array.isArray(payload.memberPubkeys) &&
+        payload.memberPubkeys.every(isHex64) &&
+        payload.memberPubkeys.includes(publicKey)
+        ? payload.memberPubkeys
+        : [publicKey],
       relayUrl: relays[0],
       lastMessage: 'Joined via invite',
       lastMessageAt: event.created_at,
@@ -210,6 +228,39 @@ async function handleGroupInvite(event: Event, decrypted: string, relays: string
   } catch {
     // not a valid group invite or build/publish failed — ignore
   }
+}
+
+/**
+ * Handle a group_rekey DM: only honoured from the group's creator, and only
+ * when newer than the last accepted rotation (stale replays are dropped).
+ */
+async function handleGroupRekey(event: Event, decrypted: string): Promise<void> {
+  const payload = parseGroupRekeyPayload(decrypted)
+  if (!payload) return
+  const state = useNostrStore.getState()
+  const group = state.groups.find(g => g.id === payload.groupId)
+  if (!group || event.pubkey !== group.creatorPubkey) return
+  if (event.created_at <= (state.groupKeyRotatedAt[payload.groupId] ?? 0)) return
+
+  state.rotateGroupKey(payload.groupId, payload.groupKeyHex, event.created_at)
+  state.setGroupMembers(payload.groupId, payload.memberPubkeys)
+
+  // Refresh the cross-device backup with the full epoch list (oldest→newest)
+  try {
+    const keysOldestFirst = useNostrStore.getState().allGroupKeys(payload.groupId).slice().reverse()
+    const backup = await buildGroupKeyBackupEvent(payload.groupId, keysOldestFirst)
+    publishEvent(useNostrStore.getState().writeRelays(), backup).catch(() => {})
+  } catch { /* backup is best-effort */ }
+}
+
+/** Handle a group_remove DM: courtesy notice that I was removed. Creator-only. */
+function handleGroupRemove(event: Event, decrypted: string): void {
+  const payload = parseGroupRemovePayload(decrypted)
+  if (!payload) return
+  const { groups, markGroupRemoved } = useNostrStore.getState()
+  const group = groups.find(g => g.id === payload.groupId)
+  if (!group || group.removed || event.pubkey !== group.creatorPubkey) return
+  markGroupRemoved(payload.groupId)
 }
 
 /** Resolve the chat (channel/group) an event belongs to from its NIP-10 e tags. */
@@ -314,11 +365,20 @@ export async function processDMEvent(
     return
   }
 
-  // Group invites join a group, they are not chat messages. Handle and stop.
+  // Group membership control DMs are not chat messages. Handle and stop.
   if (decrypted.startsWith('{')) {
     try {
-      if ((JSON.parse(decrypted) as { type?: string })?.type === 'group_invite') {
+      const controlType = (JSON.parse(decrypted) as { type?: string })?.type
+      if (controlType === 'group_invite') {
         await handleGroupInvite(event, decrypted, relays)
+        return
+      }
+      if (controlType === 'group_rekey') {
+        await handleGroupRekey(event, decrypted)
+        return
+      }
+      if (controlType === 'group_remove') {
+        handleGroupRemove(event, decrypted)
         return
       }
     } catch { /* not JSON — regular message */ }
@@ -389,13 +449,13 @@ export async function processDMEvent(
 export async function processGroupEvent(
   event: Event,
   groupId: string,
-  groupKey: string,
+  groupKeys: string[],
   relays: string[],
   opts: ProcessOpts,
 ): Promise<void> {
   let plaintext: string
   try {
-    plaintext = await decryptWithGroupKey(event.content, groupKey)
+    plaintext = await decryptWithGroupKeys(event.content, groupKeys)
   } catch {
     return // decryption failed — skip
   }
@@ -404,6 +464,7 @@ export async function processGroupEvent(
   // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(plaintext, event)) return
   if (routeMessageOp(plaintext, event)) return
+  if (routeMembers(plaintext, groupId, event)) return
   if (await routeCallStart(plaintext, groupId, event, opts.live)) return
 
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))

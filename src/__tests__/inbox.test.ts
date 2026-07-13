@@ -288,7 +288,7 @@ describe('processGroupEvent call-start control messages', () => {
     const key = generateGroupKey()
     seedGroup()
     const event = await makeGroupEvent(serializeCallStart('c1'), key)
-    await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
+    await processGroupEvent(event, GROUP_ID, [key], RELAYS, { live: false })
 
     const state = useNostrStore.getState()
     expect(state.messages[GROUP_ID]).toHaveLength(1)
@@ -301,7 +301,7 @@ describe('processGroupEvent call-start control messages', () => {
     seedGroup()
     const bad = JSON.stringify({ type: 'call-start', callId: '' })
     const event = await makeGroupEvent(bad, key)
-    await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
+    await processGroupEvent(event, GROUP_ID, [key], RELAYS, { live: false })
 
     expect((useNostrStore.getState().messages[GROUP_ID] ?? []).length).toBe(1)
   })
