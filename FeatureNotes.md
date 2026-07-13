@@ -15,3 +15,11 @@
   `setReplyTo(null)` on send (MessageInput already cancels the reply).
   Remaining in Priority 4: Sidebar.tsx has grown to 975 lines (over the
   800-line standard) and deserves the same treatment.
+- **Sidebar split** (2026-07-13). Same Priority 4 treatment: the
+  self-contained list-item components (SearchResultItem, MuteButton,
+  ChannelItem, ContactItem, GroupItem, plus the private formatTime/Highlight
+  helpers and the SearchResult type) moved verbatim to
+  `src/components/Chat/SidebarItems.tsx`. Sidebar.tsx drops from 975 to 689
+  lines. Pure move — no logic or markup changes; existing Sidebar tests
+  cover the moved items through the panel flows. This closes the Priority 4
+  file-size items from the functional analysis.
