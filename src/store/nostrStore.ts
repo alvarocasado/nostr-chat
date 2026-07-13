@@ -89,6 +89,7 @@ export interface Group {
   lastMessageAt?: number
   unread?: number
   mentions?: number
+  removed?: boolean
 }
 
 export interface Message {
@@ -131,6 +132,8 @@ interface NostrState {
   // Groups
   groups: Group[]
   groupKeys: Record<string, string>
+  groupKeyHistory: Record<string, string[]>
+  groupKeyRotatedAt: Record<string, number>
 
   // Active chat
   activeChatId: string | null
@@ -250,6 +253,10 @@ interface NostrState {
   removeGroup: (id: string) => void
   updateGroupLastMessage: (groupId: string, content: string, at: number, isMention?: boolean, opts?: { incrementUnread?: boolean }) => void
   setGroupKey: (groupId: string, keyHex: string) => void
+  rotateGroupKey: (groupId: string, newKeyHex: string, rotatedAt: number) => void
+  setGroupMembers: (groupId: string, memberPubkeys: string[]) => void
+  markGroupRemoved: (groupId: string) => void
+  allGroupKeys: (groupId: string) => string[]
   setShowAddGroup: (show: boolean) => void
   setViewingProfilePubkey: (pubkey: string | null) => void
 
@@ -467,6 +474,8 @@ export const useNostrStore = create<NostrState>()(
         contacts: [],
         groups: [],
         groupKeys: {},
+        groupKeyHistory: {},
+        groupKeyRotatedAt: {},
         activeChatId: null,
         activeChatType: null,
         targetMessageId: null,
@@ -564,6 +573,8 @@ export const useNostrStore = create<NostrState>()(
             editedMessages: {},
             groups: [],
             groupKeys: {},
+            groupKeyHistory: {},
+            groupKeyRotatedAt: {},
             signerCaps: { nip04: true },
             readReceiptsEnabled: false,
             readUntilByPeer: {},
@@ -667,6 +678,33 @@ export const useNostrStore = create<NostrState>()(
 
         setGroupKey: (groupId, keyHex) => {
           set({ groupKeys: { ...get().groupKeys, [groupId]: keyHex } })
+        },
+
+        rotateGroupKey: (groupId, newKeyHex, rotatedAt) => {
+          const current = get().groupKeys[groupId]
+          const history = get().groupKeyHistory[groupId] ?? []
+          if (current === newKeyHex || history.includes(newKeyHex)) return
+          set({
+            groupKeys: { ...get().groupKeys, [groupId]: newKeyHex },
+            groupKeyRotatedAt: { ...get().groupKeyRotatedAt, [groupId]: rotatedAt },
+            ...(current !== undefined
+              ? { groupKeyHistory: { ...get().groupKeyHistory, [groupId]: [...history, current] } }
+              : {}),
+          })
+        },
+
+        setGroupMembers: (groupId, memberPubkeys) => {
+          set({ groups: get().groups.map(g => g.id === groupId ? { ...g, memberPubkeys } : g) })
+        },
+
+        markGroupRemoved: (groupId) => {
+          set({ groups: get().groups.map(g => g.id === groupId ? { ...g, removed: true } : g) })
+        },
+
+        allGroupKeys: (groupId) => {
+          const current = get().groupKeys[groupId]
+          if (!current) return []
+          return [current, ...(get().groupKeyHistory[groupId] ?? []).slice().reverse()]
         },
 
         addContact: (pubkey) => {
@@ -975,6 +1013,8 @@ export const useNostrStore = create<NostrState>()(
         contacts: state.contacts,
         groups: state.groups,
         groupKeys: state.groupKeys,
+        groupKeyHistory: state.groupKeyHistory,
+        groupKeyRotatedAt: state.groupKeyRotatedAt,
         profiles: state.profiles,
         notificationSettings: state.notificationSettings,
         mutedChats: state.mutedChats,
