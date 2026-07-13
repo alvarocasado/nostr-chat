@@ -14,12 +14,10 @@ import {
   sendChannelReaction, sendDMReaction, sendGroupReaction,
   sendChannelMessage, sendDM, sendGroupControl,
 } from '../../hooks/useNostrSubscriptions'
-import { serializeEdit, serializeDelete } from '../../lib/messageOps'
-import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
+import { useChatThread } from '../../hooks/useChatThread'
+import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent } from '../../lib/nostr'
 import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
-import { getSigner } from '../../lib/signer'
-import type { Event as NostrEvent } from 'nostr-tools'
 import { MessageList } from './MessageList'
 import { MediaGallery } from './MediaGallery'
 import { Avatar } from './Avatar'
@@ -34,57 +32,6 @@ import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRec
 import { AudioMessage } from './AudioMessage'
 import { formatDuration } from '../../lib/format'
 
-
-// Toggle my reaction on a message: optimistic local apply, then publish; revert on failure.
-async function reactWith(
-  publicKey: string,
-  msg: Message,
-  emoji: string,
-  send: (target: string, emoji: string, op: 'add' | 'remove') => Promise<unknown>,
-) {
-  const { reactions, applyReaction } = useNostrStore.getState()
-  const mine = reactions[msg.id]?.[emoji]?.includes(publicKey) ?? false
-  const op: 'add' | 'remove' = mine ? 'remove' : 'add'
-  applyReaction(msg.id, emoji, publicKey, op)
-  try {
-    await send(msg.id, emoji, op)
-  } catch {
-    applyReaction(msg.id, emoji, publicKey, op === 'add' ? 'remove' : 'add')
-  }
-}
-
-// Edit my own message: optimistic overlay, then publish the edit; revert on failure.
-async function editMessage(
-  publicKey: string,
-  msg: Message,
-  newText: string,
-  send: (content: string) => Promise<unknown>,
-) {
-  const { applyEdit, removeEdit, editedMessages } = useNostrStore.getState()
-  const prev = editedMessages[msg.id]
-  applyEdit(msg.id, publicKey, newText, Math.floor(Date.now() / 1000))
-  try {
-    await send(serializeEdit(msg.id, newText))
-  } catch {
-    removeEdit(msg.id)
-    if (prev) applyEdit(msg.id, prev.by, prev.content, prev.at)
-  }
-}
-
-// Delete my own message: optimistic tombstone, then publish the delete; revert on failure.
-async function deleteMessage(
-  publicKey: string,
-  msg: Message,
-  send: (content: string) => Promise<unknown>,
-) {
-  const { applyDelete, removeDelete } = useNostrStore.getState()
-  applyDelete(msg.id, publicKey)
-  try {
-    await send(serializeDelete(msg.id))
-  } catch {
-    removeDelete(msg.id)
-  }
-}
 
 function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {
   const { channels, clearActiveChat } = useNostrStore()
@@ -550,89 +497,32 @@ export function MessageInput({
 }
 
 function ChannelThread({ channelId }: { channelId: string }) {
-  const { publicKey, messages, profiles, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId } = useNostrStore()
+  const { publicKey, messages, profiles, targetMessageId } = useNostrStore()
   const writeR = useWriteRelays()
   useChannelMessages(channelId)
   const { typists, notifyTyping } = useTypingIndicator('channel', channelId)
-  const [replyTo, setReplyTo] = useState<Message | null>(null)
-  const [showGallery, setShowGallery] = useState(false)
-  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
-  const dividerTimestampRef = useRef<number | undefined>(seenAt[channelId])
-
-  useEffect(() => {
-    return () => {
-      const latest = useNostrStore.getState().messages[channelId]?.at(-1)?.createdAt
-      if (latest !== undefined) updateSeenAt(channelId, latest)
-    }
-  }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const thread = useChatThread(channelId, {
+    targetRelays: () => writeR,
+    sendContent: content => sendChannelMessage(content, channelId, writeR),
+    sendReaction: (t, e, o) => sendChannelReaction(t, e, o, channelId, writeR),
+  })
 
   const handleSend = async (content: string) => {
-    if (!getSigner() || !publicKey) return
-
-    const event = await buildChannelMessageEvent(content, channelId, writeR[0], replyTo?.id)
-
-    addMessage(channelId, {
-      id: event.id,
-      pubkey: publicKey,
-      content,
-      createdAt: event.created_at,
-      tags: event.tags,
-      kind: 42,
-      channelId,
-      status: 'sending',
-      ...(replyTo && {
-        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
-      }),
-    })
-    pendingEventsRef.current.set(event.id, event)
-
-    try {
-      await publishEvent(writeR, event)
-      updateMessageStatus(channelId, event.id, 'sent')
-      pendingEventsRef.current.delete(event.id)
-    } catch {
-      updateMessageStatus(channelId, event.id, 'failed')
-    }
-  }
-
-  const handleRetry = async (msgId: string) => {
-    const event = pendingEventsRef.current.get(msgId)
-    if (!event) return
-    updateMessageStatus(channelId, msgId, 'sending')
-    try {
-      await publishEvent(writeR, event)
-      updateMessageStatus(channelId, msgId, 'sent')
-      pendingEventsRef.current.delete(msgId)
-    } catch {
-      updateMessageStatus(channelId, msgId, 'failed')
-    }
-  }
-
-  const handleReact = (msg: Message, emoji: string) => {
-    if (!getSigner() || !publicKey) return
-    void reactWith(publicKey, msg, emoji, (t, e, o) => sendChannelReaction(t, e, o, channelId, writeR))
-  }
-
-  const handleEdit = (msg: Message, newText: string) => {
-    if (!getSigner() || !publicKey) return
-    void editMessage(publicKey, msg, newText, content => sendChannelMessage(content, channelId, writeR))
-  }
-
-  const handleDelete = (msg: Message) => {
-    if (!getSigner() || !publicKey) return
-    void deleteMessage(publicKey, msg, content => sendChannelMessage(content, channelId, writeR))
+    if (!thread.guarded()) return
+    const event = await buildChannelMessageEvent(content, channelId, writeR[0], thread.replyTo?.id)
+    await thread.publish(event, { content, kind: 42, channelId })
   }
 
   return (
     <>
-      <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
-      {showGallery ? (
-        <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
+      <ChannelHeader channelId={channelId} onOpenGallery={() => thread.setShowGallery(true)} />
+      {thread.showGallery ? (
+        <MediaGallery messages={messages[channelId] || []} onClose={() => thread.setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} onEdit={handleEdit} onDelete={handleDelete} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={thread.setReplyTo} onRetry={thread.handleRetry} onReact={thread.handleReact} onEdit={thread.handleEdit} onDelete={thread.handleDelete} dividerTimestamp={thread.dividerTimestamp} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
-          <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+          <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={thread.replyTo} onCancelReply={() => thread.setReplyTo(null)} />
         </>
       )}
     </>
@@ -640,98 +530,36 @@ function ChannelThread({ channelId }: { channelId: string }) {
 }
 
 function DMThread({ theirPubkey }: { theirPubkey: string }) {
-  const { publicKey, messages, profiles, addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId,
+  const { publicKey, messages, profiles, targetMessageId,
     contacts, acceptMessageRequest, dismissMessageRequest, blockPubkey, clearActiveChat, signerCaps } = useNostrStore()
   const writeR = useWriteRelays()
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
   useReadReceipts(theirPubkey, !isPending)
-  const [replyTo, setReplyTo] = useState<Message | null>(null)
-  const [showGallery, setShowGallery] = useState(false)
-  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
-  const dividerTimestampRef = useRef<number | undefined>(seenAt[theirPubkey])
-
-  useEffect(() => {
-    return () => {
-      const latest = useNostrStore.getState().messages[theirPubkey]?.at(-1)?.createdAt
-      if (latest !== undefined) updateSeenAt(theirPubkey, latest)
-    }
-  }, [theirPubkey]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSend = async (content: string) => {
-    if (!getSigner() || !publicKey || !signerCaps.nip04) return
-
-    if (isPending) acceptMessageRequest(theirPubkey)
-
-    const event = await buildDMEvent(theirPubkey, content)
-
-    addMessage(theirPubkey, {
-      id: event.id,
-      pubkey: publicKey,
-      content,
-      createdAt: event.created_at,
-      tags: event.tags,
-      kind: 4,
-      recipientPubkey: theirPubkey,
-      decrypted: true,
-      status: 'sending',
-      ...(replyTo && {
-        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
-      }),
-    })
-    pendingEventsRef.current.set(event.id, event)
-
-    try {
-      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
-      const target = combineRelays(writeR, peerRead)
-      await publishEvent(target, event)
-      updateMessageStatus(theirPubkey, event.id, 'sent')
-      pendingEventsRef.current.delete(event.id)
-    } catch {
-      updateMessageStatus(theirPubkey, event.id, 'failed')
-    }
-  }
-
-  const handleRetry = async (msgId: string) => {
-    const event = pendingEventsRef.current.get(msgId)
-    if (!event) return
-    updateMessageStatus(theirPubkey, msgId, 'sending')
-    try {
-      const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
-      const target = combineRelays(writeR, peerRead)
-      await publishEvent(target, event)
-      updateMessageStatus(theirPubkey, msgId, 'sent')
-      pendingEventsRef.current.delete(msgId)
-    } catch {
-      updateMessageStatus(theirPubkey, msgId, 'failed')
-    }
-  }
 
   const dmTargetRelays = async () => {
     const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
     return combineRelays(writeR, peerRead)
   }
 
-  const handleReact = (msg: Message, emoji: string) => {
-    if (!getSigner() || !publicKey || !signerCaps.nip04) return
-    void reactWith(publicKey, msg, emoji, async (t, e, o) =>
-      sendDMReaction(t, e, o, theirPubkey, await dmTargetRelays()))
-  }
+  const thread = useChatThread(theirPubkey, {
+    canAct: () => signerCaps.nip04,
+    targetRelays: dmTargetRelays,
+    sendContent: async content => sendDM(content, theirPubkey, await dmTargetRelays()),
+    sendReaction: async (t, e, o) => sendDMReaction(t, e, o, theirPubkey, await dmTargetRelays()),
+  })
 
-  const handleEdit = (msg: Message, newText: string) => {
-    if (!getSigner() || !publicKey || !signerCaps.nip04) return
-    void editMessage(publicKey, msg, newText, async content => sendDM(content, theirPubkey, await dmTargetRelays()))
-  }
-
-  const handleDelete = (msg: Message) => {
-    if (!getSigner() || !publicKey || !signerCaps.nip04) return
-    void deleteMessage(publicKey, msg, async content => sendDM(content, theirPubkey, await dmTargetRelays()))
+  const handleSend = async (content: string) => {
+    if (!thread.guarded()) return
+    if (isPending) acceptMessageRequest(theirPubkey)
+    const event = await buildDMEvent(theirPubkey, content)
+    await thread.publish(event, { content, kind: 4, recipientPubkey: theirPubkey, decrypted: true })
   }
 
   return (
     <>
-      <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
+      <DMHeader pubkey={theirPubkey} onOpenGallery={() => thread.setShowGallery(true)} />
       {isPending && (
         <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-b border-gray-800">
           <p className="flex-1 text-sm text-gray-300">This person isn't in your contacts.</p>
@@ -755,11 +583,11 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
           </button>
         </div>
       )}
-      {showGallery ? (
-        <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
+      {thread.showGallery ? (
+        <MediaGallery messages={messages[theirPubkey] || []} onClose={() => thread.setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} onEdit={handleEdit} onDelete={handleDelete} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={thread.setReplyTo} onRetry={thread.handleRetry} onReact={thread.handleReact} onEdit={thread.handleEdit} onDelete={thread.handleDelete} dividerTimestamp={thread.dividerTimestamp} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           {!signerCaps.nip04 && (
             <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
@@ -767,7 +595,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
             </div>
           )}
           {signerCaps.nip04 && (
-            <MessageInput chatId={theirPubkey} chatType="dm" onSend={handleSend} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+            <MessageInput chatId={theirPubkey} chatType="dm" onSend={handleSend} onTyping={notifyTyping} placeholder="Encrypted message..." replyTo={thread.replyTo} onCancelReply={() => thread.setReplyTo(null)} />
           )}
         </>
       )}
@@ -776,10 +604,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 }
 
 function GroupThread({ groupId }: { groupId: string }) {
-  const {
-    publicKey, messages, profiles, groupKeys,
-    addMessage, updateMessageStatus, seenAt, updateSeenAt, targetMessageId, signerCaps,
-  } = useNostrStore()
+  const { publicKey, messages, profiles, groupKeys, targetMessageId, signerCaps } = useNostrStore()
   const writeR = useWriteRelays()
   useGroupMessages(groupId)
   const { watchGroup } = useGroupCallContext()
@@ -787,75 +612,22 @@ function GroupThread({ groupId }: { groupId: string }) {
     watchGroup(groupId)
     return () => watchGroup(null)
   }, [groupId, watchGroup])
-  const [replyTo, setReplyTo] = useState<Message | null>(null)
-  const [showGallery, setShowGallery] = useState(false)
-  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
-  const dividerTimestampRef = useRef<number | undefined>(seenAt[groupId])
   const groupKey = groupKeys[groupId]
 
-  useEffect(() => {
-    return () => {
-      const latest = useNostrStore.getState().messages[groupId]?.at(-1)?.createdAt
-      if (latest !== undefined) updateSeenAt(groupId, latest)
-    }
-  }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
+  const thread = useChatThread(groupId, {
+    canAct: () => !!groupKey,
+    targetRelays: () => writeR,
+    // groupKey is guaranteed by canAct before these closures run
+    sendContent: content => sendGroupControl(content, groupId, groupKey!, writeR),
+    sendReaction: (t, e, o) => sendGroupReaction(t, e, o, groupId, groupKey!, writeR),
+  })
 
   const handleSend = async (content: string) => {
-    if (!getSigner() || !publicKey || !groupKey || !signerCaps.nip04) return
-
+    if (!thread.guarded() || !groupKey || !signerCaps.nip04) return
     const encryptedContent = await encryptWithGroupKey(content, groupKey)
-    const event = await buildGroupMessageEvent(encryptedContent, groupId, writeR[0], replyTo?.id)
-
-    addMessage(groupId, {
-      id: event.id,
-      pubkey: publicKey,
-      content, // store plaintext locally
-      createdAt: event.created_at,
-      tags: event.tags,
-      kind: event.kind,
-      status: 'sending',
-      ...(replyTo && {
-        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
-      }),
-    })
-    pendingEventsRef.current.set(event.id, event)
-    setReplyTo(null)
-
-    try {
-      await publishEvent(writeR, event)
-      updateMessageStatus(groupId, event.id, 'sent')
-      pendingEventsRef.current.delete(event.id)
-    } catch {
-      updateMessageStatus(groupId, event.id, 'failed')
-    }
-  }
-
-  const handleRetry = async (msgId: string) => {
-    const event = pendingEventsRef.current.get(msgId)
-    if (!event) return
-    updateMessageStatus(groupId, msgId, 'sending')
-    try {
-      await publishEvent(writeR, event)
-      updateMessageStatus(groupId, msgId, 'sent')
-      pendingEventsRef.current.delete(msgId)
-    } catch {
-      updateMessageStatus(groupId, msgId, 'failed')
-    }
-  }
-
-  const handleReact = (msg: Message, emoji: string) => {
-    if (!getSigner() || !publicKey || !groupKey) return
-    void reactWith(publicKey, msg, emoji, (t, e, o) => sendGroupReaction(t, e, o, groupId, groupKey, writeR))
-  }
-
-  const handleEdit = (msg: Message, newText: string) => {
-    if (!getSigner() || !publicKey || !groupKey) return
-    void editMessage(publicKey, msg, newText, content => sendGroupControl(content, groupId, groupKey, writeR))
-  }
-
-  const handleDelete = (msg: Message) => {
-    if (!getSigner() || !publicKey || !groupKey) return
-    void deleteMessage(publicKey, msg, content => sendGroupControl(content, groupId, groupKey, writeR))
+    const event = await buildGroupMessageEvent(encryptedContent, groupId, writeR[0], thread.replyTo?.id)
+    // store plaintext locally
+    await thread.publish(event, { content, kind: event.kind })
   }
 
   if (!groupKey) {
@@ -874,10 +646,10 @@ function GroupThread({ groupId }: { groupId: string }) {
 
   return (
     <>
-      <GroupHeader groupId={groupId} onOpenGallery={() => setShowGallery(true)} />
+      <GroupHeader groupId={groupId} onOpenGallery={() => thread.setShowGallery(true)} />
       <GroupCallBanner groupId={groupId} />
-      {showGallery ? (
-        <MediaGallery messages={messages[groupId] || []} onClose={() => setShowGallery(false)} />
+      {thread.showGallery ? (
+        <MediaGallery messages={messages[groupId] || []} onClose={() => thread.setShowGallery(false)} />
       ) : (
         <>
           <MessageList
@@ -886,12 +658,12 @@ function GroupThread({ groupId }: { groupId: string }) {
             messages={messages[groupId] || []}
             myPubkey={publicKey || ''}
             profiles={profiles}
-            onReply={setReplyTo}
-            onRetry={handleRetry}
-            onReact={handleReact}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            dividerTimestamp={dividerTimestampRef.current}
+            onReply={thread.setReplyTo}
+            onRetry={thread.handleRetry}
+            onReact={thread.handleReact}
+            onEdit={thread.handleEdit}
+            onDelete={thread.handleDelete}
+            dividerTimestamp={thread.dividerTimestamp}
             targetMessageId={targetMessageId ?? undefined}
           />
           {!signerCaps.nip04 && (
@@ -906,8 +678,8 @@ function GroupThread({ groupId }: { groupId: string }) {
               onSend={handleSend}
               onTyping={() => {}}
               placeholder="Message group…"
-              replyTo={replyTo}
-              onCancelReply={() => setReplyTo(null)}
+              replyTo={thread.replyTo}
+              onCancelReply={() => thread.setReplyTo(null)}
             />
           )}
         </>
