@@ -58,7 +58,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
 
       const writeRelays = useNostrStore.getState().writeRelays()
       await publishEvent(writeRelays, await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
-      await publishEvent(writeRelays, await buildGroupKeyBackupEvent(groupId, groupKeyHex))
+      await publishEvent(writeRelays, await buildGroupKeyBackupEvent(groupId, [groupKeyHex]))
       for (const memberPubkey of memberPubkeys) {
         await publishEvent(writeRelays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim()))
       }

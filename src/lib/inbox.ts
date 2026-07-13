@@ -205,7 +205,7 @@ async function handleGroupInvite(event: Event, decrypted: string, relays: string
     setGroupKey(groupId, groupKeyHex)
 
     // Publish own key backup so cross-device recovery works
-    const backup = await buildGroupKeyBackupEvent(groupId, groupKeyHex)
+    const backup = await buildGroupKeyBackupEvent(groupId, [groupKeyHex])
     publishEvent(useNostrStore.getState().writeRelays(), backup).catch(() => {})
   } catch {
     // not a valid group invite or build/publish failed — ignore

@@ -188,10 +188,11 @@ export async function buildGroupMetadataEvent(
   return requireSigner().signEvent({ kind: 30040, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted })
 }
 
-// Build kind-30041 self-encrypted key backup (NIP-04 with own pubkey as recipient)
-export async function buildGroupKeyBackupEvent(groupId: string, groupKeyHex: string): Promise<Event> {
+// Build kind-30041 self-encrypted key backup (NIP-04 with own pubkey as recipient).
+// Content is JSON {keys:[oldest→newest]}; readers also accept the legacy bare hex.
+export async function buildGroupKeyBackupEvent(groupId: string, keysOldestFirst: string[]): Promise<Event> {
   const signer = requireSigner()
-  const encrypted = await signer.nip04Encrypt(signer.pubkey, groupKeyHex)
+  const encrypted = await signer.nip04Encrypt(signer.pubkey, JSON.stringify({ keys: keysOldestFirst }))
   return signer.signEvent({ kind: 30041, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted })
 }
 

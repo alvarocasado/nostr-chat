@@ -3,6 +3,7 @@ import { fetchEvent, fetchEvents, publishEvent } from './nostr'
 import type { Contact, NotificationSettings } from '../store/nostrStore'
 import { requireSigner } from './signer'
 import type { RelayModes } from './relayRouting'
+import { isHex64 } from './groupMembership'
 
 // ── Kind 3 – NIP-02 contact list ─────────────────────────────────────────────
 
@@ -121,15 +122,34 @@ export async function publishAppSettings(settings: SyncedSettings, relays: strin
 
 // ── Kind 30041 – self-encrypted group key backups ─────────────────────────────
 
-export async function fetchGroupKeys(relays: string[]): Promise<Record<string, string>> {
+// Backup content: legacy bare hex (single key) or JSON {keys:[oldest→newest]}.
+export function parseKeyBackup(plaintext: string): string[] | null {
+  const trimmed = plaintext.trim()
+  // Computed before the isHex64 check below, since that check's `s is string`
+  // predicate would otherwise narrow `trimmed` to `never` in the false branch
+  // (it's already typed `string`), breaking `.startsWith` on the next line.
+  const looksLikeJson = trimmed.startsWith('{')
+  if (isHex64(trimmed)) return [trimmed]
+  if (!looksLikeJson) return null
+  try {
+    const obj = JSON.parse(trimmed)
+    if (Array.isArray(obj.keys) && obj.keys.length > 0 && obj.keys.every(isHex64)) {
+      return obj.keys as string[]
+    }
+  } catch { /* not JSON */ }
+  return null
+}
+
+export async function fetchGroupKeys(relays: string[]): Promise<Record<string, string[]>> {
   const signer = requireSigner()
   const events = await fetchEvents(relays, { kinds: [30041], authors: [signer.pubkey] })
-  const keys: Record<string, string> = {}
+  const keys: Record<string, string[]> = {}
   for (const event of events) {
     const groupId = event.tags.find(t => t[0] === 'd')?.[1]
     if (!groupId) continue
     try {
-      keys[groupId] = await signer.nip04Decrypt(signer.pubkey, event.content)
+      const parsed = parseKeyBackup(await signer.nip04Decrypt(signer.pubkey, event.content))
+      if (parsed) keys[groupId] = parsed
     } catch {
       // corrupt or unrecognised - skip
     }
@@ -196,7 +216,7 @@ export interface SyncResult {
   contacts: { pubkeys: string[]; createdAt: number } | null
   channels: { channelIds: string[]; createdAt: number } | null
   settings: { settings: SyncedSettings; createdAt: number } | null
-  groupKeys: Record<string, string>
+  groupKeys: Record<string, string[]>
   relayList: { urls: string[]; modes: RelayModes; createdAt: number } | null
 }
 

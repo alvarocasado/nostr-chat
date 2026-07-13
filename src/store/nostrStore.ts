@@ -330,11 +330,16 @@ export function applySyncResult(
     }
   }
 
-  // Group keys: relay backup takes priority for keys we don't have locally
+  // Group keys: relay backup fills gaps; local state takes precedence
   if (result.groupKeys && Object.keys(result.groupKeys).length > 0) {
-    const current = get().groupKeys
-    const merged = { ...result.groupKeys, ...current } // local keys take precedence
-    set({ groupKeys: merged })
+    const mergedKeys = { ...get().groupKeys }
+    const mergedHistory = { ...get().groupKeyHistory }
+    for (const [gid, list] of Object.entries(result.groupKeys)) {
+      if (mergedKeys[gid] !== undefined || list.length === 0) continue
+      mergedKeys[gid] = list[list.length - 1]
+      if (list.length > 1) mergedHistory[gid] = list.slice(0, -1)
+    }
+    set({ groupKeys: mergedKeys, groupKeyHistory: mergedHistory })
   }
 
   // Settings: apply only when the relay event is newer than the last one we synced
