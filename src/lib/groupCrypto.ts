@@ -30,3 +30,14 @@ async function importGroupKey(keyHex: string): Promise<CryptoKey> {
   const bytes = new Uint8Array(keyHex.match(/.{2}/g)!.map(b => parseInt(b, 16)))
   return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }
+
+// Epoch fallback: rotation retires keys but old messages stay encrypted with
+// them. Try newest→oldest; first success wins.
+export async function decryptWithGroupKeys(ciphertext: string, keysNewestFirst: string[]): Promise<string> {
+  for (const keyHex of keysNewestFirst) {
+    try {
+      return await decryptWithGroupKey(ciphertext, keyHex)
+    } catch { /* wrong epoch — try older */ }
+  }
+  throw new Error('no group key decrypts this message')
+}
