@@ -2,11 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { useRateLimit } from '../../hooks/useRateLimit'
 import { useWriteRelays } from '../../hooks/useRelays'
 import { useTypingIndicator } from '../../hooks/useTypingIndicator'
+import { useReadReceipts } from '../../hooks/useReadReceipts'
 import { TypingIndicator } from './TypingIndicator'
 import { useCallContext } from '../../contexts/CallContext'
+import { useGroupCallContext } from '../../contexts/GroupCallContext'
+import { GroupCallBanner } from '../Call/GroupCallBanner'
 import { Send, Hash, Lock, WifiOff, ArrowLeft, Paperclip, X, Mic, Square, Phone, Video, Reply, Images, Users } from 'lucide-react'
 import { useNostrStore, type Message, type Group } from '../../store/nostrStore'
-import { useChannelMessages, useDMMessages, useGroupMessages } from '../../hooks/useNostrSubscriptions'
+import {
+  useChannelMessages, useDMMessages, useGroupMessages,
+  sendChannelReaction, sendDMReaction, sendGroupReaction,
+  sendChannelMessage, sendDM, sendGroupControl,
+} from '../../hooks/useNostrSubscriptions'
+import { serializeEdit, serializeDelete } from '../../lib/messageOps'
 import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent, publishEvent } from '../../lib/nostr'
 import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
@@ -26,6 +34,57 @@ import { useAudioRecorder, MAX_RECORDING_SECONDS } from '../../hooks/useAudioRec
 import { AudioMessage } from './AudioMessage'
 import { formatDuration } from '../../lib/format'
 
+
+// Toggle my reaction on a message: optimistic local apply, then publish; revert on failure.
+async function reactWith(
+  publicKey: string,
+  msg: Message,
+  emoji: string,
+  send: (target: string, emoji: string, op: 'add' | 'remove') => Promise<unknown>,
+) {
+  const { reactions, applyReaction } = useNostrStore.getState()
+  const mine = reactions[msg.id]?.[emoji]?.includes(publicKey) ?? false
+  const op: 'add' | 'remove' = mine ? 'remove' : 'add'
+  applyReaction(msg.id, emoji, publicKey, op)
+  try {
+    await send(msg.id, emoji, op)
+  } catch {
+    applyReaction(msg.id, emoji, publicKey, op === 'add' ? 'remove' : 'add')
+  }
+}
+
+// Edit my own message: optimistic overlay, then publish the edit; revert on failure.
+async function editMessage(
+  publicKey: string,
+  msg: Message,
+  newText: string,
+  send: (content: string) => Promise<unknown>,
+) {
+  const { applyEdit, removeEdit, editedMessages } = useNostrStore.getState()
+  const prev = editedMessages[msg.id]
+  applyEdit(msg.id, publicKey, newText, Math.floor(Date.now() / 1000))
+  try {
+    await send(serializeEdit(msg.id, newText))
+  } catch {
+    removeEdit(msg.id)
+    if (prev) applyEdit(msg.id, prev.by, prev.content, prev.at)
+  }
+}
+
+// Delete my own message: optimistic tombstone, then publish the delete; revert on failure.
+async function deleteMessage(
+  publicKey: string,
+  msg: Message,
+  send: (content: string) => Promise<unknown>,
+) {
+  const { applyDelete, removeDelete } = useNostrStore.getState()
+  applyDelete(msg.id, publicKey)
+  try {
+    await send(serializeDelete(msg.id))
+  } catch {
+    removeDelete(msg.id)
+  }
+}
 
 function ChannelHeader({ channelId, onOpenGallery }: { channelId: string; onOpenGallery: () => void }) {
   const { channels, clearActiveChat } = useNostrStore()
@@ -117,6 +176,7 @@ function DMHeader({ pubkey, onOpenGallery }: { pubkey: string; onOpenGallery: ()
 function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGallery: () => void }) {
   const { groups, clearActiveChat } = useNostrStore()
   const group = groups.find((g: Group) => g.id === groupId)
+  const { startOrJoin, liveCall, joinState } = useGroupCallContext()
 
   return (
     <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
@@ -139,6 +199,22 @@ function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGaller
           </span>
         </div>
       </div>
+      <button
+        onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'audio')}
+        disabled={joinState !== 'can-join'}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        title={liveCall ? 'Join call' : 'Start voice call'}
+      >
+        <Phone size={18} />
+      </button>
+      <button
+        onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'video')}
+        disabled={joinState !== 'can-join'}
+        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+        title={liveCall ? 'Join call' : 'Start video call'}
+      >
+        <Video size={18} />
+      </button>
       <button
         onClick={onOpenGallery}
         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
@@ -532,6 +608,21 @@ function ChannelThread({ channelId }: { channelId: string }) {
     }
   }
 
+  const handleReact = (msg: Message, emoji: string) => {
+    if (!getSigner() || !publicKey) return
+    void reactWith(publicKey, msg, emoji, (t, e, o) => sendChannelReaction(t, e, o, channelId, writeR))
+  }
+
+  const handleEdit = (msg: Message, newText: string) => {
+    if (!getSigner() || !publicKey) return
+    void editMessage(publicKey, msg, newText, content => sendChannelMessage(content, channelId, writeR))
+  }
+
+  const handleDelete = (msg: Message) => {
+    if (!getSigner() || !publicKey) return
+    void deleteMessage(publicKey, msg, content => sendChannelMessage(content, channelId, writeR))
+  }
+
   return (
     <>
       <ChannelHeader channelId={channelId} onOpenGallery={() => setShowGallery(true)} />
@@ -539,7 +630,7 @@ function ChannelThread({ channelId }: { channelId: string }) {
         <MediaGallery messages={messages[channelId] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={channelId} chatType="channel" messages={messages[channelId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} onEdit={handleEdit} onDelete={handleDelete} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           <MessageInput chatId={channelId} chatType="channel" onSend={handleSend} onTyping={notifyTyping} placeholder="Message channel..." replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
         </>
@@ -555,6 +646,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   useDMMessages(publicKey, theirPubkey)
   const isPending = contacts.find(c => c.pubkey === theirPubkey)?.pending === true
   const { typists, notifyTyping } = useTypingIndicator('dm', theirPubkey, theirPubkey)
+  useReadReceipts(theirPubkey, !isPending)
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
@@ -616,6 +708,27 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
     }
   }
 
+  const dmTargetRelays = async () => {
+    const peerRead = (await getPeerRelays(theirPubkey, useNostrStore.getState().readRelays())).read
+    return combineRelays(writeR, peerRead)
+  }
+
+  const handleReact = (msg: Message, emoji: string) => {
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
+    void reactWith(publicKey, msg, emoji, async (t, e, o) =>
+      sendDMReaction(t, e, o, theirPubkey, await dmTargetRelays()))
+  }
+
+  const handleEdit = (msg: Message, newText: string) => {
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
+    void editMessage(publicKey, msg, newText, async content => sendDM(content, theirPubkey, await dmTargetRelays()))
+  }
+
+  const handleDelete = (msg: Message) => {
+    if (!getSigner() || !publicKey || !signerCaps.nip04) return
+    void deleteMessage(publicKey, msg, async content => sendDM(content, theirPubkey, await dmTargetRelays()))
+  }
+
   return (
     <>
       <DMHeader pubkey={theirPubkey} onOpenGallery={() => setShowGallery(true)} />
@@ -646,7 +759,7 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
         <MediaGallery messages={messages[theirPubkey] || []} onClose={() => setShowGallery(false)} />
       ) : (
         <>
-          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
+          <MessageList chatId={theirPubkey} chatType="dm" messages={messages[theirPubkey] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={setReplyTo} onRetry={handleRetry} onReact={handleReact} onEdit={handleEdit} onDelete={handleDelete} dividerTimestamp={dividerTimestampRef.current} targetMessageId={targetMessageId ?? undefined} />
           <TypingIndicator typists={typists} profiles={profiles} />
           {!signerCaps.nip04 && (
             <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
@@ -669,6 +782,11 @@ function GroupThread({ groupId }: { groupId: string }) {
   } = useNostrStore()
   const writeR = useWriteRelays()
   useGroupMessages(groupId)
+  const { watchGroup } = useGroupCallContext()
+  useEffect(() => {
+    watchGroup(groupId)
+    return () => watchGroup(null)
+  }, [groupId, watchGroup])
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
   const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
@@ -725,6 +843,21 @@ function GroupThread({ groupId }: { groupId: string }) {
     }
   }
 
+  const handleReact = (msg: Message, emoji: string) => {
+    if (!getSigner() || !publicKey || !groupKey) return
+    void reactWith(publicKey, msg, emoji, (t, e, o) => sendGroupReaction(t, e, o, groupId, groupKey, writeR))
+  }
+
+  const handleEdit = (msg: Message, newText: string) => {
+    if (!getSigner() || !publicKey || !groupKey) return
+    void editMessage(publicKey, msg, newText, content => sendGroupControl(content, groupId, groupKey, writeR))
+  }
+
+  const handleDelete = (msg: Message) => {
+    if (!getSigner() || !publicKey || !groupKey) return
+    void deleteMessage(publicKey, msg, content => sendGroupControl(content, groupId, groupKey, writeR))
+  }
+
   if (!groupKey) {
     return (
       <>
@@ -742,6 +875,7 @@ function GroupThread({ groupId }: { groupId: string }) {
   return (
     <>
       <GroupHeader groupId={groupId} onOpenGallery={() => setShowGallery(true)} />
+      <GroupCallBanner groupId={groupId} />
       {showGallery ? (
         <MediaGallery messages={messages[groupId] || []} onClose={() => setShowGallery(false)} />
       ) : (
@@ -754,6 +888,9 @@ function GroupThread({ groupId }: { groupId: string }) {
             profiles={profiles}
             onReply={setReplyTo}
             onRetry={handleRetry}
+            onReact={handleReact}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
             dividerTimestamp={dividerTimestampRef.current}
             targetMessageId={targetMessageId ?? undefined}
           />

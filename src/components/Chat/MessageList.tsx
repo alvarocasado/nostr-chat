@@ -3,7 +3,11 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { Wifi, ChevronDown } from 'lucide-react'
 import { useNostrStore, type Message } from '../../store/nostrStore'
 import { MessageItem } from './MessageItem'
+import { CallRow } from './CallRow'
 import { decorateRow, unreadAnchorId } from '../../lib/messageRows'
+import { parseCallLogPayload } from '../../lib/callLog'
+import { parseCallStartPayload } from '../../lib/groupCall'
+import { getDisplayName } from '../../lib/fileUtils'
 import { useChatHistory } from '../../hooks/useChatHistory'
 import { START_INDEX, MAX_JUMP_PAGES } from '../../lib/pagination'
 import { indexOfMessage } from '../../lib/history'
@@ -38,7 +42,7 @@ function DateSeparator({ date }: { date: Date }) {
   )
 }
 
-export function MessageList({ chatId, chatType, messages, myPubkey, profiles, onReply, onRetry, dividerTimestamp, targetMessageId }: {
+export function MessageList({ chatId, chatType, messages, myPubkey, profiles, onReply, onRetry, onReact, onEdit, onDelete, dividerTimestamp, targetMessageId }: {
   chatId: string
   chatType: 'dm' | 'channel' | 'group'
   messages: Message[]
@@ -46,6 +50,9 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
   profiles: Record<string, { name?: string; display_name?: string; picture?: string; pubkey: string }>
   onReply: (msg: Message) => void
   onRetry: (msgId: string) => void
+  onReact?: (msg: Message, emoji: string) => void
+  onEdit?: (msg: Message, newText: string) => void
+  onDelete?: (msg: Message) => void
   dividerTimestamp?: number
   targetMessageId?: string
 }) {
@@ -155,19 +162,35 @@ export function MessageList({ chatId, chatType, messages, myPubkey, profiles, on
           const prev = messages[index - firstItemIndex - 1]
           const { showDateSeparator, showAvatar } = decorateRow(msg, prev, myPubkey)
           const showDivider = msg.id === dividerAnchorId
+          // Call records render as centered system rows, not bubbles. Scoped
+          // by chat type so identical JSON pasted elsewhere stays plain text.
+          const callLog = chatType === 'dm' ? parseCallLogPayload(msg.content) : null
+          const callStart = chatType === 'group' ? parseCallStartPayload(msg.content) : null
           return (
             <div className="px-3">
               {showDateSeparator && <DateSeparator date={new Date(msg.createdAt * 1000)} />}
               {showDivider && <NewMessagesDivider />}
               <div className="py-0.5">
-                <MessageItem
-                  message={msg}
-                  profile={profiles[msg.pubkey]}
-                  isOwn={msg.pubkey === myPubkey}
-                  showAvatar={showAvatar}
-                  onReply={onReply}
-                  onRetry={onRetry}
-                />
+                {callLog || callStart ? (
+                  <CallRow
+                    message={msg}
+                    isOwn={msg.pubkey === myPubkey}
+                    callLog={callLog}
+                    senderName={getDisplayName(profiles[msg.pubkey], msg.pubkey)}
+                  />
+                ) : (
+                  <MessageItem
+                    message={msg}
+                    profile={profiles[msg.pubkey]}
+                    isOwn={msg.pubkey === myPubkey}
+                    showAvatar={showAvatar}
+                    onReply={onReply}
+                    onRetry={onRetry}
+                    onReact={onReact}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                  />
+                )}
               </div>
             </div>
           )

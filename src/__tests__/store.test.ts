@@ -95,6 +95,29 @@ describe('logout', () => {
     expect(state.groups).toEqual([])
     expect(state.groupKeys).toEqual({})
   })
+
+  it('resets readReceiptsEnabled and readUntilByPeer so a new account does not inherit them', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    useNostrStore.setState({
+      readReceiptsEnabled: true,
+      readUntilByPeer: { peer1: 12345 },
+    })
+
+    await useNostrStore.getState().logout()
+    const state = useNostrStore.getState()
+
+    expect(state.readReceiptsEnabled).toBe(false)
+    expect(state.readUntilByPeer).toEqual({})
+  })
+
+  it('resets activeCallType so a stale call flag cannot survive account switch', async () => {
+    await useNostrStore.getState().generateAndLogin()
+    useNostrStore.setState({ activeCallType: 'group' })
+
+    await useNostrStore.getState().logout()
+
+    expect(useNostrStore.getState().activeCallType).toBe('none')
+  })
 })
 
 describe('relay management', () => {
@@ -197,6 +220,31 @@ describe('message management', () => {
   it('updateMessageStatus is a no-op for an unknown chat', () => {
     useNostrStore.getState().updateMessageStatus('unknown', 'm1', 'sent')
     expect(useNostrStore.getState().messages['unknown']).toBeUndefined()
+  })
+
+  describe('updateMessageStatus persistence', () => {
+    const PK = 'c'.repeat(64)
+    beforeEach(async () => {
+      openUserDb(PK)
+      const db = getUserDb()!
+      await db.messages.clear()
+      await db.messages.put(messageToRecord('ch1', { ...msg, status: 'sending' }))
+      useNostrStore.setState({ messages: { ch1: [{ ...msg, status: 'sending' }] } })
+    })
+    afterEach(async () => {
+      const db = getUserDb()
+      if (db) await db.messages.clear()
+      closeUserDb()
+    })
+
+    it('persists the new status to the Dexie record so it survives reload', async () => {
+      useNostrStore.getState().updateMessageStatus('ch1', 'm1', 'sent')
+      const db = getUserDb()!
+      await vi.waitFor(async () => {
+        const record = await db.messages.get('m1')
+        expect(record?.status).toBe('sent')
+      })
+    })
   })
 })
 
@@ -631,5 +679,48 @@ describe('group store actions', () => {
     expect(g.lastMessage).toBe('newest')
     expect(g.lastMessageAt).toBe(300)
     expect(g.unread).toBe(1)
+  })
+})
+
+describe('read receipts state', () => {
+  it('setPeerReadUntil keeps the max watermark per peer', () => {
+    useNostrStore.setState({ readUntilByPeer: {} })
+    useNostrStore.getState().setPeerReadUntil('peer1', 100)
+    useNostrStore.getState().setPeerReadUntil('peer1', 50)   // stale, ignored
+    useNostrStore.getState().setPeerReadUntil('peer2', 70)
+    expect(useNostrStore.getState().readUntilByPeer).toEqual({ peer1: 100, peer2: 70 })
+  })
+
+  it('setReadReceiptsEnabled flips the flag', () => {
+    useNostrStore.setState({ readReceiptsEnabled: false })
+    useNostrStore.getState().setReadReceiptsEnabled(true)
+    expect(useNostrStore.getState().readReceiptsEnabled).toBe(true)
+  })
+
+  it('applySyncResult applies readReceiptsEnabled from newer synced settings', () => {
+    useNostrStore.setState({ readReceiptsEnabled: false, syncedSettingsAt: null })
+    applySyncResult(
+      {
+        contacts: null,
+        channels: null,
+        groupKeys: {},
+        relayList: null,
+        settings: { createdAt: 999, settings: { readReceiptsEnabled: true } },
+      },
+      s => useNostrStore.setState(s),
+      () => useNostrStore.getState(),
+    )
+    expect(useNostrStore.getState().readReceiptsEnabled).toBe(true)
+    expect(useNostrStore.getState().syncedSettingsAt).toBe(999)
+  })
+})
+
+describe('activeCallType', () => {
+  it('defaults to none and is settable', () => {
+    useNostrStore.setState({ activeCallType: 'none' })
+    useNostrStore.getState().setActiveCallType('group')
+    expect(useNostrStore.getState().activeCallType).toBe('group')
+    useNostrStore.getState().setActiveCallType('none')
+    expect(useNostrStore.getState().activeCallType).toBe('none')
   })
 })

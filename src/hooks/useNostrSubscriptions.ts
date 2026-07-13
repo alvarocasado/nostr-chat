@@ -6,17 +6,22 @@ import {
   buildChannelCreateEvent,
   buildChannelMessageEvent,
   buildDMEvent,
+  buildGroupMessageEvent,
   buildProfileEvent,
   GROUP_MESSAGE_KIND,
   LEGACY_GROUP_MESSAGE_KIND,
   type NostrProfile,
 } from '../lib/nostr'
+import { encryptWithGroupKey } from '../lib/groupCrypto'
+import { serializeReaction } from '../lib/reactions'
+import { serializeCallStart } from '../lib/groupCall'
 import { useNostrStore, type Channel } from '../store/nostrStore'
 import {
   processChannelEvent,
   processDMEvent,
   processGroupEvent,
   extractRootChatId,
+  extractGroupId,
 } from '../lib/inbox'
 import { useStableArray } from './useStableArray'
 import { useReadRelays } from './useRelays'
@@ -71,6 +76,11 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
   const stableRelays = useReadRelays()
   const peer = usePeerRelays(theirPubkey)
   const receivedRelays = useStableArray(combineRelays(stableRelays, peer.write))
+  // On restored sessions the signer is installed asynchronously after the
+  // store rehydrates; setSignerCaps stores a fresh object, so depending on it
+  // re-runs this effect once the signer exists (the getSigner guard below
+  // otherwise kills the subscription for the whole session).
+  const signerCaps = useNostrStore(s => s.signerCaps)
 
   useEffect(() => {
     if (!myPubkey || !theirPubkey) return
@@ -96,7 +106,7 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
       sub1.close()
       sub2.close()
     }
-  }, [myPubkey, theirPubkey, stableRelays, receivedRelays])
+  }, [myPubkey, theirPubkey, stableRelays, receivedRelays, signerCaps])
 }
 
 // Hook to discover public channels
@@ -141,7 +151,7 @@ export function useGroupMessages(groupId: string | null) {
     let live = false
     const sub = subscribeEvents(
       stableRelays,
-      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': [groupId], limit: INITIAL_PAGE },
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': [groupId], limit: INITIAL_PAGE },
       (event) => { void processGroupEvent(event, groupId, groupKey, stableRelays, { live }) },
       () => { live = true },
     )
@@ -153,7 +163,7 @@ export function useGroupMessages(groupId: string | null) {
 // working for chats that are not currently open. Per-chat hooks above provide
 // history backfill; the shared processors deduplicate side effects between them.
 export function useGlobalInbox() {
-  const { publicKey, joinedChannelIds, groups } = useNostrStore()
+  const { publicKey, joinedChannelIds, groups, signerCaps } = useNostrStore()
   const stableRelays = useReadRelays()
   const stableJoined = useStableArray(joinedChannelIds)
   const groupIds = useStableArray(groups.map(g => g.id))
@@ -171,7 +181,9 @@ export function useGlobalInbox() {
       () => { live = true },
     )
     return () => sub.close()
-  }, [publicKey, stableRelays])
+    // signerCaps: restored sessions install the signer after rehydration; the
+    // fresh caps object re-runs this effect so the inbox subscribes at all.
+  }, [publicKey, stableRelays, signerCaps])
 
   // All joined channels in one subscription
   useEffect(() => {
@@ -200,9 +212,9 @@ export function useGlobalInbox() {
     let live = false
     const sub = subscribeEvents(
       stableRelays,
-      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': groupIds, limit: 50 },
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': groupIds, limit: 50 },
       (event) => {
-        const chatId = extractRootChatId(event.tags)
+        const chatId = extractGroupId(event.tags)
         if (!chatId || !ids.has(chatId)) return
         const key = useNostrStore.getState().groupKeys[chatId]
         if (key) void processGroupEvent(event, chatId, key, stableRelays, { live })
@@ -237,6 +249,42 @@ export async function sendDM(
   const event = await buildDMEvent(recipientPubkey, content)
   await publishEvent(relays, event)
   return event
+}
+
+// ─── Reactions ───────────────────────────────────────────────────────────────
+// Reactions ride the same transports as messages so DM/group reactions stay
+// encrypted; the inbox processors route them out before they reach the message
+// list. See lib/reactions.ts for the rationale.
+
+export async function sendChannelReaction(
+  target: string, emoji: string, op: 'add' | 'remove', channelId: string, relays: string[],
+) {
+  return sendChannelMessage(serializeReaction(target, emoji, op), channelId, relays)
+}
+
+export async function sendDMReaction(
+  target: string, emoji: string, op: 'add' | 'remove', peer: string, relays: string[],
+) {
+  return sendDM(serializeReaction(target, emoji, op), peer, relays)
+}
+
+// Send an already-serialized control message (reaction/edit/delete) to a group,
+// encrypted with the group key so it rides the same transport as messages.
+export async function sendGroupControl(content: string, groupId: string, groupKey: string, relays: string[]) {
+  const encrypted = await encryptWithGroupKey(content, groupKey)
+  const event = await buildGroupMessageEvent(encrypted, groupId, relays[0])
+  await publishEvent(relays, event)
+  return event
+}
+
+export async function sendGroupReaction(
+  target: string, emoji: string, op: 'add' | 'remove', groupId: string, groupKey: string, relays: string[],
+) {
+  return sendGroupControl(serializeReaction(target, emoji, op), groupId, groupKey, relays)
+}
+
+export async function sendGroupCallStart(callId: string, groupId: string, groupKey: string, relays: string[]) {
+  return sendGroupControl(serializeCallStart(callId), groupId, groupKey, relays)
 }
 
 // Create a new channel

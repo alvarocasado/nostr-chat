@@ -7,6 +7,7 @@ import {
   type Filter,
 } from 'nostr-tools'
 import { encryptWithGroupKey } from './groupCrypto'
+import { mentionTags } from './mentions'
 import { requireSigner } from './signer'
 
 // Group messages: regular-range kind so relays store full history.
@@ -107,6 +108,7 @@ export async function buildChannelMessageEvent(
 ): Promise<Event> {
   const tags: string[][] = [['e', channelId, relayUrl, 'root']]
   if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
+  tags.push(...mentionTags(content))  // NIP-27: p tags for npub/nprofile mentions
   return requireSigner().signEvent({ kind: 42, created_at: Math.floor(Date.now() / 1000), tags, content })
 }
 
@@ -166,7 +168,10 @@ export async function buildGroupMessageEvent(
   relayUrl: string,
   replyEventId?: string,
 ): Promise<Event> {
-  const tags: string[][] = [['e', groupId, relayUrl, 'root']]
+  // Group ids are UUIDs, not event ids: strict relays reject them in e tags,
+  // so groups are addressed NIP-29-style via h. Replies still e-tag the
+  // real target event id.
+  const tags: string[][] = [['h', groupId, relayUrl]]
   if (replyEventId) tags.push(['e', replyEventId, '', 'reply'])
   return requireSigner().signEvent({ kind: GROUP_MESSAGE_KIND, created_at: Math.floor(Date.now() / 1000), tags, content: encryptedContent })
 }

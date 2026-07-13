@@ -27,6 +27,7 @@ import {
   type CallsSyncedSettings,
 } from '../lib/nostrSync'
 import { filterRead, filterWrite, type RelayModes } from '../lib/relayRouting'
+import type { ActiveCallType } from '../lib/webrtc'
 
 export type ChatType = 'channel' | 'dm' | 'group'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications' | 'privacy'
@@ -138,6 +139,14 @@ interface NostrState {
   // Messages keyed by channelId or pubkey
   messages: Record<string, Message[]>
 
+  // Reactions keyed by target messageId → emoji → reactor pubkeys (session-only)
+  reactions: Record<string, Record<string, string[]>>
+
+  // Edit/delete overlays keyed by target messageId. `by` is the requester; a
+  // change is only honoured when `by` matches the message's own author.
+  deletedMessages: Record<string, { by: string }>
+  editedMessages: Record<string, { by: string; content: string; at: number }>
+
   // Profiles cache
   profiles: Record<string, NostrProfile>
 
@@ -158,6 +167,12 @@ interface NostrState {
   blockedPubkeys: string[]
   dismissedRequests: Record<string, number>  // pubkey → unix-seconds of dismissal
 
+  // Read receipts (opt-in, reciprocal; DMs only). readUntilByPeer maps peer
+  // pubkey to the newest watermark received from them. The receipt events are
+  // ephemeral; this local copy is what survives reload (persisted like seenAt).
+  readReceiptsEnabled: boolean
+  readUntilByPeer: Record<string, number>
+
   // Drafts (session-only, not persisted)
   drafts: Record<string, string>
 
@@ -170,8 +185,12 @@ interface NostrState {
   // Signer capabilities (runtime-only, never persisted)
   signerCaps: { nip04: boolean }
 
+  // Which call engine holds the media (runtime-only, never persisted)
+  activeCallType: ActiveCallType
+
   // Actions
   setSignerCaps: (caps: { nip04: boolean }) => void
+  setActiveCallType: (t: ActiveCallType) => void
   generateAndLogin: () => Promise<{ nsec: string; npub: string }>
   loginFromNsec: (nsec: string) => Promise<boolean>
   loginFromHex: (hex: string) => Promise<boolean>
@@ -197,6 +216,9 @@ interface NostrState {
   blockPubkey: (pubkey: string) => void
   unblockPubkey: (pubkey: string) => void
 
+  setReadReceiptsEnabled: (enabled: boolean) => void
+  setPeerReadUntil: (peerPubkey: string, readUntil: number) => void
+
   setActiveChat: (id: string, type: ChatType) => void
   clearActiveChat: () => void
 
@@ -206,6 +228,11 @@ interface NostrState {
   clearTargetMessage: () => void
 
   addMessage: (chatId: string, message: Message) => void
+  applyReaction: (messageId: string, emoji: string, pubkey: string, op: 'add' | 'remove') => void
+  applyDelete: (messageId: string, by: string) => void
+  removeDelete: (messageId: string) => void
+  applyEdit: (messageId: string, by: string, content: string, at: number) => void
+  removeEdit: (messageId: string) => void
   prependMessages: (chatId: string, msgs: Message[]) => void
   updateMessageStatus: (chatId: string, msgId: string, status: 'sending' | 'sent' | 'failed') => void
   markRead: (chatId: string) => void
@@ -314,6 +341,7 @@ export function applySyncResult(
         ...(s.relays !== undefined && !result.relayList ? { relays: s.relays } : {}),
         ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
         ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
+        ...(s.readReceiptsEnabled !== undefined ? { readReceiptsEnabled: s.readReceiptsEnabled } : {}),
         syncedSettingsAt: result.settings.createdAt,
       })
       if (s.callsSettings) {
@@ -401,7 +429,7 @@ export const useNostrStore = create<NostrState>()(
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests } = get()
+            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests, readReceiptsEnabled } = get()
             if (!getSigner()) return
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
@@ -420,7 +448,7 @@ export const useNostrStore = create<NostrState>()(
             }
             const wr = get().writeRelays()
             void Promise.all([
-              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests }, wr),
+              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests, readReceiptsEnabled }, wr),
               publishRelayList(wr, get().relays, get().relayModes),
             ]).then(() => set({ syncedSettingsAt: now })).catch(() => {})
           })()
@@ -443,6 +471,9 @@ export const useNostrStore = create<NostrState>()(
         activeChatType: null,
         targetMessageId: null,
         messages: {},
+        reactions: {},
+        deletedMessages: {},
+        editedMessages: {},
         profiles: {},
         sidebarTab: 'channels',
         showSettings: false,
@@ -455,12 +486,16 @@ export const useNostrStore = create<NostrState>()(
         mutedChats: {},
         blockedPubkeys: [],
         dismissedRequests: {},
+        readReceiptsEnabled: false,
+        readUntilByPeer: {},
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
         signerCaps: { nip04: true },
+        activeCallType: 'none',
 
         setSignerCaps: (caps) => set({ signerCaps: caps }),
+        setActiveCallType: (t) => set({ activeCallType: t }),
 
         generateAndLogin: async () => {
           const sk = generateSecretKey()
@@ -524,9 +559,15 @@ export const useNostrStore = create<NostrState>()(
             activeChatId: null,
             activeChatType: null,
             messages: {},
+            reactions: {},
+            deletedMessages: {},
+            editedMessages: {},
             groups: [],
             groupKeys: {},
             signerCaps: { nip04: true },
+            readReceiptsEnabled: false,
+            readUntilByPeer: {},
+            activeCallType: 'none',
           })
           clearSigner()
           await clearLocalKey()
@@ -693,6 +734,17 @@ export const useNostrStore = create<NostrState>()(
           scheduleSettingsSync()
         },
 
+        setReadReceiptsEnabled: (enabled) => {
+          set({ readReceiptsEnabled: enabled })
+          scheduleSettingsSync()
+        },
+
+        setPeerReadUntil: (peerPubkey, readUntil) => {
+          const current = get().readUntilByPeer[peerPubkey] ?? 0
+          if (readUntil <= current) return
+          set({ readUntilByPeer: { ...get().readUntilByPeer, [peerPubkey]: readUntil } })
+        },
+
         setActiveChat: (id, type) => {
           set({ activeChatId: id, activeChatType: type })
           get().markRead(id)
@@ -736,6 +788,46 @@ export const useNostrStore = create<NostrState>()(
           if (db) void db.messages.put(messageToRecord(chatId, message))
         },
 
+        applyReaction: (messageId, emoji, pubkey, op) => {
+          const all = get().reactions
+          const forMsg = all[messageId] ?? {}
+          const reactors = forMsg[emoji] ?? []
+          let nextReactors: string[]
+          if (op === 'add') {
+            if (reactors.includes(pubkey)) return // idempotent — echo of own/duplicate event
+            nextReactors = [...reactors, pubkey]
+          } else {
+            if (!reactors.includes(pubkey)) return
+            nextReactors = reactors.filter(p => p !== pubkey)
+          }
+          const nextForMsg = { ...forMsg }
+          if (nextReactors.length > 0) nextForMsg[emoji] = nextReactors
+          else delete nextForMsg[emoji]
+          set({ reactions: { ...all, [messageId]: nextForMsg } })
+        },
+
+        applyDelete: (messageId, by) => {
+          if (get().deletedMessages[messageId]) return
+          set({ deletedMessages: { ...get().deletedMessages, [messageId]: { by } } })
+        },
+
+        removeDelete: (messageId) => {
+          const { [messageId]: _removed, ...rest } = get().deletedMessages
+          set({ deletedMessages: rest })
+        },
+
+        applyEdit: (messageId, by, content, at) => {
+          const existing = get().editedMessages[messageId]
+          // Keep the newest edit — events can arrive out of order.
+          if (existing && existing.at >= at) return
+          set({ editedMessages: { ...get().editedMessages, [messageId]: { by, content, at } } })
+        },
+
+        removeEdit: (messageId) => {
+          const { [messageId]: _removed, ...rest } = get().editedMessages
+          set({ editedMessages: rest })
+        },
+
         prependMessages: (chatId, msgs) => {
           if (msgs.length === 0) return
           const existing = get().messages[chatId] || []
@@ -755,6 +847,8 @@ export const useNostrStore = create<NostrState>()(
               [chatId]: msgs.map(m => m.id === msgId ? { ...m, status } : m),
             }
           })
+          const db = getUserDb()
+          if (db) void db.messages.update(msgId, { status })
         },
 
         markRead: (chatId) => {
@@ -888,6 +982,10 @@ export const useNostrStore = create<NostrState>()(
         syncedSettingsAt: state.syncedSettingsAt,
         blockedPubkeys: state.blockedPubkeys,
         dismissedRequests: state.dismissedRequests,
+        readReceiptsEnabled: state.readReceiptsEnabled,
+        readUntilByPeer: state.readUntilByPeer,
+        deletedMessages: state.deletedMessages,
+        editedMessages: state.editedMessages,
       }),
     }
   )

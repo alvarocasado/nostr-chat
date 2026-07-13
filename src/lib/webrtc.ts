@@ -4,6 +4,15 @@ import { requireSigner } from './signer'
 
 export const CALL_SIGNAL_KIND = 24100
 
+// Kind 24100 is ephemeral, but some relays store and replay it on subscribe,
+// ringing the callee for calls that ended minutes ago. Calls are real-time:
+// any signal older than this is a replay, not a live call.
+export const MAX_CALL_SIGNAL_AGE_SEC = 60
+
+export function isStaleCallSignal(createdAtSec: number, nowMs = Date.now()): boolean {
+  return createdAtSec < Math.floor(nowMs / 1000) - MAX_CALL_SIGNAL_AGE_SEC
+}
+
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -31,6 +40,7 @@ export type CallSignalType = 'call-offer' | 'call-answer' | 'ice-candidate' | 'c
 export interface CallSignal {
   type: CallSignalType
   callId: string
+  groupId?: string          // present on group-call signals; absent on 1:1
   mediaType?: MediaType
   sdp?: string
   candidate?: RTCIceCandidateInit
@@ -63,6 +73,10 @@ function isValidCallSignal(obj: unknown): obj is CallSignal {
 
   if (!VALID_SIGNAL_TYPES.includes(s.type as CallSignalType)) return false
   if (typeof s.callId !== 'string' || s.callId.length === 0 || s.callId.length > MAX_CALL_ID_LEN) return false
+
+  if (s.groupId !== undefined) {
+    if (typeof s.groupId !== 'string' || s.groupId.length === 0 || s.groupId.length > MAX_CALL_ID_LEN) return false
+  }
 
   if (s.sdp !== undefined) {
     if (typeof s.sdp !== 'string' || s.sdp.length > MAX_SDP_LEN) return false
@@ -127,4 +141,31 @@ export async function decryptCallSignal(
   } catch {
     return null
   }
+}
+
+export function isGroupSignal(s: CallSignal): boolean {
+  return s.groupId !== undefined
+}
+
+export type ActiveCallType = 'none' | 'dm' | 'group'
+
+/** A 1:1 offer gets a busy reply when a 1:1 call is active or a group call holds the media. */
+export function shouldReplyBusy(isIdle: boolean, activeCallType: ActiveCallType): boolean {
+  return !isIdle || activeCallType === 'group'
+}
+
+/** getUserMedia honoring the user's saved device preferences (same logic as the 1:1 call path). */
+export async function getCallUserMedia(type: MediaType): Promise<MediaStream> {
+  const [audioSetting, videoSetting] = await Promise.all([
+    getSetting<string>('media_audio_device', ''),
+    getSetting<string>('media_video_device', ''),
+  ])
+  const audioId = audioSetting || undefined
+  const videoId = videoSetting || undefined
+  return navigator.mediaDevices.getUserMedia({
+    audio: audioId ? { deviceId: { ideal: audioId } } : true,
+    video: type === 'video'
+      ? { width: 1280, height: 720, ...(videoId ? { deviceId: { ideal: videoId } } : { facingMode: 'user' as const }) }
+      : false,
+  })
 }

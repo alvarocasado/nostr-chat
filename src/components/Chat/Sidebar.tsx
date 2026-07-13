@@ -3,6 +3,7 @@ import { Hash, MessageCircle, MessageCirclePlus, SquarePlus, Users, Settings, Lo
 import { useNostrStore, type Channel, type Contact, type Message, type ChatType, type Group } from '../../store/nostrStore'
 import { Avatar } from './Avatar'
 import { getDisplayName, getPreviewText } from '../../lib/fileUtils'
+import { parseCallLogPayload } from '../../lib/callLog'
 import { formatDistanceToNowStrict } from 'date-fns'
 import { useRelayHealth, aggregateRelayHealth } from '../../hooks/useRelayHealth'
 
@@ -421,6 +422,7 @@ export function Sidebar() {
         : getDisplayName(contact?.profile || profiles[chatId], chatId, 10)
 
       for (const msg of msgs) {
+        if (parseCallLogPayload(msg.content)) continue
         if (!msg.content.toLowerCase().includes(q)) continue
         const sp = msg.pubkey === publicKey
           ? (profile || profiles[publicKey || ''])

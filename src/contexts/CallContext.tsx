@@ -2,15 +2,18 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ReactNode,
 } from 'react'
-import { subscribeEvents, publishEvent } from '../lib/nostr'
+import { subscribeEvents, publishEvent, buildDMEvent } from '../lib/nostr'
 import { getSetting } from '../lib/userDb'
+import { getPeerRelays, combineRelays } from '../lib/peerRelays'
 import { useNostrStore } from '../store/nostrStore'
 import { useReadRelays } from '../hooks/useRelays'
 import { getSigner } from '../lib/signer'
 import { fireCallNotification } from '../lib/notifications'
+import { serializeCallLog, deriveCallOutcome } from '../lib/callLog'
 import {
   buildCallSignalEvent, decryptCallSignal,
   getIceServers, fetchCallIceServers, mergeIceServers, CALL_SIGNAL_KIND,
+  isGroupSignal, shouldReplyBusy, isStaleCallSignal,
   type CallSignal, type MediaType,
 } from '../lib/webrtc'
 
@@ -50,7 +53,7 @@ export function useCallContext() {
 }
 
 export function CallProvider({ children }: { children: ReactNode }) {
-  const { publicKey } = useNostrStore()
+  const { publicKey, signerCaps } = useNostrStore()
   const readR = useReadRelays()
 
   const [callState, setCallState]       = useState<CallState>('idle')
@@ -75,8 +78,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const durationTimer      = useRef<ReturnType<typeof setInterval> | null>(null)
   const callStateRef       = useRef<CallState>('idle')
 
+  // Call-log bookkeeping: only the initiating device writes history (spec:
+  // one event, one writer), and only after its offer actually went out.
+  const isInitiatorRef  = useRef(false)
+  const offerSentRef    = useRef(false)
+  const wasConnectedRef = useRef(false)
+  const mediaTypeRef    = useRef<MediaType>('audio')
+  const durationSecRef  = useRef(0)
+  // The call's peer, mirrored from setPeer. call-answer/call-end are only
+  // honoured from this pubkey, and the call-log is always addressed to it —
+  // never to a signal's sender, which an observer could forge.
+  const peerPubkeyRef   = useRef<string | null>(null)
+
   // Keep ref in sync so callbacks always see current state
   useEffect(() => { callStateRef.current = callState }, [callState])
+
+  // Publish 1:1 call activity so the group engine can mutually exclude
+  useEffect(() => {
+    const { activeCallType, setActiveCallType } = useNostrStore.getState()
+    if (callState !== 'idle') setActiveCallType('dm')
+    else if (activeCallType === 'dm') setActiveCallType('none')
+  }, [callState])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -109,13 +131,67 @@ export function CallProvider({ children }: { children: ReactNode }) {
     preOfferCandidates.current.clear()
     pendingOffer.current = null
     if (durationTimer.current) { clearInterval(durationTimer.current); durationTimer.current = null }
+    isInitiatorRef.current  = false
+    offerSentRef.current    = false
+    wasConnectedRef.current = false
+    durationSecRef.current  = 0
+    peerPubkeyRef.current   = null
     setCallState('idle')
     setPeer(null)
   }, [stopLocalStream])
 
   const startDurationTimer = useCallback(() => {
     if (durationTimer.current) return
-    durationTimer.current = setInterval(() => setDuration(d => d + 1), 1000)
+    durationTimer.current = setInterval(() => {
+      durationSecRef.current += 1
+      setDuration(d => d + 1)
+    }, 1000)
+  }, [])
+
+  // Publish the durable history record for a call this device initiated.
+  // Guarded to fire at most once per call; the callee never publishes.
+  const publishCallLog = useCallback((peerPubkey: string, endReason?: string) => {
+    if (!isInitiatorRef.current || !offerSentRef.current) return
+    offerSentRef.current = false
+    const outcome = deriveCallOutcome(wasConnectedRef.current, endReason)
+    const content = serializeCallLog({
+      callId: callIdRef.current,
+      mediaType: mediaTypeRef.current,
+      outcome,
+      ...(outcome === 'completed' && { duration: durationSecRef.current }),
+    })
+    void (async () => {
+      let eventId = ''
+      try {
+        const event = await buildDMEvent(peerPubkey, content)
+        eventId = event.id
+        const { publicKey, addMessage } = useNostrStore.getState()
+        if (!publicKey) return
+        addMessage(peerPubkey, {
+          id: event.id,
+          pubkey: publicKey,
+          content,
+          createdAt: event.created_at,
+          tags: event.tags,
+          kind: 4,
+          recipientPubkey: peerPubkey,
+          decrypted: true,
+          status: 'sending',
+        })
+        // Same relay targeting as every other DM: the peer's read relays must
+        // receive the log or the offline missed-call guarantee fails.
+        const peerRead = await getPeerRelays(peerPubkey, useNostrStore.getState().readRelays())
+          .then(pr => pr.read)
+          .catch(() => [] as string[])
+        await publishEvent(combineRelays(useNostrStore.getState().writeRelays(), peerRead), event)
+        useNostrStore.getState().updateMessageStatus(peerPubkey, event.id, 'sent')
+      } catch {
+        // ponytail: best-effort history; a failed publish marks the stored row
+        // "failed" (CallRow shows no status indicator and there is no retry —
+        // accepted limit), or stores nothing if signing failed.
+        if (eventId) useNostrStore.getState().updateMessageStatus(peerPubkey, eventId, 'failed')
+      }
+    })()
   }, [])
 
   const getUserMedia = useCallback(async (type: MediaType): Promise<MediaStream> => {
@@ -153,11 +229,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') {
+        wasConnectedRef.current = true
         setIsRtcConnected(true)
         setIceConnFailed(false)
         startDurationTimer()
       }
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        publishCallLog(peerPubkey)
         cleanup()
       }
     }
@@ -170,7 +248,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     pcRef.current = pc
     return pc
-  }, [sendSignal, startDurationTimer, cleanup])
+  }, [sendSignal, startDurationTimer, cleanup, publishCallLog])
 
   const flushPendingCandidates = useCallback(async () => {
     const pc = pcRef.current
@@ -185,17 +263,38 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const initiateCall = useCallback(async (peerPubkey: string, type: MediaType) => {
     if (callStateRef.current !== 'idle') return
+    // Defense-in-depth: never start a 1:1 call while a group call is active,
+    // even if callStateRef somehow lagged behind the group-call flag.
+    if (useNostrStore.getState().activeCallType === 'group') return
     if (!getSigner()?.caps.nip04) return
-    const callId = Date.now().toString(36)
+    // Random id: a timestamp-derived callId is guessable from the offer's
+    // public created_at, letting an observer forge matching call-end signals.
+    const callId = crypto.randomUUID()
     callIdRef.current = callId
+    isInitiatorRef.current  = true
+    offerSentRef.current    = false
+    wasConnectedRef.current = false
+    mediaTypeRef.current    = type
+    durationSecRef.current  = 0
+    peerPubkeyRef.current   = peerPubkey
     setIceConnFailed(false)
     setMediaType(type)
     setPeer({ pubkey: peerPubkey })
     setCallState('calling')
 
+    // If cleanup ran during any await below (user hung up, possibly started a
+    // new call), this continuation is stale: it must not touch refs or state,
+    // or it could ring the old peer and enable a phantom call-log.
+    const stale = () => callIdRef.current !== callId
+
     try {
       const iceServers = await fetchCallIceServers()
+      if (stale()) return
       const stream = await getUserMedia(type)
+      if (stale()) {
+        stream.getTracks().forEach(t => t.stop())
+        return
+      }
       localStreamRef.current = stream
       setLocalStream(stream)
 
@@ -203,7 +302,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       stream.getTracks().forEach(t => pc.addTrack(t, stream))
 
       const offer = await pc.createOffer()
+      if (stale()) return
       await pc.setLocalDescription(offer)
+      if (stale()) return
 
       await sendSignal(peerPubkey, {
         type: 'call-offer',
@@ -212,8 +313,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         sdp: offer.sdp,
         iceServers,
       })
+      if (stale()) return
+      offerSentRef.current = true
     } catch {
-      cleanup()
+      if (!stale()) cleanup()
     }
   }, [getUserMedia, createPeerConnection, sendSignal, cleanup])
 
@@ -268,9 +371,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         callId: callIdRef.current,
         reason: 'ended',
       })
+      publishCallLog(peer.pubkey)
     }
     cleanup()
-  }, [peer, sendSignal, cleanup])
+  }, [peer, sendSignal, publishCallLog, cleanup])
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current
@@ -326,14 +430,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const handleSignal = useCallback(async (senderPubkey: string, signal: CallSignal) => {
     if (!getSigner()) return
+    if (isGroupSignal(signal)) return  // group engine owns these
 
     if (signal.type === 'call-offer') {
-      if (callStateRef.current !== 'idle') {
+      if (shouldReplyBusy(callStateRef.current === 'idle', useNostrStore.getState().activeCallType)) {
         await sendSignal(senderPubkey, { type: 'call-end', callId: signal.callId, reason: 'busy' })
         return
       }
       if (typeof signal.sdp !== 'string') return
       callIdRef.current = signal.callId
+      isInitiatorRef.current = false
       setIceConnFailed(false)
       // Recover ICE candidates that arrived before this offer (relay ordering not guaranteed)
       const preOffer = preOfferCandidates.current.get(signal.callId) ?? []
@@ -341,6 +447,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pendingCandidates.current.push(...preOffer)
       pendingOffer.current = { sdp: signal.sdp, peerPubkey: senderPubkey, iceServers: signal.iceServers }
       setMediaType(signal.mediaType ?? 'audio')
+      peerPubkeyRef.current = senderPubkey
       setPeer({ pubkey: senderPubkey })
       setCallState('incoming')
       return
@@ -356,6 +463,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     if (signal.callId !== callIdRef.current) return
+
+    // Only the call's peer may answer or end it — a matching callId alone is
+    // not proof of identity (relay observers see who we signalled).
+    if ((signal.type === 'call-answer' || signal.type === 'call-end') &&
+        senderPubkey !== peerPubkeyRef.current) return
 
     if (signal.type === 'call-answer') {
       const pc = pcRef.current
@@ -377,9 +489,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     if (signal.type === 'call-end') {
+      if (peerPubkeyRef.current) publishCallLog(peerPubkeyRef.current, signal.reason)
       cleanup()
     }
-  }, [sendSignal, flushPendingCandidates, cleanup])
+  }, [sendSignal, flushPendingCandidates, cleanup, publishCallLog])
 
   // ── Nostr subscription for call signals ──────────────────────────────────
 
@@ -389,12 +502,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
       readR,
       { kinds: [CALL_SIGNAL_KIND], '#p': [publicKey] } as Parameters<typeof subscribeEvents>[1],
       async (event) => {
+        if (isStaleCallSignal(event.created_at)) return
         const signal = await decryptCallSignal(event.pubkey, event.content)
         if (signal) await handleSignal(event.pubkey, signal)
       },
     )
     return () => sub.close()
-  }, [publicKey, readR, handleSignal])
+    // signerCaps: restored sessions install the signer after rehydration; the
+    // fresh caps object re-runs this effect so the call sub starts reliably.
+  }, [publicKey, readR, handleSignal, signerCaps])
 
   // Ringtone + browser banner while the incoming call modal is showing
   const peerPubkey = peer?.pubkey

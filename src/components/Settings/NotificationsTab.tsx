@@ -10,7 +10,7 @@ const DND_PRESETS: { label: string; ms: number | null }[] = [
   { label: 'Until I turn off', ms: null },
 ]
 
-function Toggle({
+export function Toggle({
   checked, onChange, label, sublabel,
 }: { checked: boolean; onChange: (v: boolean) => void; label: string; sublabel?: string }) {
   return (

@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { generateKeys } from '../lib/nostr'
 import { installTestSigner } from '../test/signer'
-import { clearSigner } from '../lib/signer'
+import { clearSigner, getSigner } from '../lib/signer'
 import {
   buildCallSignalEvent,
   decryptCallSignal,
+  isGroupSignal,
+  shouldReplyBusy,
   ICE_SERVERS,
   CALL_SIGNAL_KIND,
+  isStaleCallSignal,
+  MAX_CALL_SIGNAL_AGE_SEC,
   type CallSignal,
 } from '../lib/webrtc'
 
@@ -217,5 +221,74 @@ describe('ICE_SERVERS', () => {
         expect(url).toMatch(/^stun:/)
       }
     }
+  })
+})
+
+// ─── group signal extension ──────────────────────────────────────────────────
+
+describe('group signal extension', () => {
+  beforeEach(() => {
+    installTestSigner(makeKeypair().sk)
+  })
+
+  afterEach(() => {
+    clearSigner()
+  })
+
+  it('accepts a signal with a valid groupId and preserves it through encrypt/decrypt', async () => {
+    const me = getSigner()!.pubkey
+    const event = await buildCallSignalEvent(me, { type: 'call-offer', callId: 'c1', groupId: 'g1', mediaType: 'audio', sdp: 'sdp' })
+    const parsed = await decryptCallSignal(me, event.content)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.groupId).toBe('g1')
+  })
+
+  it('rejects invalid groupId values', async () => {
+    const me = getSigner()!.pubkey
+    for (const groupId of ['', 'x'.repeat(129), 42 as unknown as string]) {
+      const event = await buildCallSignalEvent(me, { type: 'call-offer', callId: 'c1', groupId, sdp: 'sdp' })
+      expect(await decryptCallSignal(me, event.content)).toBeNull()
+    }
+  })
+
+  it('isGroupSignal detects the groupId marker', () => {
+    expect(isGroupSignal({ type: 'call-end', callId: 'c' })).toBe(false)
+    expect(isGroupSignal({ type: 'call-end', callId: 'c', groupId: 'g' })).toBe(true)
+  })
+})
+
+describe('shouldReplyBusy', () => {
+  it.each([
+    [false, true, 'none'],
+    [true, false, 'none'],
+    [true, true, 'group'],
+    [true, false, 'dm'],
+  ] as const)('returns %s for isIdle=%s activeCallType=%s', (expected, isIdle, act) => {
+    expect(shouldReplyBusy(isIdle, act)).toBe(expected)
+  })
+})
+
+// ─── isStaleCallSignal ───────────────────────────────────────────────────────
+
+describe('isStaleCallSignal', () => {
+  const NOW_MS = 1_000_000_000_000 // fixed clock so the boundary is exact
+  const NOW_SEC = 1_000_000_000
+
+  it('fresh events are not stale', () => {
+    expect(isStaleCallSignal(NOW_SEC, NOW_MS)).toBe(false)
+    expect(isStaleCallSignal(NOW_SEC - 30, NOW_MS)).toBe(false)
+  })
+
+  it('exactly 60 s old is not stale (strict boundary)', () => {
+    expect(isStaleCallSignal(NOW_SEC - MAX_CALL_SIGNAL_AGE_SEC, NOW_MS)).toBe(false)
+  })
+
+  it('older than 60 s is stale', () => {
+    expect(isStaleCallSignal(NOW_SEC - MAX_CALL_SIGNAL_AGE_SEC - 1, NOW_MS)).toBe(true)
+    expect(isStaleCallSignal(NOW_SEC - 3600, NOW_MS)).toBe(true)
+  })
+
+  it('future-dated events are never stale', () => {
+    expect(isStaleCallSignal(NOW_SEC + 300, NOW_MS)).toBe(false)
   })
 })

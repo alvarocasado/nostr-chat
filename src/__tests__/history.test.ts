@@ -64,7 +64,7 @@ describe('olderFilterFor', () => {
 
   it('builds a kinds filter for groups including the legacy kind', () => {
     expect(olderFilterFor('group', 'grp', 'me', 1000, 50)).toEqual([
-      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#e': ['grp'], until: 1000, limit: 50 },
+      { kinds: [GROUP_MESSAGE_KIND, LEGACY_GROUP_MESSAGE_KIND], '#h': ['grp'], until: 1000, limit: 50 },
     ])
   })
 

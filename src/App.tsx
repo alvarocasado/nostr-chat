@@ -11,8 +11,10 @@ import { AddContactModal } from './components/Chat/AddContactModal'
 import { AddGroupModal } from './components/Chat/AddGroupModal'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { CallProvider, useCallContext } from './contexts/CallContext'
+import { GroupCallProvider } from './contexts/GroupCallContext'
 import { IncomingCall } from './components/Call/IncomingCall'
 import { CallOverlay } from './components/Call/CallOverlay'
+import { GroupCallOverlay } from './components/Call/GroupCallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
 import { loadLocalKey, keyProtection } from './lib/keyStore'
@@ -168,29 +170,32 @@ function App() {
 
   return (
     <CallProvider>
-      <div className="flex h-full w-full bg-gray-950 overflow-hidden pb-16 md:pb-0">
-        <Sidebar />
-        {activeSettingsTab ? <SettingsScreen /> : <MessageThread />}
+      <GroupCallProvider>
+        <div className="flex h-full w-full bg-gray-950 overflow-hidden pb-16 md:pb-0">
+          <Sidebar />
+          {activeSettingsTab ? <SettingsScreen /> : <MessageThread />}
 
-        {showAddChannel && (
-          <AddChannelModal onClose={() => setShowAddChannel(false)} />
-        )}
-        {(showAddContact || contactLinkNpub) && (
-          <AddContactModal
-            initialNpub={contactLinkNpub ?? undefined}
-            onClose={() => { setShowAddContact(false); setContactLinkNpub(null) }}
-          />
-        )}
-        {showAddGroup && (
-          <AddGroupModal onClose={() => setShowAddGroup(false)} />
-        )}
-        <UpdatePrompt />
-      </div>
+          {showAddChannel && (
+            <AddChannelModal onClose={() => setShowAddChannel(false)} />
+          )}
+          {(showAddContact || contactLinkNpub) && (
+            <AddContactModal
+              initialNpub={contactLinkNpub ?? undefined}
+              onClose={() => { setShowAddContact(false); setContactLinkNpub(null) }}
+            />
+          )}
+          {showAddGroup && (
+            <AddGroupModal onClose={() => setShowAddGroup(false)} />
+          )}
+          <UpdatePrompt />
+        </div>
 
-      <IncomingCall />
-      <CallOverlay />
-      <ProfileCard />
-      <IceFailureBanner onOpenSettings={openCallSettings} />
+        <IncomingCall />
+        <CallOverlay />
+        <GroupCallOverlay />
+        <ProfileCard />
+        <IceFailureBanner onOpenSettings={openCallSettings} />
+      </GroupCallProvider>
     </CallProvider>
   )
 }

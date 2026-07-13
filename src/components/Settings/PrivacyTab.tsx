@@ -1,12 +1,23 @@
 import { useNostrStore } from '../../store/nostrStore'
 import { Avatar } from '../Chat/Avatar'
 import { getDisplayName } from '../../lib/fileUtils'
+import { Toggle } from './NotificationsTab'
 
 export function PrivacyTab() {
-  const { blockedPubkeys, profiles, unblockPubkey } = useNostrStore()
+  const { blockedPubkeys, profiles, unblockPubkey, readReceiptsEnabled, setReadReceiptsEnabled } = useNostrStore()
 
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-white mb-1">Read receipts</h2>
+        <Toggle
+          checked={readReceiptsEnabled}
+          onChange={setReadReceiptsEnabled}
+          label="Send read receipts"
+          sublabel="When on, contacts see when you read their direct messages, and you see theirs. Off means neither."
+        />
+      </div>
+
       <div>
         <h2 className="text-sm font-semibold text-white mb-1">Blocked users</h2>
         <p className="text-xs text-gray-500">

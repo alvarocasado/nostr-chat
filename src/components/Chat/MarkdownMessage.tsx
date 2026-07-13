@@ -1,14 +1,53 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import rehypeSanitize from 'rehype-sanitize'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import { nip19 } from 'nostr-tools'
 import type { Components } from 'react-markdown'
 import { LinkPreview } from './LinkPreview'
+import { useNostrStore } from '../../store/nostrStore'
+import { getDisplayName } from '../../lib/fileUtils'
+import { linkifyMentions } from '../../lib/mentions'
 
 const URL_RE = /https?:\/\/[^\s<>")\]]+/g
 
 function extractFirstUrl(text: string): string | null {
   return text.match(URL_RE)?.[0] ?? null
+}
+
+// Allow the `nostr:` href protocol so mention links survive sanitization.
+const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), 'nostr'],
+  },
+}
+
+function decodeMention(token: string): string | null {
+  try {
+    const d = nip19.decode(token)
+    if (d.type === 'npub') return d.data
+    if (d.type === 'nprofile') return d.data.pubkey
+  } catch { /* invalid */ }
+  return null
+}
+
+function MentionChip({ token, isOwn }: { token: string; isOwn: boolean }) {
+  const { profiles, setViewingProfilePubkey } = useNostrStore()
+  const pubkey = decodeMention(token)
+  const label = pubkey ? `@${getDisplayName(profiles[pubkey], pubkey, 12)}` : `@${token.slice(0, 12)}…`
+  const cls = isOwn ? 'text-purple-100 bg-white/15' : 'text-purple-300 bg-purple-500/15'
+  if (!pubkey) return <span className={`rounded px-1 ${cls}`}>{label}</span>
+  return (
+    <button
+      type="button"
+      onClick={() => setViewingProfilePubkey(pubkey)}
+      className={`rounded px-1 font-medium hover:underline ${cls}`}
+    >
+      {label}
+    </button>
+  )
 }
 
 function buildComponents(isOwn: boolean): Components {
@@ -38,11 +77,16 @@ function buildComponents(isOwn: boolean): Components {
     del: ({ children }) => (
       <del className="line-through opacity-70">{children}</del>
     ),
-    a: ({ href, children }) => (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={`${linkClass} break-all`}>
-        {children}
-      </a>
-    ),
+    a: ({ href, children }) => {
+      if (href?.startsWith('nostr:')) {
+        return <MentionChip token={href.slice('nostr:'.length)} isOwn={isOwn} />
+      }
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" className={`${linkClass} break-all`}>
+          {children}
+        </a>
+      )
+    },
     code: ({ className, children }) => {
       if (className?.startsWith('language-')) {
         return (
@@ -87,10 +131,10 @@ export function MarkdownMessage({ content, isOwn }: MarkdownMessageProps) {
     <div className="space-y-1">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
-        rehypePlugins={[rehypeSanitize]}
+        rehypePlugins={[[rehypeSanitize, SANITIZE_SCHEMA]]}
         components={isOwn ? COMPONENTS_OWN : COMPONENTS_OTHER}
       >
-        {content}
+        {linkifyMentions(content)}
       </ReactMarkdown>
       {firstUrl && <LinkPreview url={firstUrl} isOwn={isOwn} />}
     </div>

@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, nip04 } from 'nostr-tools'
 import type { Event } from 'nostr-tools'
-import { extractRootChatId, processChannelEvent, processDMEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
+import { extractRootChatId, extractGroupId, processChannelEvent, processDMEvent, processGroupEvent, resetInboxDedup, ensureProfile } from '../lib/inbox'
 import { useNostrStore } from '../store/nostrStore'
 import { fireNotification } from '../lib/notifications'
 import { installTestSigner } from '../test/signer'
 import { clearSigner } from '../lib/signer'
 import { fetchEvent, publishEvent } from '../lib/nostr'
+import { serializeCallStart } from '../lib/groupCall'
+import { generateGroupKey, encryptWithGroupKey } from '../lib/groupCrypto'
+import { serializeCallLog } from '../lib/callLog'
 
 vi.mock('../lib/nostr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/nostr')>()
@@ -261,6 +264,49 @@ describe('processDMEvent — request gate', () => {
   })
 })
 
+describe('processGroupEvent call-start control messages', () => {
+  const GROUP_ID = 'grp1'
+
+  async function makeGroupEvent(plaintext: string, key: string): Promise<Event> {
+    const senderSk = generateSecretKey()
+    const content = await encryptWithGroupKey(plaintext, key)
+    return finalizeEvent({
+      kind: 1042,
+      created_at: 1000,
+      tags: [['h', GROUP_ID, RELAYS[0]]],
+      content,
+    }, senderSk)
+  }
+
+  function seedGroup() {
+    useNostrStore.setState({
+      groups: [{ id: GROUP_ID, name: 'Test group', creatorPubkey: 'p', memberPubkeys: [], relayUrl: RELAYS[0], unread: 0 }],
+    })
+  }
+
+  it('routes call-start: stores a call row and updates the preview', async () => {
+    const key = generateGroupKey()
+    seedGroup()
+    const event = await makeGroupEvent(serializeCallStart('c1'), key)
+    await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
+
+    const state = useNostrStore.getState()
+    expect(state.messages[GROUP_ID]).toHaveLength(1)
+    expect(state.messages[GROUP_ID][0].content).toBe(serializeCallStart('c1'))
+    expect(state.groups.find(g => g.id === GROUP_ID)?.lastMessage).toBe('Call started')
+  })
+
+  it('treats malformed call-start payloads as normal messages', async () => {
+    const key = generateGroupKey()
+    seedGroup()
+    const bad = JSON.stringify({ type: 'call-start', callId: '' })
+    const event = await makeGroupEvent(bad, key)
+    await processGroupEvent(event, GROUP_ID, key, RELAYS, { live: false })
+
+    expect((useNostrStore.getState().messages[GROUP_ID] ?? []).length).toBe(1)
+  })
+})
+
 describe('ensureProfile routing', () => {
   it('ensureProfile fetches the author profile from author write relays + given relays', async () => {
     useNostrStore.setState({ profiles: {} })
@@ -274,5 +320,85 @@ describe('ensureProfile routing', () => {
         return r.includes('wss://myread') && r.includes('wss://authorwrite')
       })).toBe(true)
     })
+  })
+})
+
+describe('processDMEvent call-log control messages', () => {
+  async function incomingCallLog(plaintext: string, createdAt = 1000) {
+    const senderSk = generateSecretKey()
+    const senderPk = getPublicKey(senderSk)
+    const mySk = generateSecretKey()
+    const { signer } = installTestSigner(mySk)
+    const myPk = signer.pubkey
+    useNostrStore.setState({
+      publicKey: myPk,
+      // known, accepted contact so the request gate and pending-mute do not interfere
+      contacts: [{ pubkey: senderPk, pending: false, unread: 0 }],
+    })
+    const encrypted = await nip04.encrypt(senderSk, myPk, plaintext)
+    const event = finalizeEvent({ kind: 4, created_at: createdAt, tags: [['p', myPk]], content: encrypted }, senderSk)
+    return { event, senderPk, myPk }
+  }
+
+  it('stores a missed call-log, sets the preview, counts unread, and notifies', async () => {
+    const { event, senderPk, myPk } = await incomingCallLog(
+      serializeCallLog({ callId: 'c1', mediaType: 'audio', outcome: 'missed' }))
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+
+    const s = useNostrStore.getState()
+    expect(s.messages[senderPk]).toHaveLength(1)
+    const contact = s.contacts.find(c => c.pubkey === senderPk)
+    expect(contact?.lastMessage).toBe('Missed voice call')
+    expect(contact?.unread).toBe(1)
+    expect(fireNotification).toHaveBeenCalledWith(
+      senderPk, 'dm', expect.any(String), 'Missed voice call', undefined)
+  })
+
+  it('stores a completed call-log silently: preview updates, no unread, no notification', async () => {
+    const { event, senderPk, myPk } = await incomingCallLog(
+      serializeCallLog({ callId: 'c2', mediaType: 'video', outcome: 'completed', duration: 61 }))
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+
+    const s = useNostrStore.getState()
+    expect(s.messages[senderPk]).toHaveLength(1)
+    const contact = s.contacts.find(c => c.pubkey === senderPk)
+    expect(contact?.lastMessage).toBe('Video call · 1:01')
+    expect(contact?.unread).toBe(0)
+    expect(fireNotification).not.toHaveBeenCalled()
+  })
+
+  it('counts a backfilled missed call newer than seenAt (app was closed during the call)', async () => {
+    const { event, senderPk, myPk } = await incomingCallLog(
+      serializeCallLog({ callId: 'c3', mediaType: 'audio', outcome: 'missed' }), 2000)
+    useNostrStore.setState({ seenAt: { [senderPk]: 1000 } })
+    await processDMEvent(event, myPk, RELAYS, { live: false })
+
+    expect(useNostrStore.getState().contacts.find(c => c.pubkey === senderPk)?.unread).toBe(1)
+    expect(fireNotification).not.toHaveBeenCalled() // backfill never notifies
+  })
+
+  it('treats a malformed call-log as a normal text message', async () => {
+    const bad = JSON.stringify({ type: 'call-log', callId: 'c4', mediaType: 'audio', outcome: 'exploded' })
+    const { event, senderPk, myPk } = await incomingCallLog(bad)
+    await processDMEvent(event, myPk, RELAYS, { live: true })
+
+    const s = useNostrStore.getState()
+    expect(s.messages[senderPk]).toHaveLength(1)
+    expect(s.contacts.find(c => c.pubkey === senderPk)?.unread).toBe(1)
+  })
+})
+
+describe('extractGroupId', () => {
+  it('returns the h tag value, ignoring e tags', () => {
+    expect(extractGroupId([['e', 'reply-id', '', 'reply'], ['h', 'group-uuid']])).toBe('group-uuid')
+  })
+
+  it('returns null when there is no h tag', () => {
+    expect(extractGroupId([['e', 'x'], ['p', 'y']])).toBeNull()
+    expect(extractGroupId([])).toBeNull()
+  })
+
+  it('returns null for a malformed h tag with no value', () => {
+    expect(extractGroupId([['h']])).toBeNull()
   })
 })

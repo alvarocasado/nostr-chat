@@ -13,6 +13,11 @@ import {
   type IncomingTransfer,
 } from './fileTransfer'
 import { serializeMessage, getDisplayName, getPreviewText } from './fileUtils'
+import { parseReactionPayload } from './reactions'
+import { parseEditPayload, parseDeletePayload } from './messageOps'
+import { parseCallStartPayload } from './groupCall'
+import { parseCallLogPayload, callLogLabel } from './callLog'
+import { isMentioned } from './mentions'
 import { getUserDb } from './userDb'
 
 // Plaintext content limit (channels + decrypted DMs): covers inline attachments
@@ -103,6 +108,65 @@ function finishTransfer(t: IncomingTransfer) {
   })
 }
 
+/** Apply an incoming reaction control message to the store. Caller dedups by event id. */
+function routeReaction(content: string, event: Event): boolean {
+  const reaction = parseReactionPayload(content)
+  if (!reaction) return false
+  if (claimSideEffects(event.id)) {
+    useNostrStore.getState().applyReaction(reaction.target, reaction.emoji, event.pubkey, reaction.op)
+  }
+  return true
+}
+
+/**
+ * Apply an incoming edit/delete control message. `event.pubkey` is recorded as
+ * the requester; the store only honours it at render time when it matches the
+ * target message's own author, so nobody can edit or delete another's message.
+ */
+function routeMessageOp(content: string, event: Event): boolean {
+  const edit = parseEditPayload(content)
+  if (edit) {
+    if (claimSideEffects(event.id)) {
+      useNostrStore.getState().applyEdit(edit.target, event.pubkey, edit.content, event.created_at)
+    }
+    return true
+  }
+  const del = parseDeletePayload(content)
+  if (del) {
+    if (claimSideEffects(event.id)) {
+      useNostrStore.getState().applyDelete(del.target, event.pubkey)
+    }
+    return true
+  }
+  return false
+}
+
+/** Route a group call-start announcement: stored as a call row, preview + notification. */
+async function routeCallStart(content: string, groupId: string, event: Event, live: boolean): Promise<boolean> {
+  const payload = parseCallStartPayload(content)
+  if (!payload) return false
+  const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
+  useNostrStore.getState().addMessage(groupId, {
+    id: event.id,
+    pubkey: event.pubkey,
+    content,
+    createdAt: event.created_at,
+    tags: event.tags,
+    kind: event.kind,
+  })
+  if (sideEffects) {
+    const { publicKey, groups, profiles, updateGroupLastMessage } = useNostrStore.getState()
+    updateGroupLastMessage(groupId, 'Call started', event.created_at, false, {
+      incrementUnread: shouldCountUnread(groupId, event.created_at, live),
+    })
+    if (live && event.pubkey !== publicKey) {
+      const groupName = groups.find((g: Group) => g.id === groupId)?.name || 'Group'
+      fireNotification(groupId, 'channel', groupName, `${getDisplayName(profiles[event.pubkey], event.pubkey)} started a call`)
+    }
+  }
+  return true
+}
+
 function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Event): void {
   if (transfer.type === 'file_start') {
     handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
@@ -155,6 +219,15 @@ export function extractRootChatId(tags: string[][]): string | null {
   return tags.find(t => t[0] === 'e')?.[1] ?? null
 }
 
+/**
+ * Resolve the private group an event belongs to from its h tag. Group ids
+ * are UUIDs, not event ids, so they ride h tags — strict relays reject
+ * non-hex values in e tags ("unexpected size for fixed-size tag").
+ */
+export function extractGroupId(tags: string[][]): string | null {
+  return tags.find(t => t[0] === 'h')?.[1] ?? null
+}
+
 export interface ProcessOpts {
   /** True when the event arrived after EOSE (a live message, not relay backfill). */
   live: boolean
@@ -179,6 +252,10 @@ export async function processChannelEvent(
     return
   }
 
+  // Route reaction / edit / delete control messages; not shown as messages
+  if (routeReaction(event.content, event)) return
+  if (routeMessageOp(event.content, event)) return
+
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 
   const msg: Message = {
@@ -193,10 +270,8 @@ export async function processChannelEvent(
   useNostrStore.getState().addMessage(channelId, msg)
   if (!sideEffects) return
 
-  const { publicKey, npub, channels, profiles, updateChannelLastMessage } = useNostrStore.getState()
-  const isMention = !!(
-    publicKey && (event.content.includes(publicKey) || (npub && event.content.includes(npub)))
-  )
+  const { publicKey, channels, profiles, updateChannelLastMessage } = useNostrStore.getState()
+  const isMention = !!publicKey && isMentioned(publicKey, event.content, event.tags)
   updateChannelLastMessage(channelId, getPreviewText(event.content), event.created_at, isMention, {
     incrementUnread: shouldCountUnread(channelId, event.created_at, opts.live),
   })
@@ -249,6 +324,14 @@ export async function processDMEvent(
     } catch { /* not JSON — regular message */ }
   }
 
+  // Route reaction / edit / delete control messages; not shown as messages
+  if (routeReaction(decrypted, event)) return
+  if (routeMessageOp(decrypted, event)) return
+
+  // 1:1 call history record: stored as a message (rendered as a call row),
+  // but with its own preview text and quieter badge/notification rules.
+  const callLog = parseCallLogPayload(decrypted)
+
   // Request gate (incoming only)
   const incoming = event.pubkey !== myPubkey
   if (incoming) {
@@ -286,12 +369,16 @@ export async function processDMEvent(
   if (!sideEffects || event.pubkey === myPubkey) return
 
   const { profiles, updateContactLastMessage } = useNostrStore.getState()
-  const preview = getPreviewText(decrypted)
+  const preview = callLog ? callLogLabel(callLog, false) : getPreviewText(decrypted)
+  // Completed/declined call rows are records of a call you took part in —
+  // nothing is unread. Only missed/busy behave like an unread message.
+  const isMissedCall = callLog !== null && (callLog.outcome === 'missed' || callLog.outcome === 'busy')
+  const countsAsUnread = callLog === null || isMissedCall
   updateContactLastMessage(peer, preview, event.created_at, {
-    incrementUnread: shouldCountUnread(peer, event.created_at, opts.live),
+    incrementUnread: countsAsUnread && shouldCountUnread(peer, event.created_at, opts.live),
   })
 
-  if (opts.live && !isPending) {
+  if (opts.live && !isPending && (callLog === null || isMissedCall)) {
     const senderName = getDisplayName(profiles[event.pubkey], event.pubkey)
     fireNotification(peer, 'dm', senderName, preview, profiles[event.pubkey]?.picture)
   }
@@ -314,6 +401,11 @@ export async function processGroupEvent(
   }
   if (plaintext.length > MAX_CONTENT_LEN) return
 
+  // Route reaction / edit / delete control messages; not shown as messages
+  if (routeReaction(plaintext, event)) return
+  if (routeMessageOp(plaintext, event)) return
+  if (await routeCallStart(plaintext, groupId, event, opts.live)) return
+
   const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
 
   const msg: Message = {
@@ -328,7 +420,7 @@ export async function processGroupEvent(
   if (!sideEffects) return
 
   const { publicKey, groups, profiles, updateGroupLastMessage } = useNostrStore.getState()
-  const isMention = !!(publicKey && plaintext.includes(publicKey))
+  const isMention = !!publicKey && isMentioned(publicKey, plaintext, event.tags)
   updateGroupLastMessage(groupId, getPreviewText(plaintext), event.created_at, isMention, {
     incrementUnread: shouldCountUnread(groupId, event.created_at, opts.live),
   })

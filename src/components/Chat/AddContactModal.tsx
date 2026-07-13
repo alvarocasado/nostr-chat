@@ -3,6 +3,7 @@ import { X, Search, UserPlus, Loader2, QrCode, CameraOff, ScanLine } from 'lucid
 import { nip19 } from 'nostr-tools'
 import { useNostrStore } from '../../store/nostrStore'
 import { fetchEvent, parseProfile } from '../../lib/nostr'
+import { isNip05Address, resolveNip05 } from '../../lib/nip05'
 import { Avatar } from './Avatar'
 import { useQRScanner } from '../../hooks/useQRScanner'
 
@@ -160,9 +161,20 @@ export function AddContactModal({ onClose, initialNpub }: AddContactModalProps) 
     }
   }
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
+    const trimmed = input.trim()
+    if (isNip05Address(trimmed)) {
+      setError('')
+      setFound(null)
+      setLoading(true)
+      const pk = await resolveNip05(trimmed)
+      setLoading(false)
+      if (!pk) { setError('Could not verify that NIP-05 address'); return }
+      lookupPubkey(pk)
+      return
+    }
     const pk = resolvePubkey(input)
-    if (!pk) { setError('Enter a valid npub or 64-char hex pubkey'); return }
+    if (!pk) { setError('Enter an npub, hex pubkey, or name@domain'); return }
     lookupPubkey(pk)
   }
 
@@ -223,18 +235,18 @@ export function AddContactModal({ onClose, initialNpub }: AddContactModalProps) 
             <>
               <div>
                 <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Nostr Public Key
+                  Public Key or NIP-05
                 </label>
                 <div className="mt-1 flex gap-2">
                   <input
                     value={input}
                     onChange={e => { setInput(e.target.value); setError(''); setFound(null) }}
-                    placeholder="npub1... or hex pubkey"
+                    placeholder="npub1..., hex, or name@domain"
                     className="flex-1 bg-gray-800 border border-gray-700 focus:border-purple-500 rounded-xl px-4 py-2.5 text-white placeholder-gray-500 text-sm font-mono outline-none transition-colors"
-                    onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                    onKeyDown={e => { if (e.key === 'Enter') void handleSearch() }}
                   />
                   <button
-                    onClick={handleSearch}
+                    onClick={() => void handleSearch()}
                     disabled={loading || !input.trim()}
                     className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl transition-colors flex items-center gap-2 text-sm font-semibold"
                   >
