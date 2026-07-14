@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Group member management + key rotation** (2026-07-13). Spec:
+  `docs/superpowers/specs/2026-07-13-group-rekey-design.md`. Creator-only
+  add/remove via the new Members panel (group header). Removal mints a new
+  AES-GCM epoch key, distributed to remaining members as NIP-04 `group_rekey`
+  DMs; the removed member gets a courtesy `group_remove` notice and a
+  disabled thread. Old epochs stay in `groupKeyHistory` so history remains
+  readable; decryption falls back newest→oldest. Kind-30041 backups now carry
+  the full epoch list as JSON (legacy bare-hex backups still parse). New
+  members receive only the current epoch key. Membership propagates via an
+  in-group `members` control (creator-signed only), which also fixes invitee
+  member counts. Accepted limits: no admin transfer, no forward secrecy
+  within an epoch (MLS later), removed members keep pre-removal history,
+  authorization is client-side creator-signature checking.
 - **useChatThread extraction + MessageThread tests** (2026-07-13). Priority 4
   code-quality item from the functional analysis. The three thread variants
   (channel / DM / group) shared ~200 duplicated lines of state, optimistic
