@@ -613,7 +613,8 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
 }
 
 function GroupThread({ groupId }: { groupId: string }) {
-  const { publicKey, messages, profiles, groupKeys, targetMessageId, signerCaps } = useNostrStore()
+  const { publicKey, messages, profiles, groupKeys, targetMessageId, signerCaps, groups } = useNostrStore()
+  const isRemoved = groups.find(g => g.id === groupId)?.removed === true
   const writeR = useWriteRelays()
   useGroupMessages(groupId)
   const { watchGroup } = useGroupCallContext()
@@ -675,12 +676,15 @@ function GroupThread({ groupId }: { groupId: string }) {
             dividerTimestamp={thread.dividerTimestamp}
             targetMessageId={targetMessageId ?? undefined}
           />
-          {!signerCaps.nip04 && (
+          {isRemoved ? (
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
+              <p className="flex-1 text-sm text-gray-400">You were removed from this group. You can read messages from before your removal.</p>
+            </div>
+          ) : !signerCaps.nip04 ? (
             <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
               <p className="flex-1 text-sm text-gray-400">Your signer does not support encrypted messages yet</p>
             </div>
-          )}
-          {signerCaps.nip04 && (
+          ) : (
             <MessageInput
               chatId={groupId}
               chatType="group"

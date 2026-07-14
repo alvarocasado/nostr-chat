@@ -116,4 +116,16 @@ describe('MessageThread', () => {
     expect(screen.getByText('Team')).toBeInTheDocument()
     expect(screen.getByPlaceholderText(/message group/i)).toBeInTheDocument()
   })
+
+  it('shows a removed banner and no input when the user was removed from the group', () => {
+    store.state = baseState({
+      activeChatId: 'g1', activeChatType: 'group',
+      groups: [{ id: 'g1', name: 'Team', memberPubkeys: [ME], creatorPubkey: THEM, removed: true }],
+      groupKeys: { g1: 'a'.repeat(64) },
+    })
+    render(<MessageThread />)
+    expect(screen.getByText(/you were removed from this group/i)).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/message group/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('message-list')).toBeInTheDocument()
+  })
 })
