@@ -21,6 +21,7 @@ import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import { MessageList } from './MessageList'
 import { MediaGallery } from './MediaGallery'
 import { Avatar } from './Avatar'
+import { GroupMembersModal } from './GroupMembersModal'
 import {
   compressImage, encodeFile, serializeMessage, getPreviewText, formatBytes, getDisplayName,
   type AttachmentData, type ReplyTo,
@@ -124,52 +125,60 @@ function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGaller
   const { groups, clearActiveChat } = useNostrStore()
   const group = groups.find((g: Group) => g.id === groupId)
   const { startOrJoin, liveCall, joinState } = useGroupCallContext()
+  const [showMembers, setShowMembers] = useState(false)
 
   return (
-    <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
-      <button
-        onClick={clearActiveChat}
-        className="md:hidden p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-        aria-label="Back"
-      >
-        <ArrowLeft size={20} />
-      </button>
-      <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
-        <Users size={18} className="text-white" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <h2 className="font-semibold text-white truncate">{group?.name || 'Group'}</h2>
-        <div className="flex items-center gap-1 mt-0.5">
-          <Lock size={11} className="text-green-400 flex-shrink-0" />
-          <span className="text-xs text-gray-500">
-            {group ? `${group.memberPubkeys.length} members · encrypted` : 'Encrypted group'}
-          </span>
+    <>
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-800 bg-gray-900">
+        <button
+          onClick={clearActiveChat}
+          className="md:hidden p-2 -ml-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+          aria-label="Back"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <div className="w-9 h-9 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Users size={18} className="text-white" />
         </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-semibold text-white truncate">{group?.name || 'Group'}</h2>
+          <div className="flex items-center gap-1 mt-0.5">
+            <Lock size={11} className="text-green-400 flex-shrink-0" />
+            <button
+              onClick={() => group && setShowMembers(true)}
+              aria-label="Members"
+              className="text-xs text-gray-500 hover:text-gray-300 hover:underline transition-colors"
+            >
+              {group ? `${group.memberPubkeys.length} members · encrypted` : 'Encrypted group'}
+            </button>
+          </div>
+        </div>
+        <button
+          onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'audio')}
+          disabled={joinState !== 'can-join'}
+          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          title={liveCall ? 'Join call' : 'Start voice call'}
+        >
+          <Phone size={18} />
+        </button>
+        <button
+          onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'video')}
+          disabled={joinState !== 'can-join'}
+          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          title={liveCall ? 'Join call' : 'Start video call'}
+        >
+          <Video size={18} />
+        </button>
+        <button
+          onClick={onOpenGallery}
+          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+          title="Shared media"
+        >
+          <Images size={18} />
+        </button>
       </div>
-      <button
-        onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'audio')}
-        disabled={joinState !== 'can-join'}
-        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-        title={liveCall ? 'Join call' : 'Start voice call'}
-      >
-        <Phone size={18} />
-      </button>
-      <button
-        onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'video')}
-        disabled={joinState !== 'can-join'}
-        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-        title={liveCall ? 'Join call' : 'Start video call'}
-      >
-        <Video size={18} />
-      </button>
-      <button
-        onClick={onOpenGallery}
-        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
-        title="Shared media"
-      >
-        <Images size={18} />
-      </button>
-    </div>
+      {showMembers && group && <GroupMembersModal group={group} onClose={() => setShowMembers(false)} />}
+    </>
   )
 }
 
