@@ -38,3 +38,17 @@
   lines. Pure move — no logic or markup changes; existing Sidebar tests
   cover the moved items through the panel flows. This closes the Priority 4
   file-size items from the functional analysis.
+- **NIP-44/17 gift-wrapped DMs** (2026-07-13). Spec:
+  `docs/superpowers/specs/2026-07-13-nip17-dm-migration-design.md`. All
+  private sends (chat DMs, DM reactions/edits/deletes, call logs, group
+  invite/rekey/remove) go through one gated builder: peers who publish a
+  kind-10050 DM-relay list get NIP-17 gift wrap (rumor 14 → seal 13 → wrap
+  1059, ephemeral wrap keys, timestamps fuzzed ≤2 days); everyone else gets
+  legacy NIP-04 kind 4, which we also read forever. Message identity/ordering
+  use the rumor id and rumor timestamp; self-addressed wrap copies make sent
+  messages visible across devices and dedup by rumor id. We publish our own
+  10050 only when the signer supports nip44 (local keys always; NIP-07 iff
+  window.nostr.nip44), so a peer's 10050 proves their client reads wraps —
+  single-release rollout. Accepted limits: no forward secrecy (MLS later);
+  wrap backfill is global per user, not per-peer; wrapped pagination is
+  approximate (±2-day fuzz); ephemeral 241xx signals stay NIP-04.
