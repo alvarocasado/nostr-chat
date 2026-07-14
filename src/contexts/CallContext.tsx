@@ -3,7 +3,7 @@ import {
   type ReactNode,
 } from 'react'
 import { subscribeEvents, publishEvent } from '../lib/nostr'
-import { sendPrivate } from '../lib/privateSend'
+import { buildPrivateSend, publishPrivateSend } from '../lib/privateSend'
 import { getSetting } from '../lib/userDb'
 import { useNostrStore } from '../store/nostrStore'
 import { useReadRelays } from '../hooks/useRelays'
@@ -162,9 +162,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })
     void (async () => {
       try {
-        // sendPrivate targets internally (gift-wrap when possible, else legacy
-        // kind-4 to the peer's read relays + our own write relays).
-        const ps = await sendPrivate(content, peerPubkey)
+        // buildPrivateSend targets internally (gift-wrap when possible, else
+        // legacy kind-4 to the peer's read relays + our own write relays).
+        const ps = await buildPrivateSend(peerPubkey, content)
         const { publicKey, addMessage, updateMessageStatus } = useNostrStore.getState()
         if (!publicKey) return
         addMessage(peerPubkey, {
@@ -178,11 +178,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
           decrypted: true,
           status: 'sending',
         })
-        updateMessageStatus(peerPubkey, ps.msgId, 'sent')
+        try {
+          await publishPrivateSend(ps)
+          updateMessageStatus(peerPubkey, ps.msgId, 'sent')
+        } catch {
+          // ponytail: a failed publish marks the stored row "failed" (CallRow
+          // shows no status indicator and there is no retry — accepted limit).
+          updateMessageStatus(peerPubkey, ps.msgId, 'failed')
+        }
       } catch {
-        // ponytail: best-effort history; sendPrivate bundles build + publish,
-        // so a failure here (signing or every relay) leaves no local record
-        // at all — there is no retry for call logs (accepted limit).
+        // Build failure (signing, etc.) leaves no local record at all —
+        // there is nothing to mark failed since addMessage never ran.
       }
     })()
   }, [])

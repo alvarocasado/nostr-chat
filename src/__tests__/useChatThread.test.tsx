@@ -116,6 +116,7 @@ describe('useChatThread', () => {
     vi.mocked(publishPrivateSend).mockResolvedValueOnce(undefined)
     await act(() => result.current.handleRetry('rumor1'))
     expect(publishPrivateSend).toHaveBeenCalledTimes(2)
+    expect(publishPrivateSend).toHaveBeenLastCalledWith(ps)
     expect(h.updateMessageStatus).toHaveBeenLastCalledWith('chat', 'rumor1', 'sent')
   })
 

@@ -76,6 +76,10 @@ describe('removeGroupMember', () => {
     expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupRekey('g1', s.groupKeys.g1, 'Team', [ME, BOB]), BOB)
     expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupRekey('g1', s.groupKeys.g1, 'Team', [ME, BOB]), ME)
     expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupRemove('g1'), EVE)
+    // exactly these three sends — an accidental rekey to the removed member
+    // (EVE) would silently pass the individual assertions above but bump
+    // this count to 4.
+    expect(h.sendPrivate).toHaveBeenCalledTimes(3)
     // backup carries both epochs oldest→newest
     expect(h.buildGroupKeyBackupEvent).toHaveBeenCalledWith('g1', [KEY, s.groupKeys.g1])
     // members control sent with the NEW key

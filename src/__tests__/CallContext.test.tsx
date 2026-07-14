@@ -192,6 +192,19 @@ describe('final-review hardening', () => {
     expect(logCall[0]).toContain('wss://test.example')
   })
 
+  it('a call-log publish failure still leaves the local row, marked failed', async () => {
+    publishEvent.mockImplementation(async (_relays: unknown, event: Event) => {
+      if (event.kind === 4) throw new Error('relay down')
+    })
+    await startCall()
+    act(() => screen.getByText('hangup').click())
+    await waitFor(() => {
+      const msgs = useNostrStore.getState().messages[PEER] ?? []
+      const row = msgs.find(m => parseCallLogPayload(m.content))
+      expect(row?.status).toBe('failed')
+    })
+  })
+
   it('ignores a call-end forged by a third party with the right callId', async () => {
     await startCall()
     const offer = publishEvent.mock.calls.map(c => c[1] as Event).find(e => e.kind === CALL_SIGNAL_KIND)!
