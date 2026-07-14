@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools'
 import { decryptDM, fetchEvent, parseProfile, buildGroupKeyBackupEvent, publishEvent } from './nostr'
 import { decryptWithGroupKeys } from './groupCrypto'
+import { unwrapGiftWrap, GIFT_WRAP_KIND, RUMOR_KIND } from './giftWrap'
 import { parseGroupRekeyPayload, parseGroupRemovePayload, parseMembersPayload, isHex64 } from './groupMembership'
 import { useNostrStore, type Message, type Group } from '../store/nostrStore'
 import { fireNotification } from './notifications'
@@ -109,8 +110,11 @@ function finishTransfer(t: IncomingTransfer) {
   })
 }
 
+/** Structural subset of Event used by handlers that only need id/pubkey/created_at. */
+type SenderEvent = { id: string; pubkey: string; created_at: number }
+
 /** Apply an incoming reaction control message to the store. Caller dedups by event id. */
-function routeReaction(content: string, event: Event): boolean {
+function routeReaction(content: string, event: SenderEvent): boolean {
   const reaction = parseReactionPayload(content)
   if (!reaction) return false
   if (claimSideEffects(event.id)) {
@@ -137,7 +141,7 @@ function routeMembers(content: string, groupId: string, event: Event): boolean {
  * the requester; the store only honours it at render time when it matches the
  * target message's own author, so nobody can edit or delete another's message.
  */
-function routeMessageOp(content: string, event: Event): boolean {
+function routeMessageOp(content: string, event: SenderEvent): boolean {
   const edit = parseEditPayload(content)
   if (edit) {
     if (claimSideEffects(event.id)) {
@@ -181,7 +185,7 @@ async function routeCallStart(content: string, groupId: string, event: Event, li
   return true
 }
 
-function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Event): void {
+function routeTransfer(transfer: FileTransferPayload, chatId: string, event: SenderEvent): void {
   if (transfer.type === 'file_start') {
     handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
   } else {
@@ -197,7 +201,7 @@ function routeTransfer(transfer: FileTransferPayload, chatId: string, event: Eve
  * Idempotent — a group we already have is left untouched, so replays from
  * per-chat subscriptions or relay backfill do not re-add or re-publish.
  */
-async function handleGroupInvite(event: Event, decrypted: string, relays: string[]): Promise<void> {
+async function handleGroupInvite(event: { pubkey: string; created_at: number }, decrypted: string, relays: string[]): Promise<void> {
   try {
     const payload = JSON.parse(decrypted) as { groupId?: string; groupKeyHex?: string; groupName?: string; memberPubkeys?: unknown }
     const { groupId, groupKeyHex, groupName } = payload
@@ -256,7 +260,7 @@ async function handleGroupInvite(event: Event, decrypted: string, relays: string
  * Handle a group_rekey DM: only honoured from the group's creator, and only
  * when newer than the last accepted rotation (stale replays are dropped).
  */
-async function handleGroupRekey(event: Event, decrypted: string): Promise<void> {
+async function handleGroupRekey(event: { pubkey: string; created_at: number }, decrypted: string): Promise<void> {
   const payload = parseGroupRekeyPayload(decrypted)
   if (!payload) return
   const state = useNostrStore.getState()
@@ -276,7 +280,7 @@ async function handleGroupRekey(event: Event, decrypted: string): Promise<void> 
 }
 
 /** Handle a group_remove DM: courtesy notice that I was removed. Creator-only. */
-function handleGroupRemove(event: Event, decrypted: string): void {
+function handleGroupRemove(event: { pubkey: string; created_at: number }, decrypted: string): void {
   const payload = parseGroupRemovePayload(decrypted)
   if (!payload) return
   const { groups, markGroupRemoved } = useNostrStore.getState()
@@ -359,6 +363,114 @@ export async function processChannelEvent(
   ensureProfile(event.pubkey, relays)
 }
 
+interface PrivatePayload {
+  id: string           // event id (legacy) or rumor id (wrapped)
+  senderPubkey: string
+  peer: string         // the chat this belongs to
+  plaintext: string
+  createdAt: number
+  tags: string[][]
+  kind: number          // 4 or 14
+}
+
+/**
+ * Shared post-decrypt routing for legacy NIP-04 DMs and unwrapped NIP-17
+ * rumors: file-transfer/group-control/reaction/edit/delete dispatch, request
+ * gating, pending-contact insertion, call-log preview rules, notifications,
+ * and profile loading. Callers are responsible for decrypting/unwrapping and
+ * resolving the chat peer before calling this.
+ */
+async function routePrivatePayload(p: PrivatePayload, myPubkey: string, relays: string[], opts: ProcessOpts): Promise<void> {
+  const srcEvent: SenderEvent = { id: p.id, pubkey: p.senderPubkey, created_at: p.createdAt }
+
+  // Route file-transfer control messages
+  const transfer = parseTransferPayload(p.plaintext)
+  if (transfer) {
+    if (claimSideEffects(p.id)) routeTransfer(transfer, p.peer, srcEvent)
+    return
+  }
+
+  // Group membership control DMs are not chat messages. Handle and stop.
+  if (p.plaintext.startsWith('{')) {
+    try {
+      const controlType = (JSON.parse(p.plaintext) as { type?: string })?.type
+      if (controlType === 'group_invite') {
+        await handleGroupInvite(srcEvent, p.plaintext, relays)
+        return
+      }
+      if (controlType === 'group_rekey') {
+        await handleGroupRekey(srcEvent, p.plaintext)
+        return
+      }
+      if (controlType === 'group_remove') {
+        handleGroupRemove(srcEvent, p.plaintext)
+        return
+      }
+    } catch { /* not JSON — regular message */ }
+  }
+
+  // Route reaction / edit / delete control messages; not shown as messages
+  if (routeReaction(p.plaintext, srcEvent)) return
+  if (routeMessageOp(p.plaintext, srcEvent)) return
+
+  // 1:1 call history record: stored as a message (rendered as a call row),
+  // but with its own preview text and quieter badge/notification rules.
+  const callLog = parseCallLogPayload(p.plaintext)
+
+  // Request gate (incoming only)
+  const incoming = p.senderPubkey !== myPubkey
+  if (incoming) {
+    const { blockedPubkeys, dismissedRequests } = useNostrStore.getState()
+    if (blockedPubkeys.includes(p.peer)) return
+    const dismissedAt = dismissedRequests[p.peer]
+    if (dismissedAt !== undefined && p.createdAt <= dismissedAt) return
+  }
+
+  const sideEffects = claimSideEffects(p.id) && !(await alreadyStored(p.id))
+
+  // Unknown sender (no contact yet) becomes a pending request; insert the
+  // contact directly so it is NOT published to the public kind-3 follow list.
+  const existingContact = useNostrStore.getState().contacts.find(c => c.pubkey === p.peer)
+  const isPending = incoming && (!existingContact || existingContact.pending === true)
+  if (incoming && !existingContact) {
+    useNostrStore.setState(state =>
+      state.contacts.some(c => c.pubkey === p.peer)
+        ? state
+        : { contacts: [{ pubkey: p.peer, pending: true }, ...state.contacts] }
+    )
+  }
+
+  const msg: Message = {
+    id: p.id,
+    pubkey: p.senderPubkey,
+    content: p.plaintext,
+    createdAt: p.createdAt,
+    tags: p.tags,
+    kind: p.kind,
+    recipientPubkey: p.peer,
+    decrypted: true,
+  }
+  useNostrStore.getState().addMessage(p.peer, msg)
+  if (!sideEffects || p.senderPubkey === myPubkey) return
+
+  const { profiles, updateContactLastMessage } = useNostrStore.getState()
+  const preview = callLog ? callLogLabel(callLog, false) : getPreviewText(p.plaintext)
+  // Completed/declined call rows are records of a call you took part in —
+  // nothing is unread. Only missed/busy behave like an unread message.
+  const isMissedCall = callLog !== null && (callLog.outcome === 'missed' || callLog.outcome === 'busy')
+  const countsAsUnread = callLog === null || isMissedCall
+  updateContactLastMessage(p.peer, preview, p.createdAt, {
+    incrementUnread: countsAsUnread && shouldCountUnread(p.peer, p.createdAt, opts.live),
+  })
+
+  if (opts.live && !isPending && (callLog === null || isMissedCall)) {
+    const senderName = getDisplayName(profiles[p.senderPubkey], p.senderPubkey)
+    fireNotification(p.peer, 'dm', senderName, preview, profiles[p.senderPubkey]?.picture)
+  }
+
+  ensureProfile(p.senderPubkey, relays)
+}
+
 export async function processDMEvent(
   event: Event,
   myPubkey: string,
@@ -380,92 +492,29 @@ export async function processDMEvent(
   }
   if (decrypted.length > MAX_CONTENT_LEN) return
 
-  // Route file-transfer control messages
-  const transfer = parseTransferPayload(decrypted)
-  if (transfer) {
-    if (claimSideEffects(event.id)) routeTransfer(transfer, peer, event)
-    return
-  }
+  await routePrivatePayload(
+    { id: event.id, senderPubkey: event.pubkey, peer, plaintext: decrypted, createdAt: event.created_at, tags: event.tags, kind: event.kind },
+    myPubkey, relays, opts,
+  )
+}
 
-  // Group membership control DMs are not chat messages. Handle and stop.
-  if (decrypted.startsWith('{')) {
-    try {
-      const controlType = (JSON.parse(decrypted) as { type?: string })?.type
-      if (controlType === 'group_invite') {
-        await handleGroupInvite(event, decrypted, relays)
-        return
-      }
-      if (controlType === 'group_rekey') {
-        await handleGroupRekey(event, decrypted)
-        return
-      }
-      if (controlType === 'group_remove') {
-        handleGroupRemove(event, decrypted)
-        return
-      }
-    } catch { /* not JSON — regular message */ }
-  }
-
-  // Route reaction / edit / delete control messages; not shown as messages
-  if (routeReaction(decrypted, event)) return
-  if (routeMessageOp(decrypted, event)) return
-
-  // 1:1 call history record: stored as a message (rendered as a call row),
-  // but with its own preview text and quieter badge/notification rules.
-  const callLog = parseCallLogPayload(decrypted)
-
-  // Request gate (incoming only)
-  const incoming = event.pubkey !== myPubkey
-  if (incoming) {
-    const { blockedPubkeys, dismissedRequests } = useNostrStore.getState()
-    if (blockedPubkeys.includes(peer)) return
-    const dismissedAt = dismissedRequests[peer]
-    if (dismissedAt !== undefined && event.created_at <= dismissedAt) return
-  }
-
-  const sideEffects = claimSideEffects(event.id) && !(await alreadyStored(event.id))
-
-  // Unknown sender (no contact yet) becomes a pending request; insert the
-  // contact directly so it is NOT published to the public kind-3 follow list.
-  const existingContact = useNostrStore.getState().contacts.find(c => c.pubkey === peer)
-  const isPending = incoming && (!existingContact || existingContact.pending === true)
-  if (incoming && !existingContact) {
-    useNostrStore.setState(state =>
-      state.contacts.some(c => c.pubkey === peer)
-        ? state
-        : { contacts: [{ pubkey: peer, pending: true }, ...state.contacts] }
-    )
-  }
-
-  const msg: Message = {
-    id: event.id,
-    pubkey: event.pubkey,
-    content: decrypted,
-    createdAt: event.created_at,
-    tags: event.tags,
-    kind: event.kind,
-    recipientPubkey: peer,
-    decrypted: true,
-  }
-  useNostrStore.getState().addMessage(peer, msg)
-  if (!sideEffects || event.pubkey === myPubkey) return
-
-  const { profiles, updateContactLastMessage } = useNostrStore.getState()
-  const preview = callLog ? callLogLabel(callLog, false) : getPreviewText(decrypted)
-  // Completed/declined call rows are records of a call you took part in —
-  // nothing is unread. Only missed/busy behave like an unread message.
-  const isMissedCall = callLog !== null && (callLog.outcome === 'missed' || callLog.outcome === 'busy')
-  const countsAsUnread = callLog === null || isMissedCall
-  updateContactLastMessage(peer, preview, event.created_at, {
-    incrementUnread: countsAsUnread && shouldCountUnread(peer, event.created_at, opts.live),
-  })
-
-  if (opts.live && !isPending && (callLog === null || isMissedCall)) {
-    const senderName = getDisplayName(profiles[event.pubkey], event.pubkey)
-    fireNotification(peer, 'dm', senderName, preview, profiles[event.pubkey]?.picture)
-  }
-
-  ensureProfile(event.pubkey, relays)
+/** Unwrap a kind-1059 gift wrap and route its rumor through the shared private
+ * pipeline. Dedup keys on the RUMOR id, so the self copy and the recipient
+ * copy of the same message collapse. */
+export async function processGiftWrap(event: Event, myPubkey: string, relays: string[], opts: ProcessOpts): Promise<void> {
+  if (event.kind !== GIFT_WRAP_KIND) return
+  const un = await unwrapGiftWrap(event)
+  if (!un) return
+  // Sent copies come back addressed to me with me as sender; the chat peer is
+  // then the rumor's p tag. Received messages: peer = sender.
+  const peer = un.senderPubkey === myPubkey
+    ? un.tags.find(t => t[0] === 'p')?.[1]
+    : un.senderPubkey
+  if (!peer) return
+  await routePrivatePayload(
+    { id: un.rumorId, senderPubkey: un.senderPubkey, peer, plaintext: un.content, createdAt: un.createdAt, tags: un.tags, kind: RUMOR_KIND },
+    myPubkey, relays, opts,
+  )
 }
 
 export async function processGroupEvent(
