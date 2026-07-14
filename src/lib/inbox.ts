@@ -126,7 +126,7 @@ function routeMembers(content: string, groupId: string, event: Event): boolean {
   if (claimSideEffects(event.id)) {
     const group = useNostrStore.getState().groups.find(g => g.id === groupId)
     if (group && event.pubkey === group.creatorPubkey) {
-      useNostrStore.getState().setGroupMembers(groupId, payload.memberPubkeys)
+      useNostrStore.getState().setGroupMembers(groupId, payload.memberPubkeys, event.created_at)
     }
   }
   return true
@@ -204,18 +204,40 @@ async function handleGroupInvite(event: Event, decrypted: string, relays: string
     if (!groupId || !groupKeyHex || !groupName) return
 
     const { groups, publicKey, addGroup, setGroupKey } = useNostrStore.getState()
-    if (groups.find(g => g.id === groupId)) return
     if (!publicKey) return
+
+    const validatedMembers = Array.isArray(payload.memberPubkeys) &&
+      payload.memberPubkeys.every(isHex64) &&
+      payload.memberPubkeys.includes(publicKey)
+      ? payload.memberPubkeys
+      : [publicKey]
+
+    const existing = groups.find(g => g.id === groupId)
+    if (existing) {
+      // Re-invite (e.g. after removal): only the creator can rotate/re-grant
+      // membership, and only with a genuinely new epoch that isn't stale.
+      if (event.pubkey !== existing.creatorPubkey) return
+      const state = useNostrStore.getState()
+      if (state.allGroupKeys(groupId).includes(groupKeyHex)) return
+      if (event.created_at <= (state.groupKeyRotatedAt[groupId] ?? 0)) return
+
+      state.rotateGroupKey(groupId, groupKeyHex, event.created_at)
+      state.setGroupMembers(groupId, validatedMembers, event.created_at)
+      state.clearGroupRemoved(groupId)
+
+      try {
+        const keysOldestFirst = useNostrStore.getState().allGroupKeys(groupId).slice().reverse()
+        const backup = await buildGroupKeyBackupEvent(groupId, keysOldestFirst)
+        publishEvent(useNostrStore.getState().writeRelays(), backup).catch(() => {})
+      } catch { /* backup is best-effort */ }
+      return
+    }
 
     addGroup({
       id: groupId,
       name: groupName,
       creatorPubkey: event.pubkey,
-      memberPubkeys: Array.isArray(payload.memberPubkeys) &&
-        payload.memberPubkeys.every(isHex64) &&
-        payload.memberPubkeys.includes(publicKey)
-        ? payload.memberPubkeys
-        : [publicKey],
+      memberPubkeys: validatedMembers,
       relayUrl: relays[0],
       lastMessage: 'Joined via invite',
       lastMessageAt: event.created_at,
@@ -243,7 +265,7 @@ async function handleGroupRekey(event: Event, decrypted: string): Promise<void> 
   if (event.created_at <= (state.groupKeyRotatedAt[payload.groupId] ?? 0)) return
 
   state.rotateGroupKey(payload.groupId, payload.groupKeyHex, event.created_at)
-  state.setGroupMembers(payload.groupId, payload.memberPubkeys)
+  state.setGroupMembers(payload.groupId, payload.memberPubkeys, event.created_at)
 
   // Refresh the cross-device backup with the full epoch list (oldest→newest)
   try {

@@ -39,6 +39,10 @@ function dmEvent(from: string, createdAt = 100): Event {
   } as Event
 }
 
+function serializeGroupInvitePayload(groupId: string, groupKeyHex: string, groupName: string, memberPubkeys: string[]): string {
+  return JSON.stringify({ type: 'group_invite', groupId, groupKeyHex, groupName, memberPubkeys })
+}
+
 beforeEach(() => {
   resetInboxDedup()
   useNostrStore.setState({
@@ -47,6 +51,7 @@ beforeEach(() => {
     groupKeys: { [GROUP]: OLD_KEY },
     groupKeyHistory: {},
     groupKeyRotatedAt: {},
+    groupMembersUpdatedAt: {},
     messages: {}, contacts: [], profiles: {}, blockedPubkeys: [], dismissedRequests: {}, seenAt: {},
   })
 })
@@ -91,10 +96,10 @@ describe('group_remove DM', () => {
 })
 
 describe('members control in group transport', () => {
-  async function groupEvent(plaintext: string, key: string, from: string): Promise<Event> {
+  async function groupEvent(plaintext: string, key: string, from: string, createdAt = 100): Promise<Event> {
     return {
       id: Math.random().toString(36).slice(2).padEnd(64, '0'),
-      pubkey: from, created_at: 100, kind: 1042,
+      pubkey: from, created_at: createdAt, kind: 1042,
       tags: [['h', GROUP, RELAYS[0]]],
       content: await encryptWithGroupKey(plaintext, key), sig: '',
     } as Event
@@ -118,5 +123,41 @@ describe('members control in group transport', () => {
     const ev = await groupEvent('old epoch text', OLD_KEY, CREATOR)
     await processGroupEvent(ev, GROUP, [NEW_KEY, OLD_KEY], RELAYS, { live: false })
     expect((useNostrStore.getState().messages[GROUP] ?? [])[0]?.content).toBe('old epoch text')
+  })
+
+  it('keeps the newer member list when a stale members control replays', async () => {
+    const fresh = await groupEvent(serializeMembers([CREATOR, ME]), OLD_KEY, CREATOR, 200)
+    await processGroupEvent(fresh, GROUP, [OLD_KEY], RELAYS, { live: true })
+    const stale = await groupEvent(serializeMembers([CREATOR]), OLD_KEY, CREATOR, 150)
+    await processGroupEvent(stale, GROUP, [OLD_KEY], RELAYS, { live: true })
+    expect(useNostrStore.getState().groups[0].memberPubkeys).toEqual([CREATOR, ME])
+  })
+})
+
+describe('group_invite re-invite (I2)', () => {
+  it('creator re-invite with a new key on a removed group rotates the key, clears removed, and updates members', async () => {
+    useNostrStore.setState({
+      groups: [{ id: GROUP, name: 'Team', creatorPubkey: CREATOR, memberPubkeys: [CREATOR, ME], relayUrl: RELAYS[0], removed: true }],
+    })
+    stagedPlaintext = serializeGroupInvitePayload(GROUP, NEW_KEY, 'Team', [CREATOR, ME])
+    await processDMEvent(dmEvent(CREATOR, 300), ME, RELAYS, { live: true })
+    const s = useNostrStore.getState()
+    expect(s.groupKeys[GROUP]).toBe(NEW_KEY)
+    expect(s.groups[0].removed).toBeUndefined()
+    expect(s.groups[0].memberPubkeys).toEqual([CREATOR, ME])
+  })
+
+  it('ignores a replayed invite carrying the same (already-known) key on an existing group', async () => {
+    stagedPlaintext = serializeGroupInvitePayload(GROUP, OLD_KEY, 'Team', [CREATOR, ME])
+    await processDMEvent(dmEvent(CREATOR, 300), ME, RELAYS, { live: true })
+    const s = useNostrStore.getState()
+    expect(s.groupKeys[GROUP]).toBe(OLD_KEY)
+    expect(s.groups[0].memberPubkeys).toEqual([CREATOR, ME])
+  })
+
+  it('ignores a re-invite from a non-creator', async () => {
+    stagedPlaintext = serializeGroupInvitePayload(GROUP, NEW_KEY, 'Team', [MALLORY])
+    await processDMEvent(dmEvent(MALLORY, 300), ME, RELAYS, { live: true })
+    expect(useNostrStore.getState().groupKeys[GROUP]).toBe(OLD_KEY)
   })
 })

@@ -14,7 +14,9 @@
   in-group `members` control (creator-signed only), which also fixes invitee
   member counts. Accepted limits: no admin transfer, no forward secrecy
   within an epoch (MLS later), removed members keep pre-removal history,
-  authorization is client-side creator-signature checking.
+  old-epoch key holders can still inject messages into the group (writes are
+  UI-gated, not crypto-enforced), authorization is client-side
+  creator-signature checking.
 - **useChatThread extraction + MessageThread tests** (2026-07-13). Priority 4
   code-quality item from the functional analysis. The three thread variants
   (channel / DM / group) shared ~200 duplicated lines of state, optimistic

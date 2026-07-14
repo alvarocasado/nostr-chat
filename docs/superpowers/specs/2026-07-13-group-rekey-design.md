@@ -138,3 +138,6 @@ idempotently):
   in-UI.
 - Membership authorization is client-side validation of creator signatures;
   relays cannot enforce it (inherent to Nostr).
+- Writes are not crypto-enforced: anyone holding any epoch key can still
+  publish messages that clients render; membership gating applies to reads
+  of new epochs only.

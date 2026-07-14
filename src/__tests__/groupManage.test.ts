@@ -72,9 +72,11 @@ describe('removeGroupMember', () => {
     expect(s.groupKeys.g1).not.toBe(KEY)
     expect(s.groupKeyHistory.g1).toEqual([KEY])
     expect(s.groups[0].memberPubkeys).toEqual([ME, BOB])
-    // rekey DM to BOB only (not me, not the removed member)
-    expect(h.buildGroupRekeyEvent).toHaveBeenCalledTimes(1)
+    // rekey DM to every remaining member, including the creator's own pubkey
+    // (so their other devices converge) — but never the removed member.
+    expect(h.buildGroupRekeyEvent).toHaveBeenCalledTimes(2)
     expect(h.buildGroupRekeyEvent).toHaveBeenCalledWith(BOB, 'g1', s.groupKeys.g1, 'Team', [ME, BOB])
+    expect(h.buildGroupRekeyEvent).toHaveBeenCalledWith(ME, 'g1', s.groupKeys.g1, 'Team', [ME, BOB])
     expect(h.buildGroupRemoveEvent).toHaveBeenCalledWith(EVE, 'g1')
     // backup carries both epochs oldest→newest
     expect(h.buildGroupKeyBackupEvent).toHaveBeenCalledWith('g1', [KEY, s.groupKeys.g1])
