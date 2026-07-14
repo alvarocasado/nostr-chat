@@ -42,9 +42,10 @@ export async function removeGroupMember(group: Group, removePubkey: string): Pro
   const keysOldestFirst = useNostrStore.getState().allGroupKeys(group.id).slice().reverse()
   await publishEvent(relays, await buildGroupKeyBackupEvent(group.id, keysOldestFirst))
 
-  // Rekey DM also goes to the creator's own pubkey so other devices converge;
-  // this device already rotated locally with created_at == rotatedAt, so its
-  // own copy of the DM is dropped as stale by the <= rotatedAt gate in inbox.ts.
+  // Rekey DM also goes to the creator's own pubkey so other devices converge.
+  // This device already rotated locally: its own copy is dropped as stale when
+  // created_at == rotatedAt, or no-ops via rotateGroupKey's idempotent branch
+  // (same key already current) when the publish lands a second later.
   for (const member of members) {
     if (member === removePubkey) continue
     await publishEvent(relays, await buildGroupRekeyEvent(member, group.id, newKey, group.name, members))
