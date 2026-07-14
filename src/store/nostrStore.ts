@@ -28,6 +28,7 @@ import {
 } from '../lib/nostrSync'
 import { filterRead, filterWrite, type RelayModes } from '../lib/relayRouting'
 import type { ActiveCallType } from '../lib/webrtc'
+import { ensureOwnDmRelayList } from '../lib/dmCaps'
 
 export type ChatType = 'channel' | 'dm' | 'group'
 export type SettingsTab = 'profile' | 'relays' | 'keys' | 'calls' | 'files' | 'notifications' | 'privacy'
@@ -310,6 +311,9 @@ export function applySyncResult(
     // No published relay list yet — publish current relays so future logins find it.
     get().triggerSettingsSync()
   }
+
+  // NIP-17: advertise gift-wrap capability + DM relays (no-op unless nip44)
+  void ensureOwnDmRelayList(get().readRelays())
 
   // Contacts: additive merge — relay contacts added to local, never removed here
   if (result.contacts) {
