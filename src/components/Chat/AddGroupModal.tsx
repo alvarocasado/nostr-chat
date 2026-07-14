@@ -60,7 +60,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
       await publishEvent(writeRelays, await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
       await publishEvent(writeRelays, await buildGroupKeyBackupEvent(groupId, [groupKeyHex]))
       for (const memberPubkey of memberPubkeys) {
-        await publishEvent(writeRelays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim()))
+        await publishEvent(writeRelays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim(), allMembers))
       }
 
       addGroup({
