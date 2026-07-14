@@ -56,7 +56,7 @@ function baseState(over: Record<string, unknown> = {}) {
     channels: [], groups: [], contacts: [],
     messages: {}, profiles: {}, drafts: {}, seenAt: {}, groupKeys: {},
     targetMessageId: null,
-    signerCaps: { nip04: true },
+    signerCaps: { nip04: true, nip44: false },
     clearActiveChat: vi.fn(), addMessage: vi.fn(), updateMessageStatus: vi.fn(),
     updateSeenAt: vi.fn(), setDraft: vi.fn(), clearDraft: vi.fn(),
     acceptMessageRequest: vi.fn(), dismissMessageRequest: vi.fn(), blockPubkey: vi.fn(),

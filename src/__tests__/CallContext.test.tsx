@@ -118,7 +118,7 @@ beforeEach(() => {
   }
   useNostrStore.setState({
     publicKey: getSigner()!.pubkey,
-    signerCaps: { nip04: true },
+    signerCaps: { nip04: true, nip44: true },
     relays: ['wss://test.example'],
     relayModes: {},
     messages: {},

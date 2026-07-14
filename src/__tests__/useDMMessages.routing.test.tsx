@@ -11,7 +11,7 @@ vi.mock('../hooks/usePeerRelays', () => ({ usePeerRelays: () => ({ read: ['wss:/
 // keep a signer present so the effect runs
 vi.mock('../lib/signer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/signer')>()
-  return { ...actual, getSigner: () => ({ pubkey: 'me', type: 'local', caps: { nip04: true } }) }
+  return { ...actual, getSigner: () => ({ pubkey: 'me', type: 'local', caps: { nip04: true, nip44: true } }) }
 })
 
 import { useDMMessages } from '../hooks/useNostrSubscriptions'

@@ -31,7 +31,7 @@ beforeEach(() => {
     relayModes: {},
     joinedChannelIds: [],
     groups: [],
-    signerCaps: { nip04: true },
+    signerCaps: { nip04: true, nip44: false },
   })
 })
 afterEach(() => clearSigner())
@@ -45,7 +45,7 @@ it('subscribes to the DM inbox when the signer is installed after mount', async 
 
   act(() => {
     installTestSigner()
-    useNostrStore.getState().setSignerCaps({ nip04: true })
+    useNostrStore.getState().setSignerCaps({ nip04: true, nip44: true })
   })
 
   await waitFor(() => {

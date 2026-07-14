@@ -187,13 +187,13 @@ interface NostrState {
   syncedSettingsAt: number | null
 
   // Signer capabilities (runtime-only, never persisted)
-  signerCaps: { nip04: boolean }
+  signerCaps: { nip04: boolean; nip44: boolean }
 
   // Which call engine holds the media (runtime-only, never persisted)
   activeCallType: ActiveCallType
 
   // Actions
-  setSignerCaps: (caps: { nip04: boolean }) => void
+  setSignerCaps: (caps: { nip04: boolean; nip44: boolean }) => void
   setActiveCallType: (t: ActiveCallType) => void
   generateAndLogin: () => Promise<{ nsec: string; npub: string }>
   loginFromNsec: (nsec: string) => Promise<boolean>
@@ -508,7 +508,7 @@ export const useNostrStore = create<NostrState>()(
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
-        signerCaps: { nip04: true },
+        signerCaps: { nip04: true, nip44: false },
         activeCallType: 'none',
 
         setSignerCaps: (caps) => set({ signerCaps: caps }),
@@ -584,7 +584,7 @@ export const useNostrStore = create<NostrState>()(
             groupKeyHistory: {},
             groupKeyRotatedAt: {},
             groupMembersUpdatedAt: {},
-            signerCaps: { nip04: true },
+            signerCaps: { nip04: true, nip44: false },
             readReceiptsEnabled: false,
             readUntilByPeer: {},
             activeCallType: 'none',
