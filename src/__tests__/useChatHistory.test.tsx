@@ -20,9 +20,22 @@ const processChannelEvent = vi.fn(async (ev: { id: string; created_at: number })
   const s = useNostrStore.getState()
   s.prependMessages('chat', [{ id: ev.id, pubkey: 'p', content: ev.id, createdAt: ev.created_at, tags: [], kind: 42 }])
 })
+const processDMEvent = vi.fn()
+const processGiftWrap = vi.fn()
 vi.mock('../lib/inbox', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/inbox')>()
-  return { ...actual, processChannelEvent: (...a: unknown[]) => processChannelEvent(a[0] as { id: string; created_at: number }) }
+  return {
+    ...actual,
+    processChannelEvent: (...a: unknown[]) => processChannelEvent(a[0] as { id: string; created_at: number }),
+    processDMEvent: (...a: unknown[]) => processDMEvent(...a),
+    processGiftWrap: (...a: unknown[]) => processGiftWrap(...a),
+  }
+})
+
+const getPeerRelays = vi.fn()
+vi.mock('../lib/peerRelays', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/peerRelays')>()
+  return { ...actual, getPeerRelays: (...a: unknown[]) => getPeerRelays(...a) }
 })
 
 describe('useChatHistory (Dexie load-older)', () => {
@@ -112,5 +125,93 @@ describe('useChatHistory (relay fallback)', () => {
     const { result } = renderHook(() => useChatHistory('chat', 'channel', PK))
     await act(async () => { await result.current.loadOlder() })
     expect(result.current.exhausted).toBe(false)
+  })
+})
+
+describe('useChatHistory (dm wrap backfill)', () => {
+  const PEER = 'd'.repeat(64)
+
+  beforeEach(async () => {
+    fetchEvents.mockReset()
+    processDMEvent.mockReset()
+    processGiftWrap.mockReset()
+    getPeerRelays.mockReset()
+    getPeerRelays.mockResolvedValue({ read: [], write: [] })
+    processDMEvent.mockImplementation(async (ev: { id: string; created_at: number }) => {
+      const s = useNostrStore.getState()
+      s.prependMessages(PEER, [{ id: ev.id, pubkey: 'p', content: ev.id, createdAt: ev.created_at, tags: [], kind: 4 }])
+    })
+    processGiftWrap.mockImplementation(async (ev: { id: string; created_at: number }) => {
+      const s = useNostrStore.getState()
+      s.prependMessages(PEER, [{ id: ev.id, pubkey: 'p', content: ev.id, createdAt: ev.created_at, tags: [], kind: 1059 }])
+    })
+    openUserDb(PK)
+    const db = getUserDb()!
+    await db.messages.clear()
+    useNostrStore.setState({ relays: ['wss://r'], messages: { [PEER]: [m('anchor', 100)] } })
+  })
+
+  afterEach(async () => {
+    const db = getUserDb()
+    if (db) await db.messages.clear()
+    closeUserDb()
+  })
+
+  it('issues the wrap filter (kind 1059, #p) alongside the two kind-4 filters', async () => {
+    fetchEvents.mockResolvedValue([])
+    const { result } = renderHook(() => useChatHistory(PEER, 'dm', PK))
+    await act(async () => { await result.current.loadOlder() })
+
+    expect(fetchEvents).toHaveBeenCalledTimes(3)
+    const sentFilter = fetchEvents.mock.calls[0][1]
+    const receivedFilter = fetchEvents.mock.calls[1][1]
+    const wrapFilter = fetchEvents.mock.calls[2][1]
+    expect(sentFilter).toMatchObject({ kinds: [4], authors: [PK], '#p': [PEER] })
+    expect(receivedFilter).toMatchObject({ kinds: [4], authors: [PEER], '#p': [PK] })
+    expect(wrapFilter).toMatchObject({ kinds: [1059], '#p': [PK] })
+  })
+
+  it('does not exhaust on a full-limit page of duplicate wraps, and advances the wrap cursor on the next page', async () => {
+    const dupIds = Array.from({ length: 50 }, (_, i) => `w${i}`)
+    // Pre-seed the store so the relay-fetched wraps are already known (added === 0).
+    const existing = dupIds.map((id, i) => m(id, 101 + i))
+    useNostrStore.setState({ messages: { [PEER]: [m('anchor', 100), ...existing] } })
+
+    const wrapEvents = dupIds.map((id, i) => ({ id, kind: 1059, created_at: 50 + i, pubkey: 'p', content: '', tags: [], sig: '' }))
+    fetchEvents
+      .mockResolvedValueOnce([]) // sent
+      .mockResolvedValueOnce([]) // received
+      .mockResolvedValueOnce(wrapEvents) // wraps: full page, all duplicates
+
+    const { result } = renderHook(() => useChatHistory(PEER, 'dm', PK))
+    let added = -1
+    await act(async () => { added = await result.current.loadOlder() })
+    expect(added).toBe(0)
+    expect(result.current.exhausted).toBe(false)
+
+    // Next page: wrap `until` should have advanced past the fetched wraps'
+    // min created_at (50), independent of the unchanged rumor-time cursor.
+    fetchEvents.mockResolvedValue([])
+    await act(async () => { await result.current.loadOlder() })
+    const secondWrapFilter = fetchEvents.mock.calls.at(-1)![1]
+    expect(secondWrapFilter.until).toBe(49)
+  })
+
+  it('exhausts when a short (sub-limit) wrap page adds no new messages and legacy results are empty', async () => {
+    const dupIds = ['x0', 'x1', 'x2']
+    const existing = dupIds.map((id, i) => m(id, 101 + i))
+    useNostrStore.setState({ messages: { [PEER]: [m('anchor', 100), ...existing] } })
+
+    const wrapEvents = dupIds.map((id, i) => ({ id, kind: 1059, created_at: 60 + i, pubkey: 'p', content: '', tags: [], sig: '' }))
+    fetchEvents
+      .mockResolvedValueOnce([]) // sent
+      .mockResolvedValueOnce([]) // received
+      .mockResolvedValueOnce(wrapEvents) // short page, all duplicates
+
+    const { result } = renderHook(() => useChatHistory(PEER, 'dm', PK))
+    let added = -1
+    await act(async () => { added = await result.current.loadOlder() })
+    expect(added).toBe(0)
+    expect(result.current.exhausted).toBe(true)
   })
 })

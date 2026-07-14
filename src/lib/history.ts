@@ -29,6 +29,7 @@ export function olderFilterFor(
   myPubkey: string,
   until: number,
   limit: number,
+  wrapUntil?: number,
 ): Filter[] {
   if (chatType === 'channel') {
     return [{ kinds: [42], '#e': [chatId], until, limit }]
@@ -39,7 +40,7 @@ export function olderFilterFor(
   return [
     { kinds: [4], authors: [myPubkey], '#p': [chatId], until, limit },
     { kinds: [4], authors: [chatId], '#p': [myPubkey], until, limit },
-    { kinds: [GIFT_WRAP_KIND], '#p': [myPubkey], until: until + WRAP_FUZZ_S, limit },
+    { kinds: [GIFT_WRAP_KIND], '#p': [myPubkey], until: wrapUntil ?? (until + WRAP_FUZZ_S), limit },
   ]
 }
 

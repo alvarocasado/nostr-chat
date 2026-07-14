@@ -15,12 +15,14 @@ export function useChatHistory(
   const [exhausted, setExhausted] = useState(false)
   const loadingRef = useRef(false)
   const exhaustedRef = useRef(false)
+  const wrapUntilRef = useRef<number | null>(null)
 
   useEffect(() => {
     setLoading(false)
     setExhausted(false)
     loadingRef.current = false
     exhaustedRef.current = false
+    wrapUntilRef.current = null
   }, [chatId])
 
   const loadOlder = useCallback(async (): Promise<number> => {
@@ -43,20 +45,28 @@ export function useChatHistory(
 
       // No local history older than the window: backfill from relays.
       const relays = useNostrStore.getState().readRelays()
-      const filters = olderFilterFor(chatType, chatId, myPubkey, oldest, OLDER_PAGE)
+      const filters = olderFilterFor(chatType, chatId, myPubkey, oldest, OLDER_PAGE, wrapUntilRef.current ?? undefined)
       let events
+      let wrapEvents: { id: string; kind: number; created_at: number }[] = []
       if (chatType === 'dm') {
         // olderFilterFor('dm', ...) returns [sent (authors:[me]), received (authors:[peer]), wraps (kind 1059)]
         const [sentFilter, receivedFilter, wrapFilter] = filters
         const peer = await getPeerRelays(chatId, relays)
         const receivedRelays = combineRelays(relays, peer.write)
-        events = (await Promise.all([
+        const [sentEvents, receivedEvents, wrapResults] = await Promise.all([
           fetchEvents(relays, sentFilter),
           fetchEvents(receivedRelays, receivedFilter),
           fetchEvents(receivedRelays, wrapFilter),
-        ])).flat()
+        ])
+        wrapEvents = wrapResults
+        events = [...sentEvents, ...receivedEvents, ...wrapEvents]
       } else {
         events = (await Promise.all(filters.map(f => fetchEvents(relays, f)))).flat()
+      }
+      if (wrapEvents.length > 0) {
+        // Monotonic progress through wrap space, independent of the rumor-time
+        // cursor, so a dup-dominated page doesn't refetch the same window.
+        wrapUntilRef.current = Math.min(...wrapEvents.map(ev => ev.created_at)) - 1
       }
       if (events.length === 0) {
         exhaustedRef.current = true
@@ -74,7 +84,7 @@ export function useChatHistory(
       }
       const after = (useNostrStore.getState().messages[chatId] || []).length
       const added = after - before
-      if (added === 0) {
+      if (added === 0 && wrapEvents.length < OLDER_PAGE) {
         exhaustedRef.current = true
         setExhausted(true)
       }

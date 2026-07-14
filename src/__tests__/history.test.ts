@@ -75,4 +75,12 @@ describe('olderFilterFor', () => {
       { kinds: [1059], '#p': ['me'], until: 1000 + 2 * 24 * 60 * 60, limit: 50 },
     ])
   })
+
+  it('uses an explicit wrapUntil cursor for the gift-wrap filter when provided, leaving the kind-4 filters on the rumor-time cursor', () => {
+    expect(olderFilterFor('dm', 'them', 'me', 1000, 50, 200)).toEqual([
+      { kinds: [4], authors: ['me'], '#p': ['them'], until: 1000, limit: 50 },
+      { kinds: [4], authors: ['them'], '#p': ['me'], until: 1000, limit: 50 },
+      { kinds: [1059], '#p': ['me'], until: 200, limit: 50 },
+    ])
+  })
 })
