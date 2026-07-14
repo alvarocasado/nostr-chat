@@ -8,6 +8,7 @@ import {
   buildDMEvent,
   buildGroupMessageEvent,
   buildProfileEvent,
+  fetchEvents,
   GROUP_MESSAGE_KIND,
   LEGACY_GROUP_MESSAGE_KIND,
   type NostrProfile,
@@ -19,10 +20,12 @@ import { useNostrStore, type Channel } from '../store/nostrStore'
 import {
   processChannelEvent,
   processDMEvent,
+  processGiftWrap,
   processGroupEvent,
   extractRootChatId,
   extractGroupId,
 } from '../lib/inbox'
+import { GIFT_WRAP_KIND } from '../lib/giftWrap'
 import { useStableArray } from './useStableArray'
 import { useReadRelays } from './useRelays'
 import { usePeerRelays } from './usePeerRelays'
@@ -102,6 +105,16 @@ export function useDMMessages(myPubkey: string | null, theirPubkey: string | nul
       (event) => { void processDMEvent(event, myPubkey, receivedRelays, { live: live2 }) },
       () => { live2 = true },
     )
+
+    // Initial page of gift wraps (backfill only; the global inbox owns the
+    // live 1059 subscription). Wraps are unfilterable by peer, so this fetches
+    // my recent wraps and lets the router sort them.
+    if (getSigner()?.caps.nip44) {
+      void fetchEvents(receivedRelays, { kinds: [GIFT_WRAP_KIND], '#p': [myPubkey], limit: INITIAL_PAGE })
+        .then(events => Promise.all(events.map(e => processGiftWrap(e, myPubkey, receivedRelays, { live: false }))))
+        .catch(() => {})
+    }
+
     return () => {
       sub1.close()
       sub2.close()
@@ -183,6 +196,23 @@ export function useGlobalInbox() {
     return () => sub.close()
     // signerCaps: restored sessions install the signer after rehydration; the
     // fresh caps object re-runs this effect so the inbox subscribes at all.
+  }, [publicKey, stableRelays, signerCaps])
+
+  // Gift-wrapped DMs (NIP-17). Wraps cannot be filtered by author (ephemeral
+  // signing keys), so this single global subscription serves every chat; the
+  // router sorts by unwrapped sender. Only useful when we can nip44-decrypt.
+  useEffect(() => {
+    if (!publicKey) return
+    if (!getSigner()?.caps.nip44) return
+
+    let live = false
+    const sub = subscribeEvents(
+      stableRelays,
+      { kinds: [GIFT_WRAP_KIND], '#p': [publicKey], limit: 100 },
+      (event) => { void processGiftWrap(event, publicKey, stableRelays, { live }) },
+      () => { live = true },
+    )
+    return () => sub.close()
   }, [publicKey, stableRelays, signerCaps])
 
   // All joined channels in one subscription

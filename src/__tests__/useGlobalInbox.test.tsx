@@ -73,3 +73,11 @@ it('subscribes to groups with an #h filter and routes by the h tag', () => {
   expect(filters.some(f => f.includes('"#h":["uuid-1"]'))).toBe(true)
   expect(filters.some(f => f.includes('"#e":["uuid-1"]'))).toBe(false)
 })
+
+it('subscribes to kind-1059 gift wraps addressed to me when the signer can nip44', () => {
+  installTestSigner() // LocalSigner caps: { nip04: true, nip44: true }
+  useNostrStore.setState({ publicKey: PK })
+  render(<Probe />)
+  const filters = subscribeEvents.mock.calls.map(c => c[1])
+  expect(filters).toContainEqual(expect.objectContaining({ kinds: [1059], '#p': [PK] }))
+})

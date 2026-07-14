@@ -68,10 +68,11 @@ describe('olderFilterFor', () => {
     ])
   })
 
-  it('builds two directional filters for DMs', () => {
+  it('builds two directional filters for DMs plus a fuzz-padded gift-wrap filter', () => {
     expect(olderFilterFor('dm', 'them', 'me', 1000, 50)).toEqual([
       { kinds: [4], authors: ['me'], '#p': ['them'], until: 1000, limit: 50 },
       { kinds: [4], authors: ['them'], '#p': ['me'], until: 1000, limit: 50 },
+      { kinds: [1059], '#p': ['me'], until: 1000 + 2 * 24 * 60 * 60, limit: 50 },
     ])
   })
 })
