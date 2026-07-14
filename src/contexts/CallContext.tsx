@@ -2,9 +2,9 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ReactNode,
 } from 'react'
-import { subscribeEvents, publishEvent, buildDMEvent } from '../lib/nostr'
+import { subscribeEvents, publishEvent } from '../lib/nostr'
+import { sendPrivate } from '../lib/privateSend'
 import { getSetting } from '../lib/userDb'
-import { getPeerRelays, combineRelays } from '../lib/peerRelays'
 import { useNostrStore } from '../store/nostrStore'
 import { useReadRelays } from '../hooks/useRelays'
 import { getSigner } from '../lib/signer'
@@ -161,35 +161,28 @@ export function CallProvider({ children }: { children: ReactNode }) {
       ...(outcome === 'completed' && { duration: durationSecRef.current }),
     })
     void (async () => {
-      let eventId = ''
       try {
-        const event = await buildDMEvent(peerPubkey, content)
-        eventId = event.id
-        const { publicKey, addMessage } = useNostrStore.getState()
+        // sendPrivate targets internally (gift-wrap when possible, else legacy
+        // kind-4 to the peer's read relays + our own write relays).
+        const ps = await sendPrivate(content, peerPubkey)
+        const { publicKey, addMessage, updateMessageStatus } = useNostrStore.getState()
         if (!publicKey) return
         addMessage(peerPubkey, {
-          id: event.id,
+          id: ps.msgId,
           pubkey: publicKey,
           content,
-          createdAt: event.created_at,
-          tags: event.tags,
-          kind: 4,
+          createdAt: ps.createdAt,
+          tags: [['p', peerPubkey]],
+          kind: ps.kind,
           recipientPubkey: peerPubkey,
           decrypted: true,
           status: 'sending',
         })
-        // Same relay targeting as every other DM: the peer's read relays must
-        // receive the log or the offline missed-call guarantee fails.
-        const peerRead = await getPeerRelays(peerPubkey, useNostrStore.getState().readRelays())
-          .then(pr => pr.read)
-          .catch(() => [] as string[])
-        await publishEvent(combineRelays(useNostrStore.getState().writeRelays(), peerRead), event)
-        useNostrStore.getState().updateMessageStatus(peerPubkey, event.id, 'sent')
+        updateMessageStatus(peerPubkey, ps.msgId, 'sent')
       } catch {
-        // ponytail: best-effort history; a failed publish marks the stored row
-        // "failed" (CallRow shows no status indicator and there is no retry —
-        // accepted limit), or stores nothing if signing failed.
-        if (eventId) useNostrStore.getState().updateMessageStatus(peerPubkey, eventId, 'failed')
+        // ponytail: best-effort history; sendPrivate bundles build + publish,
+        // so a failure here (signing or every relay) leaves no local record
+        // at all — there is no retry for call logs (accepted limit).
       }
     })()
   }, [])

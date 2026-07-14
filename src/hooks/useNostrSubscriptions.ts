@@ -5,7 +5,6 @@ import {
   parseProfile,
   buildChannelCreateEvent,
   buildChannelMessageEvent,
-  buildDMEvent,
   buildGroupMessageEvent,
   buildProfileEvent,
   fetchEvents,
@@ -13,6 +12,7 @@ import {
   LEGACY_GROUP_MESSAGE_KIND,
   type NostrProfile,
 } from '../lib/nostr'
+import { sendPrivate } from '../lib/privateSend'
 import { encryptWithGroupKey } from '../lib/groupCrypto'
 import { serializeReaction } from '../lib/reactions'
 import { serializeCallStart } from '../lib/groupCall'
@@ -270,15 +270,9 @@ export async function sendChannelMessage(
   return event
 }
 
-// Send a DM
-export async function sendDM(
-  content: string,
-  recipientPubkey: string,
-  relays: string[],
-) {
-  const event = await buildDMEvent(recipientPubkey, content)
-  await publishEvent(relays, event)
-  return event
+// Send a DM (gated: gift-wrapped when possible, legacy kind-4 otherwise)
+export async function sendDM(content: string, recipientPubkey: string) {
+  return sendPrivate(content, recipientPubkey)
 }
 
 // ─── Reactions ───────────────────────────────────────────────────────────────
@@ -292,10 +286,8 @@ export async function sendChannelReaction(
   return sendChannelMessage(serializeReaction(target, emoji, op), channelId, relays)
 }
 
-export async function sendDMReaction(
-  target: string, emoji: string, op: 'add' | 'remove', peer: string, relays: string[],
-) {
-  return sendDM(serializeReaction(target, emoji, op), peer, relays)
+export async function sendDMReaction(target: string, emoji: string, op: 'add' | 'remove', peer: string) {
+  return sendDM(serializeReaction(target, emoji, op), peer)
 }
 
 // Send an already-serialized control message (reaction/edit/delete) to a group,

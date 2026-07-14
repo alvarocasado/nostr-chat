@@ -8,9 +8,10 @@ import { getSigner } from '../../lib/signer'
 import {
   buildGroupMetadataEvent,
   buildGroupKeyBackupEvent,
-  buildGroupInviteEvent,
   publishEvent,
 } from '../../lib/nostr'
+import { sendPrivate } from '../../lib/privateSend'
+import { serializeGroupInvite } from '../../lib/groupMembership'
 
 interface AddGroupModalProps {
   onClose: () => void
@@ -60,7 +61,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
       await publishEvent(writeRelays, await buildGroupMetadataEvent(groupKeyHex, groupId, name.trim(), about.trim(), allMembers))
       await publishEvent(writeRelays, await buildGroupKeyBackupEvent(groupId, [groupKeyHex]))
       for (const memberPubkey of memberPubkeys) {
-        await publishEvent(writeRelays, await buildGroupInviteEvent(memberPubkey, groupId, groupKeyHex, name.trim(), allMembers))
+        await sendPrivate(serializeGroupInvite(groupId, groupKeyHex, name.trim(), allMembers), memberPubkey)
       }
 
       addGroup({

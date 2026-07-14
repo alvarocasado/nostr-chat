@@ -7,7 +7,6 @@ import {
   type Filter,
 } from 'nostr-tools'
 import { encryptWithGroupKey } from './groupCrypto'
-import { serializeGroupRekey, serializeGroupRemove } from './groupMembership'
 import { mentionTags } from './mentions'
 import { requireSigner } from './signer'
 
@@ -195,44 +194,6 @@ export async function buildGroupKeyBackupEvent(groupId: string, keysOldestFirst:
   const signer = requireSigner()
   const encrypted = await signer.nip04Encrypt(signer.pubkey, JSON.stringify({ keys: keysOldestFirst }))
   return signer.signEvent({ kind: 30041, created_at: Math.floor(Date.now() / 1000), tags: [['d', groupId]], content: encrypted })
-}
-
-// Build group invite as NIP-04 DM carrying
-// { type: 'group_invite', groupId, groupKeyHex, groupName, memberPubkeys }
-export async function buildGroupInviteEvent(
-  recipientPubkey: string,
-  groupId: string,
-  groupKeyHex: string,
-  groupName: string,
-  memberPubkeys: string[],
-): Promise<Event> {
-  const signer = requireSigner()
-  const payload = JSON.stringify({ type: 'group_invite', groupId, groupKeyHex, groupName, memberPubkeys })
-  const encrypted = await signer.nip04Encrypt(recipientPubkey, payload)
-  return signer.signEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipientPubkey]], content: encrypted })
-}
-
-// Build group rekey as NIP-04 DM (new epoch key after a member removal)
-export async function buildGroupRekeyEvent(
-  recipientPubkey: string,
-  groupId: string,
-  groupKeyHex: string,
-  groupName: string,
-  memberPubkeys: string[],
-): Promise<Event> {
-  const signer = requireSigner()
-  const encrypted = await signer.nip04Encrypt(
-    recipientPubkey,
-    serializeGroupRekey(groupId, groupKeyHex, groupName, memberPubkeys),
-  )
-  return signer.signEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipientPubkey]], content: encrypted })
-}
-
-// Build courtesy removal notice as NIP-04 DM to the removed member
-export async function buildGroupRemoveEvent(recipientPubkey: string, groupId: string): Promise<Event> {
-  const signer = requireSigner()
-  const encrypted = await signer.nip04Encrypt(recipientPubkey, serializeGroupRemove(groupId))
-  return signer.signEvent({ kind: 4, created_at: Math.floor(Date.now() / 1000), tags: [['p', recipientPubkey]], content: encrypted })
 }
 
 // Shorten pubkey for display

@@ -22,6 +22,14 @@ vi.mock('../lib/peerRelays', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/peerRelays')>()
   return { ...actual, getPeerRelays: vi.fn().mockResolvedValue({ read: ['wss://peer-read'], write: [] }) }
 })
+// Call logs go through sendPrivate (Task 7), which gift-wraps when the signer
+// can nip44 and the peer advertises kind 10050. Force the legacy kind-4 path
+// so these tests stay deterministic (no live relay lookup for the peer's caps)
+// and keep asserting on kind-4 publishEvent calls as before.
+vi.mock('../lib/dmCaps', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/dmCaps')>()
+  return { ...actual, fetchDmCaps: vi.fn().mockResolvedValue({ nip17: false, relays: [] }) }
+})
 
 import { CallProvider, useCallContext } from '../contexts/CallContext'
 import { useNostrStore } from '../store/nostrStore'

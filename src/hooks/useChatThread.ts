@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Event as NostrEvent } from 'nostr-tools'
 import { useNostrStore, type Message } from '../store/nostrStore'
 import { publishEvent } from '../lib/nostr'
+import { publishPrivateSend, type PrivateSend } from '../lib/privateSend'
 import { getSigner } from '../lib/signer'
 import { serializeEdit, serializeDelete } from '../lib/messageOps'
 import { getPreviewText } from '../lib/fileUtils'
@@ -73,7 +74,7 @@ export function useChatThread(chatId: string, opts: ChatThreadOpts) {
   const { publicKey, addMessage, updateMessageStatus, seenAt, updateSeenAt } = useNostrStore()
   const [replyTo, setReplyTo] = useState<Message | null>(null)
   const [showGallery, setShowGallery] = useState(false)
-  const pendingEventsRef = useRef<Map<string, NostrEvent>>(new Map())
+  const pendingEventsRef = useRef<Map<string, () => Promise<unknown>>>(new Map())
   const dividerTimestampRef = useRef<number | undefined>(seenAt[chatId])
 
   useEffect(() => {
@@ -85,7 +86,18 @@ export function useChatThread(chatId: string, opts: ChatThreadOpts) {
 
   const guarded = () => !!getSigner() && !!publicKey && (opts.canAct?.() ?? true)
 
-  // Add the optimistic local message, then publish; keep the event around for retry.
+  const runSend = async (msgId: string, attempt: () => Promise<unknown>) => {
+    pendingEventsRef.current.set(msgId, attempt)
+    try {
+      await attempt()
+      updateMessageStatus(chatId, msgId, 'sent')
+      pendingEventsRef.current.delete(msgId)
+    } catch {
+      updateMessageStatus(chatId, msgId, 'failed')
+    }
+  }
+
+  // Add the optimistic local message, then publish; keep the attempt around for retry.
   const publish = async (event: NostrEvent, fields: Pick<Message, 'content' | 'kind'> & Partial<Message>) => {
     addMessage(chatId, {
       id: event.id,
@@ -98,23 +110,37 @@ export function useChatThread(chatId: string, opts: ChatThreadOpts) {
       }),
       ...fields,
     })
-    pendingEventsRef.current.set(event.id, event)
-
-    try {
-      await publishEvent(await opts.targetRelays(), event)
-      updateMessageStatus(chatId, event.id, 'sent')
-      pendingEventsRef.current.delete(event.id)
-    } catch {
-      updateMessageStatus(chatId, event.id, 'failed')
-    }
+    await runSend(event.id, async () => publishEvent(await opts.targetRelays(), event))
   }
 
+  // Private (gated) sends: the message id/createdAt/kind come from the PrivateSend
+  // envelope (Task 4's buildPrivateSend), which already picked gift-wrap vs legacy.
+  const publishPrivate = async (ps: PrivateSend, fields: Pick<Message, 'content'> & Partial<Message>) => {
+    addMessage(chatId, {
+      id: ps.msgId,
+      pubkey: publicKey || '',
+      createdAt: ps.createdAt,
+      tags: fields.recipientPubkey ? [['p', fields.recipientPubkey]] : [],
+      kind: ps.kind,
+      status: 'sending',
+      ...(replyTo && {
+        replyTo: { id: replyTo.id, pubkey: replyTo.pubkey, previewText: getPreviewText(replyTo.content).slice(0, 100) },
+      }),
+      ...fields,
+    })
+    await runSend(ps.msgId, () => publishPrivateSend(ps))
+  }
+
+  // Retry replays the exact closure captured at send time — for private sends
+  // this republishes the ORIGINAL PrivateSend via publishPrivateSend, never
+  // rebuilding it, since rebuilding would mint a new rumor id and duplicate
+  // the message.
   const handleRetry = async (msgId: string) => {
-    const event = pendingEventsRef.current.get(msgId)
-    if (!event) return
+    const attempt = pendingEventsRef.current.get(msgId)
+    if (!attempt) return
     updateMessageStatus(chatId, msgId, 'sending')
     try {
-      await publishEvent(await opts.targetRelays(), event)
+      await attempt()
       updateMessageStatus(chatId, msgId, 'sent')
       pendingEventsRef.current.delete(msgId)
     } catch {
@@ -141,6 +167,6 @@ export function useChatThread(chatId: string, opts: ChatThreadOpts) {
     replyTo, setReplyTo,
     showGallery, setShowGallery,
     dividerTimestamp: dividerTimestampRef.current,
-    guarded, publish, handleRetry, handleReact, handleEdit, handleDelete,
+    guarded, publish, publishPrivate, handleRetry, handleReact, handleEdit, handleDelete,
   }
 }

@@ -15,7 +15,8 @@ import {
   sendChannelMessage, sendDM, sendGroupControl,
 } from '../../hooks/useNostrSubscriptions'
 import { useChatThread } from '../../hooks/useChatThread'
-import { buildChannelMessageEvent, buildDMEvent, buildGroupMessageEvent } from '../../lib/nostr'
+import { buildChannelMessageEvent, buildGroupMessageEvent } from '../../lib/nostr'
+import { buildPrivateSend } from '../../lib/privateSend'
 import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import { MessageList } from './MessageList'
@@ -555,15 +556,15 @@ function DMThread({ theirPubkey }: { theirPubkey: string }) {
   const thread = useChatThread(theirPubkey, {
     canAct: () => signerCaps.nip04,
     targetRelays: dmTargetRelays,
-    sendContent: async content => sendDM(content, theirPubkey, await dmTargetRelays()),
-    sendReaction: async (t, e, o) => sendDMReaction(t, e, o, theirPubkey, await dmTargetRelays()),
+    sendContent: async content => sendDM(content, theirPubkey),
+    sendReaction: async (t, e, o) => sendDMReaction(t, e, o, theirPubkey),
   })
 
   const handleSend = async (content: string) => {
     if (!thread.guarded()) return
     if (isPending) acceptMessageRequest(theirPubkey)
-    const event = await buildDMEvent(theirPubkey, content)
-    await thread.publish(event, { content, kind: 4, recipientPubkey: theirPubkey, decrypted: true })
+    const ps = await buildPrivateSend(theirPubkey, content)
+    await thread.publishPrivate(ps, { content, recipientPubkey: theirPubkey, decrypted: true })
   }
 
   return (

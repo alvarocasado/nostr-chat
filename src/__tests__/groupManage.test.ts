@@ -4,9 +4,7 @@ import { useNostrStore } from '../store/nostrStore'
 const h = vi.hoisted(() => ({
   publishEvent: vi.fn(),
   sendGroupControl: vi.fn(),
-  buildGroupInviteEvent: vi.fn(),
-  buildGroupRekeyEvent: vi.fn(),
-  buildGroupRemoveEvent: vi.fn(),
+  sendPrivate: vi.fn(),
   buildGroupMetadataEvent: vi.fn(),
   buildGroupKeyBackupEvent: vi.fn(),
 }))
@@ -16,16 +14,15 @@ vi.mock('../lib/nostr', async (importOriginal) => {
   return {
     ...actual,
     publishEvent: h.publishEvent,
-    buildGroupInviteEvent: h.buildGroupInviteEvent,
-    buildGroupRekeyEvent: h.buildGroupRekeyEvent,
-    buildGroupRemoveEvent: h.buildGroupRemoveEvent,
     buildGroupMetadataEvent: h.buildGroupMetadataEvent,
     buildGroupKeyBackupEvent: h.buildGroupKeyBackupEvent,
   }
 })
 vi.mock('../hooks/useNostrSubscriptions', () => ({ sendGroupControl: h.sendGroupControl }))
+vi.mock('../lib/privateSend', () => ({ sendPrivate: h.sendPrivate }))
 
 import { addGroupMember, removeGroupMember } from '../lib/groupManage'
+import { serializeGroupInvite, serializeGroupRekey, serializeGroupRemove } from '../lib/groupMembership'
 import type { Group } from '../store/nostrStore'
 
 const ME = 'me'.padEnd(64, '0')
@@ -38,7 +35,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.publishEvent.mockResolvedValue(undefined)
   h.sendGroupControl.mockResolvedValue(undefined)
-  for (const b of [h.buildGroupInviteEvent, h.buildGroupRekeyEvent, h.buildGroupRemoveEvent, h.buildGroupMetadataEvent, h.buildGroupKeyBackupEvent]) {
+  h.sendPrivate.mockResolvedValue(undefined)
+  for (const b of [h.buildGroupMetadataEvent, h.buildGroupKeyBackupEvent]) {
     b.mockResolvedValue({ id: 'evt' })
   }
   useNostrStore.setState({
@@ -56,7 +54,8 @@ describe('addGroupMember', () => {
   it('invites with the current key and full member list, updates local members', async () => {
     const NEW = 'f'.repeat(64)
     await addGroupMember(GROUP, NEW)
-    expect(h.buildGroupInviteEvent).toHaveBeenCalledWith(NEW, 'g1', KEY, 'Team', [ME, BOB, EVE, NEW])
+    expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupInvite('g1', KEY, 'Team', [ME, BOB, EVE, NEW]), NEW)
+    expect(h.sendPrivate).toHaveBeenCalledTimes(1)
     expect(h.buildGroupMetadataEvent).toHaveBeenCalledWith(KEY, 'g1', 'Team', '', [ME, BOB, EVE, NEW])
     expect(h.sendGroupControl).toHaveBeenCalledTimes(1)
     expect(useNostrStore.getState().groups[0].memberPubkeys).toContain(NEW)
@@ -74,10 +73,9 @@ describe('removeGroupMember', () => {
     expect(s.groups[0].memberPubkeys).toEqual([ME, BOB])
     // rekey DM to every remaining member, including the creator's own pubkey
     // (so their other devices converge) — but never the removed member.
-    expect(h.buildGroupRekeyEvent).toHaveBeenCalledTimes(2)
-    expect(h.buildGroupRekeyEvent).toHaveBeenCalledWith(BOB, 'g1', s.groupKeys.g1, 'Team', [ME, BOB])
-    expect(h.buildGroupRekeyEvent).toHaveBeenCalledWith(ME, 'g1', s.groupKeys.g1, 'Team', [ME, BOB])
-    expect(h.buildGroupRemoveEvent).toHaveBeenCalledWith(EVE, 'g1')
+    expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupRekey('g1', s.groupKeys.g1, 'Team', [ME, BOB]), BOB)
+    expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupRekey('g1', s.groupKeys.g1, 'Team', [ME, BOB]), ME)
+    expect(h.sendPrivate).toHaveBeenCalledWith(serializeGroupRemove('g1'), EVE)
     // backup carries both epochs oldest→newest
     expect(h.buildGroupKeyBackupEvent).toHaveBeenCalledWith('g1', [KEY, s.groupKeys.g1])
     // members control sent with the NEW key

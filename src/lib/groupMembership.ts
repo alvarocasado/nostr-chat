@@ -18,6 +18,14 @@ function isValidMembers(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.length <= MAX_MEMBERS && v.every(isHex64)
 }
 
+export interface GroupInvitePayload {
+  type: 'group_invite'
+  groupId: string
+  groupKeyHex: string
+  groupName: string
+  memberPubkeys: string[]
+}
+
 export interface GroupRekeyPayload {
   type: 'group_rekey'
   groupId: string
@@ -34,6 +42,10 @@ export interface GroupRemovePayload {
 export interface MembersPayload {
   type: 'members'
   memberPubkeys: string[]
+}
+
+export function serializeGroupInvite(groupId: string, groupKeyHex: string, groupName: string, memberPubkeys: string[]): string {
+  return JSON.stringify({ type: 'group_invite', groupId, groupKeyHex, groupName, memberPubkeys } satisfies GroupInvitePayload)
 }
 
 export function serializeGroupRekey(groupId: string, groupKeyHex: string, groupName: string, memberPubkeys: string[]): string {

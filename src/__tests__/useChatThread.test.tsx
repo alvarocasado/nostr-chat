@@ -31,8 +31,13 @@ vi.mock('../lib/nostr', async (importOriginal) => {
   return { ...actual, publishEvent: (...a: unknown[]) => h.publishEvent(...a) }
 })
 vi.mock('../lib/signer', () => ({ getSigner: () => ({}) }))
+vi.mock('../lib/privateSend', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/privateSend')>()
+  return { ...actual, publishPrivateSend: vi.fn() }
+})
 
 import { useChatThread, type ChatThreadOpts } from '../hooks/useChatThread'
+import { publishPrivateSend } from '../lib/privateSend'
 
 const evt = { id: 'e1', created_at: 111, tags: [], kind: 42 } as unknown as NostrEvent
 const someMsg: Message = { id: 'orig', pubkey: ME, content: 'original text', createdAt: 100, tags: [], kind: 42 }
@@ -98,6 +103,20 @@ describe('useChatThread', () => {
     act(() => result.current.handleReact(someMsg, '👍'))
     expect(h.applyReaction).toHaveBeenCalledWith('orig', '👍', ME, 'add')
     expect(sendReaction).toHaveBeenCalledWith('orig', '👍', 'add')
+  })
+
+  it('publishPrivate adds an optimistic message from the PrivateSend envelope and retries via its closure', async () => {
+    vi.mocked(publishPrivateSend).mockRejectedValueOnce(new Error('down'))
+    const { result } = renderHook(() => useChatThread('chat', opts()))
+    const ps = { msgId: 'rumor1', createdAt: 333, kind: 14, publishables: [] }
+    await act(() => result.current.publishPrivate(ps as never, { content: 'hi', recipientPubkey: 'peer', decrypted: true }))
+    expect(h.addMessage).toHaveBeenCalledWith('chat', expect.objectContaining({ id: 'rumor1', createdAt: 333, kind: 14, status: 'sending' }))
+    expect(h.updateMessageStatus).toHaveBeenCalledWith('chat', 'rumor1', 'failed')
+
+    vi.mocked(publishPrivateSend).mockResolvedValueOnce(undefined)
+    await act(() => result.current.handleRetry('rumor1'))
+    expect(publishPrivateSend).toHaveBeenCalledTimes(2)
+    expect(h.updateMessageStatus).toHaveBeenLastCalledWith('chat', 'rumor1', 'sent')
   })
 
   it('blocks react/edit/delete when canAct is false', () => {
