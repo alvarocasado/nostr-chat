@@ -70,9 +70,9 @@ group rekey/remove, call logs, and DM reactions/edits/deletes.
   kind-10002 publish), listing our read relays; only when `caps.nip44`.
 - Peer 10050: fetched and cached like the existing `peerRelays` cache (same
   TTL semantics). Peer supports NIP-17 ⇔ has a 10050.
-- Delivery: recipient's wrap publishes to their 10050 relays (fallback:
-  today's combined-relay targeting when the list is empty/unreachable);
-  self-wrap publishes to our own write relays.
+- Delivery: recipient's wrap publishes to the union of our own write relays
+  and the peer's 10050 relays (fallback: peer read relays when the 10050
+  list is empty/unreachable); self-wrap publishes to our own write relays.
 
 ## 4. Send path
 
@@ -160,3 +160,4 @@ buildPrivateSend(peer, content) →
   do not store them; revisit separately).
 - A NIP-07 signer without nip44 stays fully on legacy NIP-04 and does not
   publish 10050.
+- Recipient wraps also land on the sender's write relays (delivery guarantee); observers of those relays see a partial (relay → recipient) edge, though never the sender identity. Revisit once 10050 lists are reliably fresh.

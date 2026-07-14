@@ -66,9 +66,15 @@ describe('ensureOwnDmRelayList', () => {
     expect(h.publishEvent).toHaveBeenCalledTimes(1)
   })
 
-  it('does not republish when one exists', async () => {
+  it('does not republish when one exists and matches the current relay set', async () => {
     h.fetchEvent.mockResolvedValue(listEvent([['relay', 'wss://mine']]))
     await ensureOwnDmRelayList(['wss://mine'])
     expect(h.publishEvent).not.toHaveBeenCalled()
+  })
+
+  it('republishes when the existing relay set differs from the current one', async () => {
+    h.fetchEvent.mockResolvedValue(listEvent([['relay', 'wss://old']]))
+    await ensureOwnDmRelayList(['wss://mine'])
+    expect(h.publishEvent).toHaveBeenCalledTimes(1)
   })
 })

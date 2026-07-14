@@ -51,4 +51,7 @@
   window.nostr.nip44), so a peer's 10050 proves their client reads wraps —
   single-release rollout. Accepted limits: no forward secrecy (MLS later);
   wrap backfill is global per user, not per-peer; wrapped pagination is
-  approximate (±2-day fuzz); ephemeral 241xx signals stay NIP-04.
+  approximate (±2-day fuzz); ephemeral 241xx signals stay NIP-04; recipient
+  wraps also land on the sender's write relays (delivery guarantee);
+  observers of those relays see a partial (relay → recipient) edge, though
+  never the sender identity. Revisit once 10050 lists are reliably fresh.

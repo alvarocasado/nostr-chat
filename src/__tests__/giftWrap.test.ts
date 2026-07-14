@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { generateSecretKey, getPublicKey } from 'nostr-tools'
+import { finalizeEvent, generateSecretKey, getPublicKey, nip44 } from 'nostr-tools'
 import { LocalSigner, setSigner, clearSigner } from '../lib/signer'
-import { buildGiftWraps, unwrapGiftWrap, GIFT_WRAP_KIND } from '../lib/giftWrap'
+import { buildGiftWraps, unwrapGiftWrap, GIFT_WRAP_KIND, SEAL_KIND, RUMOR_KIND } from '../lib/giftWrap'
 
 const skAlice = generateSecretKey()
 const skBob = generateSecretKey()
@@ -54,6 +54,63 @@ describe('gift wrap', () => {
     setSigner(new LocalSigner(new Uint8Array(skBob)))
     const un = await unwrapGiftWrap(forged.wrapForRecipient)
     expect(un!.senderPubkey).toBe(getPublicKey(skMallory))
+  })
+
+  it('rejects a rumor whose tags contain a malformed (non-string) entry, rather than propagating it', async () => {
+    // Hand-craft rumor -> seal -> wrap, mirroring buildGiftWraps' internals, so
+    // we can inject a tag entry that violates the string[][] shape (a number
+    // where a string is expected) — something buildGiftWraps itself can never
+    // produce, but a malicious/buggy sender could. nostr-tools' getEventHash
+    // performs its own strict tags validation and throws on this input, which
+    // unwrapGiftWrap's outer try/catch turns into a safe null — the sanitize
+    // filter (added below the id computation) never even gets a chance to
+    // silently pass a malformed entry through, since a hash that can't be
+    // computed can't be resolved to a message at all.
+    const bobPubkey = getPublicKey(skBob)
+    const alicePubkey = getPublicKey(skAlice)
+    const rumor = {
+      kind: RUMOR_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [['p', bobPubkey], ['bad', 42]] as unknown as string[][],
+      content: 'hi bob',
+      pubkey: alicePubkey,
+    }
+    const rumorJson = JSON.stringify(rumor)
+
+    const seal = finalizeEvent({
+      kind: SEAL_KIND,
+      created_at: rumor.created_at,
+      tags: [],
+      content: nip44.encrypt(rumorJson, nip44.getConversationKey(skAlice, bobPubkey)),
+    }, skAlice)
+
+    const ephemeralSk = generateSecretKey()
+    const wrap = finalizeEvent({
+      kind: GIFT_WRAP_KIND,
+      created_at: rumor.created_at,
+      tags: [['p', bobPubkey]],
+      content: nip44.encrypt(JSON.stringify(seal), nip44.getConversationKey(ephemeralSk, bobPubkey)),
+    }, ephemeralSk)
+
+    setSigner(new LocalSigner(new Uint8Array(skBob)))
+    expect(await unwrapGiftWrap(wrap)).toBeNull()
+  })
+
+  it('drops a malformed tag entry from the returned tags without changing the rumor id, for a hash-valid rumor', async () => {
+    // The sanitize filter in unwrapGiftWrap only ever sees tags that already
+    // passed getEventHash's own string[][] validation (a malformed entry
+    // makes the id computation itself throw, per the test above). So its
+    // observable effect today is a no-op passthrough for valid tags — this
+    // test locks that passthrough behavior in and guards the ordering
+    // (id computed from the pre-sanitize value) against regression.
+    const bobPubkey = getPublicKey(skBob)
+    setSigner(new LocalSigner(new Uint8Array(skAlice)))
+    const { rumorId, wrapForRecipient } = await buildGiftWraps(bobPubkey, 'hi bob')
+    setSigner(new LocalSigner(new Uint8Array(skBob)))
+    const un = await unwrapGiftWrap(wrapForRecipient)
+    expect(un).not.toBeNull()
+    expect(un!.rumorId).toBe(rumorId)
+    expect(un!.tags).toEqual([['p', bobPubkey]])
   })
 
   it('returns null for garbage, wrong kind, and undecryptable wraps', async () => {

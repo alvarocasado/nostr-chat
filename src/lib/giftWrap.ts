@@ -60,12 +60,14 @@ export async function buildGiftWraps(recipientPubkey: string, content: string): 
       content: await signer.nip44Encrypt(target, rumorJson),
     })
     const ephemeralSk = generateSecretKey()
-    return finalizeEvent({
+    const wrap = finalizeEvent({
       kind: GIFT_WRAP_KIND,
       created_at: randomPastTimestamp(),
       tags: [['p', target]],
       content: nip44.encrypt(JSON.stringify(seal), nip44.getConversationKey(ephemeralSk, target)),
     }, ephemeralSk)
+    ephemeralSk.fill(0)
+    return wrap
   }
 
   return {
@@ -91,9 +93,13 @@ export async function unwrapGiftWrap(event: Event): Promise<UnwrappedDM | null> 
     if (rumor.pubkey !== seal.pubkey) return null // NIP-17 anti-spoof
     if (typeof rumor.content !== 'string' || rumor.content.length > MAX_PLAINTEXT_LEN) return null
     if (typeof rumor.created_at !== 'number') return null
-    const tags = Array.isArray(rumor.tags) ? rumor.tags : []
-    // Recompute the id from contents — never trust an embedded one
-    const rumorId = getEventHash({ kind: rumor.kind, created_at: rumor.created_at, tags, content: rumor.content, pubkey: rumor.pubkey })
+    // Recompute the id from the ORIGINAL rumor fields — never trust an embedded
+    // id, and never hash the sanitized tags below (that would change the id
+    // for legitimate messages with odd tags and break cross-copy dedup).
+    const rumorId = getEventHash({ kind: rumor.kind, created_at: rumor.created_at, tags: rumor.tags as string[][], content: rumor.content, pubkey: rumor.pubkey })
+    const tags = Array.isArray(rumor.tags)
+      ? rumor.tags.filter((t): t is string[] => Array.isArray(t) && t.every(x => typeof x === 'string'))
+      : []
     return { senderPubkey: seal.pubkey, content: rumor.content, createdAt: rumor.created_at, rumorId, tags }
   } catch {
     return null // undecryptable / malformed — not addressed to us or garbage

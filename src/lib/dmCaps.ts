@@ -58,7 +58,11 @@ export async function ensureOwnDmRelayList(relays: string[]): Promise<void> {
   if (!signer || !signer.caps.nip44) return
   try {
     const existing = await fetchEvent(relays, { kinds: [DM_RELAY_LIST_KIND], authors: [signer.pubkey], limit: 1 })
-    if (existing) return
+    if (existing) {
+      const current = parseDmRelayList(existing)
+      const wanted = relays.slice(0, 4)
+      if (current.length === wanted.length && wanted.every(u => current.includes(u))) return
+    }
     await publishEvent(relays, await buildDmRelayListEvent(relays))
   } catch { /* best-effort; retried next login */ }
 }
