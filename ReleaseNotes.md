@@ -1,5 +1,23 @@
 # Release Notes
 
+## 1.0.0-alpha.17 — 2026-07-15
+
+### Features
+
+#### End-to-End Encrypted DMs via NIP-17 Gift Wrap
+Direct messages now upgrade to modern NIP-44/NIP-17 encryption. When your peer publishes a kind-10050 DM-relay list (proving their client can read gift-wrapped messages), all private sends to them — chat DMs, DM reactions/edits/deletes, call logs, and group invite/rekey/remove control messages — travel as gift wraps (rumor 14 → seal 13 → wrap 1059) with ephemeral per-message wrap keys and timestamps fuzzed by up to two days, so relays learn far less about who is talking to whom. Peers without a 10050 list still receive legacy NIP-04 kind-4 DMs, which the app also continues to read forever, so nothing breaks. Self-addressed wrap copies make your sent messages visible across all your own devices, deduplicated by rumor id. The app publishes its own 10050 list only when the signer supports NIP-44 (local keys always; a NIP-07 extension only if it exposes `nip44`). Accepted limits: no forward secrecy yet (MLS later); wrap backfill is global per user rather than per-peer; wrapped-history pagination is approximate due to the timestamp fuzz; ephemeral call signals stay on NIP-04. Recipient wraps also land on the sender's write relays as a delivery guarantee, so an observer of those relays can see a partial relay→recipient edge (never the sender's identity).
+
+#### Group Member Management & Key Rotation
+Group creators can now add and remove members from a new Members panel in the group header. Removing a member mints a fresh AES-GCM epoch key that is distributed to the remaining members as encrypted `group_rekey` DMs, so the removed person can no longer read new messages; they receive a courtesy `group_remove` notice and a disabled thread. Old epoch keys are retained in key history so existing history stays readable — decryption falls back newest-to-oldest — and kind-30041 key backups now carry the full epoch list (legacy bare-hex backups still parse). New members receive only the current epoch key. Membership propagates through a creator-signed in-group `members` control, which also fixes the wrong member count previously shown on the invitee's side. Accepted limits: no admin transfer, no forward secrecy within an epoch (MLS later), removed members keep their pre-removal history, and holders of an old epoch key could still inject messages into the group (writes are UI-gated, not cryptographically enforced); authorization is client-side creator-signature checking.
+
+### Changes
+
+#### Chat Thread Refactor
+The three chat-thread variants (channel, DM, group) shared roughly 200 duplicated lines of state, optimistic-publish, retry, and react/edit/delete logic. That now lives in a single `useChatThread` hook behind per-chat-type closures, dropping `MessageThread.tsx` from 951 to 723 lines with no behavior change, plus new tests covering the publish/retry/reply/guard flow and thread render paths.
+
+#### Sidebar Split
+The self-contained sidebar list-item components (search results, mute button, channel/contact/group items, and their private helpers) moved verbatim into `SidebarItems.tsx`, dropping `Sidebar.tsx` from 975 to 689 lines. Pure move, no logic or markup changes.
+
 ## 1.0.0-alpha.16 — 2026-07-13
 
 ### Features
