@@ -87,6 +87,7 @@ export async function clearLocalKey(): Promise<void> {
   const db = getUserDb()
   if (!db) return
   await db.settings.delete(ENC_KEY_SETTING)
+  await db.settings.delete(BUNKER_SESSION_SETTING)
   await db.crypto.delete(DEVICE_KEY_ID)
 }
 
@@ -118,6 +119,34 @@ async function loadPassphrase(rec: PassphraseRecord, passphrase?: string): Promi
   try {
     const key = await deriveKey(passphrase, b64decode(rec.salt), rec.iterations)
     return await unwrap(key, rec.iv, rec.ciphertext)
+  } catch {
+    return null
+  }
+}
+
+// NIP-46 session: the client key that the user's bunker authorized plus the
+// bunker pointer. Wrapped with the device key like a device-mode nsec.
+const BUNKER_SESSION_SETTING = 'bunker-session'
+export interface BunkerSession { clientSecretKey: Uint8Array; bunker: { pubkey: string; relays: string[]; secret: string | null } }
+
+export async function saveBunkerSession(session: BunkerSession): Promise<void> {
+  const db = getUserDb()
+  const deviceKey = await getOrCreateDeviceKey()
+  if (!db || !deviceKey) return
+  const plain = new TextEncoder().encode(JSON.stringify({ sk: b64encode(session.clientSecretKey), bunker: session.bunker }))
+  await db.settings.put({ key: BUNKER_SESSION_SETTING, value: JSON.stringify(await wrap(deviceKey, plain)) })
+}
+
+export async function loadBunkerSession(): Promise<BunkerSession | null> {
+  const db = getUserDb()
+  if (!db) return null
+  const rec = await db.settings.get(BUNKER_SESSION_SETTING)
+  const deviceKey = rec ? await getOrCreateDeviceKey() : null
+  if (!rec || !deviceKey) return null
+  try {
+    const { iv, ciphertext } = JSON.parse(rec.value) as { iv: string; ciphertext: string }
+    const { sk, bunker } = JSON.parse(new TextDecoder().decode(await unwrap(deviceKey, iv, ciphertext)))
+    return { clientSecretKey: b64decode(sk), bunker }
   } catch {
     return null
   }

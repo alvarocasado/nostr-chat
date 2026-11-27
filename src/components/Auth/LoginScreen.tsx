@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Zap, Key, Eye, EyeOff, Copy, Check, Shield } from 'lucide-react'
+import { Zap, Key, Eye, EyeOff, Copy, Check, Shield, Link2 } from 'lucide-react'
 import { useNostrStore } from '../../store/nostrStore'
 import { hasNip07 } from '../../lib/nip07'
 
 export function LoginScreen() {
-  const { generateAndLogin, loginFromNsec, loginFromHex, loginWithExtension } = useNostrStore()
-  const [mode, setMode] = useState<'welcome' | 'import' | 'newKey'>('welcome')
+  const { generateAndLogin, loginFromNsec, loginFromHex, loginWithExtension, loginWithBunker } = useNostrStore()
+  const [mode, setMode] = useState<'welcome' | 'import' | 'newKey' | 'bunker'>('welcome')
+  const [bunkerBusy, setBunkerBusy] = useState(false)
+  const [authUrl, setAuthUrl] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [error, setError] = useState('')
   const [newKeys, setNewKeys] = useState<{ nsec: string; npub: string } | null>(null)
@@ -35,6 +37,22 @@ export function LoginScreen() {
       return
     }
     if (!ok) setError('Invalid private key')
+  }
+
+  const handleBunker = async () => {
+    setError('')
+    setAuthUrl(null)
+    if (!inputValue.trim()) {
+      setError('Paste a bunker:// URL or your name@domain')
+      return
+    }
+    setBunkerBusy(true)
+    const err = await loginWithBunker(inputValue, url => {
+      // Only offer https approval pages from the signer, never other schemes.
+      if (/^https:\/\//i.test(url)) setAuthUrl(url)
+    })
+    setBunkerBusy(false)
+    if (err) setError(err)
   }
 
   const copyToClipboard = (text: string) => {
@@ -173,6 +191,46 @@ export function LoginScreen() {
     )
   }
 
+  if (mode === 'bunker') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-950 via-purple-950 to-gray-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="glass rounded-2xl p-8 space-y-4">
+            <button onClick={() => { setMode('welcome'); setError(''); setInputValue('') }} className="text-gray-400 hover:text-white text-sm">
+              ← Back
+            </button>
+            <h2 className="text-2xl font-bold text-white">Remote signer</h2>
+            <p className="text-gray-400 text-sm">
+              Connect a NIP-46 signer app (such as nsec.app or Amber). Your key stays in that app; it approves each action.
+            </p>
+            <input
+              value={inputValue}
+              onChange={e => setInputValue(e.target.value)}
+              placeholder="bunker://… or name@domain"
+              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500 font-mono text-sm"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {authUrl && (
+              <p className="text-sm text-gray-300">
+                Your signer asks you to approve this app:{' '}
+                <a href={authUrl} target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">open approval page</a>
+              </p>
+            )}
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            <button
+              onClick={handleBunker}
+              disabled={bunkerBusy}
+              className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+            >
+              {bunkerBusy ? 'Waiting for your signer…' : 'Connect'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-purple-950 to-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -227,6 +285,13 @@ export function LoginScreen() {
               <Shield size={20} /> Login with Extension
             </button>
           )}
+
+          <button
+            onClick={() => { setError(''); setInputValue(''); setMode('bunker') }}
+            className="w-full bg-gray-800 hover:bg-gray-700 text-white font-semibold py-4 rounded-xl transition-all flex items-center justify-center gap-3 border border-gray-700"
+          >
+            <Link2 size={20} /> Login with Remote Signer
+          </button>
 
           {error && (
             <p className="text-red-400 text-sm text-center">{error}</p>

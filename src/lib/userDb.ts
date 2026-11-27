@@ -65,7 +65,7 @@ export function clearActivePubkey(): void {
 }
 
 export const AUTH_METHOD_KEY = 'nostr-auth-method'
-export type AuthMethod = 'local' | 'nip07'
+export type AuthMethod = 'local' | 'nip07' | 'nip46'
 
 export function getAuthMethod(): AuthMethod | null {
   try { return localStorage.getItem(AUTH_METHOD_KEY) as AuthMethod | null } catch { return null }

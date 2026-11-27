@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LoginScreen } from '../components/Auth/LoginScreen'
@@ -61,5 +61,18 @@ describe('LoginScreen', () => {
     await userEvent.click(screen.getByText('Login with Private Key'))
     await userEvent.click(screen.getByText('← Back'))
     expect(screen.getByText('Create New Account')).toBeInTheDocument()
+  })
+})
+
+describe('LoginScreen remote signer', () => {
+  it('connects with a bunker URL and shows the signer error', async () => {
+    const loginWithBunker = vi.fn(async () => 'Signer rejected the connection')
+    useNostrStore.setState({ loginWithBunker })
+    render(<LoginScreen />)
+    await userEvent.click(screen.getByText('Login with Remote Signer'))
+    await userEvent.type(screen.getByPlaceholderText(/bunker:\/\//), 'bunker://abc')
+    await userEvent.click(screen.getByText('Connect'))
+    expect(loginWithBunker).toHaveBeenCalledWith('bunker://abc', expect.any(Function))
+    expect(await screen.findByText('Signer rejected the connection')).toBeInTheDocument()
   })
 })

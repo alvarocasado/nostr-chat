@@ -1,11 +1,12 @@
 import { Shield } from 'lucide-react'
 
 interface ReconnectScreenProps {
+  method?: 'nip07' | 'nip46'
   onRetry: () => void
   onLogout: () => void
 }
 
-export function ReconnectScreen({ onRetry, onLogout }: ReconnectScreenProps) {
+export function ReconnectScreen({ method = 'nip07', onRetry, onLogout }: ReconnectScreenProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-950 via-purple-950 to-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -15,10 +16,21 @@ export function ReconnectScreen({ onRetry, onLogout }: ReconnectScreenProps) {
           </div>
 
           <div>
-            <h2 className="text-2xl font-bold text-white">Reconnect your signer extension</h2>
-            <p className="text-gray-400 text-sm mt-2">
-              Your NIP-07 browser extension is not available. Make sure it is installed and unlocked, then try again.
-            </p>
+            {method === 'nip46' ? (
+              <>
+                <h2 className="text-2xl font-bold text-white">Reconnect your remote signer</h2>
+                <p className="text-gray-400 text-sm mt-2">
+                  Your signer app didn't answer. Make sure it is open and online, then try again.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold text-white">Reconnect your signer extension</h2>
+                <p className="text-gray-400 text-sm mt-2">
+                  Your NIP-07 browser extension is not available. Make sure it is installed and unlocked, then try again.
+                </p>
+              </>
+            )}
           </div>
 
           <div className="space-y-3">

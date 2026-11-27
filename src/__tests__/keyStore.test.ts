@@ -134,3 +134,19 @@ describe('migratePlaintextKeyIfNeeded', () => {
     expect(await hasLocalKey()).toBe(false)
   })
 })
+
+describe('bunker session', () => {
+  beforeEach(() => { openUserDb(PK) })
+
+  it('round-trips the NIP-46 client key and bunker pointer, and clears with the local key', async () => {
+    const { saveBunkerSession, loadBunkerSession } = await import('../lib/keyStore')
+    const clientSecretKey = generateSecretKey()
+    const bunker = { pubkey: 'b'.repeat(64), relays: ['wss://relay.example'], secret: 's3cret' }
+    await saveBunkerSession({ clientSecretKey, bunker })
+    const loaded = await loadBunkerSession()
+    expect(loaded && eq(loaded.clientSecretKey, clientSecretKey)).toBe(true)
+    expect(loaded?.bunker).toEqual(bunker)
+    await clearLocalKey()
+    expect(await loadBunkerSession()).toBeNull()
+  })
+})

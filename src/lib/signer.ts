@@ -1,4 +1,5 @@
 import { finalizeEvent, getPublicKey, nip04, nip44, type Event, type EventTemplate } from 'nostr-tools'
+import type { BunkerSigner } from 'nostr-tools/nip46'
 import { getNip07, type Nip07Provider } from './nip07'
 
 export interface SignerCaps {
@@ -7,7 +8,7 @@ export interface SignerCaps {
 }
 
 export interface Signer {
-  type: 'local' | 'nip07'
+  type: 'local' | 'nip07' | 'nip46'
   pubkey: string
   signEvent(t: EventTemplate): Promise<Event>
   nip04Encrypt(peer: string, plaintext: string): Promise<string>
@@ -98,6 +99,41 @@ export class Nip07Signer implements Signer {
   }
 }
 
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('Signer did not answer')), ms)
+    p.then(v => { clearTimeout(t); resolve(v) }, e => { clearTimeout(t); reject(e) })
+  })
+}
+
+// A request the signer app never answers (closed, offline) must fail rather
+// than leave a send or decrypt pending forever. Generous: the user may have to
+// approve the request in the signer app first.
+export const NIP46_REQUEST_TIMEOUT_MS = 60_000
+
+/** NIP-46 remote signer ("bunker"): every sign/encrypt call is a request to
+ *  the user's signer app over relays, so the key never touches this device. */
+export class Nip46Signer implements Signer {
+  readonly type = 'nip46' as const
+  readonly pubkey: string
+  readonly caps: SignerCaps = { nip04: true, nip44: true }
+  readonly bunker: BunkerSigner
+
+  private readonly timeoutMs: number
+
+  constructor(bunker: BunkerSigner, pubkey: string, timeoutMs = NIP46_REQUEST_TIMEOUT_MS) {
+    this.bunker = bunker
+    this.pubkey = pubkey
+    this.timeoutMs = timeoutMs
+  }
+
+  signEvent(t: EventTemplate): Promise<Event> { return withTimeout(this.bunker.signEvent(t), this.timeoutMs) }
+  nip04Encrypt(peer: string, plaintext: string): Promise<string> { return withTimeout(this.bunker.nip04Encrypt(peer, plaintext), this.timeoutMs) }
+  nip04Decrypt(peer: string, ciphertext: string): Promise<string> { return withTimeout(this.bunker.nip04Decrypt(peer, ciphertext), this.timeoutMs) }
+  nip44Encrypt(peer: string, plaintext: string): Promise<string> { return withTimeout(this.bunker.nip44Encrypt(peer, plaintext), this.timeoutMs) }
+  nip44Decrypt(peer: string, ciphertext: string): Promise<string> { return withTimeout(this.bunker.nip44Decrypt(peer, ciphertext), this.timeoutMs) }
+}
+
 let _signer: Signer | null = null
 
 export function getSigner(): Signer | null {
@@ -110,6 +146,7 @@ export function setSigner(s: Signer): void {
 
 export function clearSigner(): void {
   if (_signer instanceof LocalSigner) _signer.destroy()
+  if (_signer instanceof Nip46Signer) void _signer.bunker.close().catch(() => {})
   _signer = null
 }
 

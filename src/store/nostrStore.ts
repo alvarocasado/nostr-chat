@@ -15,7 +15,7 @@ import {
   setAuthMethod,
   clearAuthMethod,
 } from '../lib/userDb'
-import { saveLocalKey, clearLocalKey, hasLocalKey, keyProtection } from '../lib/keyStore'
+import { saveLocalKey, clearLocalKey, hasLocalKey, keyProtection, saveBunkerSession } from '../lib/keyStore'
 import { messageToRecord, recordToMessage } from '../lib/db'
 import { INITIAL_PAGE } from '../lib/pagination'
 import {
@@ -202,6 +202,8 @@ interface NostrState {
   loginFromNsec: (nsec: string) => Promise<boolean>
   loginFromHex: (hex: string) => Promise<boolean>
   loginWithExtension: () => Promise<boolean>
+  /** Returns null on success, or a message to show. */
+  loginWithBunker: (input: string, onAuthUrl?: (url: string) => void) => Promise<string | null>
   logout: () => Promise<void>
   updateProfile: (profile: Partial<NostrProfile>) => void
 
@@ -573,6 +575,29 @@ export const useNostrStore = create<NostrState>()(
             return true
           } catch {
             return false
+          }
+        },
+
+        loginWithBunker: async (input, onAuthUrl) => {
+          try {
+            // Loaded on demand: NIP-46 code is only needed by remote-signer users.
+            const { connectBunker } = await import('../lib/bunker')
+            const { signer, session } = await connectBunker(input, onAuthUrl)
+            setSigner(signer)
+            set({ signerCaps: signer.caps })
+            const pk = signer.pubkey
+            openUserDb(pk)
+            await clearLocalKey()
+            await saveBunkerSession(session)
+            const existing = await loadExistingUserState(pk)
+            if (existing.publicKey === pk) set(existing)
+            set({ publicKey: pk, npub: encodePubkey(pk), nsec: null, profile: existing.profile ?? { pubkey: pk } })
+            setActivePubkey(pk)
+            setAuthMethod('nip46')
+            syncFromRelays(get().relays).then(r => applySyncResult(r, set, get)).catch(() => {})
+            return null
+          } catch (e) {
+            return e instanceof Error && e.message ? e.message : 'Could not connect to the signer'
           }
         },
 

@@ -13,7 +13,7 @@ import { CallOverlay } from './components/Call/CallOverlay'
 import { GroupCallOverlay } from './components/Call/GroupCallOverlay'
 import { ProfileCard } from './components/Chat/ProfileCard'
 import { getActivePubkey, getAuthMethod, openUserDb, evictOldMessages } from './lib/userDb'
-import { loadLocalKey, keyProtection } from './lib/keyStore'
+import { loadLocalKey, keyProtection, loadBunkerSession } from './lib/keyStore'
 import { LocalSigner, Nip07Signer, setSigner, getSigner } from './lib/signer'
 import { encodeNsec } from './lib/nostr'
 import { hasNip07 } from './lib/nip07'
@@ -92,6 +92,19 @@ function App() {
     if (npub) setContactLinkNpub(npub)
   }, [])
 
+  async function acquireBunkerSigner() {
+    try {
+      const session = await loadBunkerSession()
+      if (!session) throw new Error('No bunker session')
+      const { restoreBunker } = await import('./lib/bunker')
+      setSigner(await restoreBunker(session))
+      useNostrStore.getState().setSignerCaps(getSigner()!.caps)
+      setNeedsReconnect(false)
+    } catch {
+      setNeedsReconnect(true)
+    }
+  }
+
   async function acquireNip07Signer() {
     if (hasNip07()) {
       try {
@@ -133,6 +146,9 @@ function App() {
         if (method === 'nip07') {
           await acquireNip07Signer()
         }
+        if (method === 'nip46') {
+          await acquireBunkerSigner()
+        }
       }
       setIsHydrating(false)
     }
@@ -154,7 +170,8 @@ function App() {
   if (needsReconnect) {
     return (
       <ReconnectScreen
-        onRetry={() => acquireNip07Signer()}
+        method={getAuthMethod() === 'nip46' ? 'nip46' : 'nip07'}
+        onRetry={() => getAuthMethod() === 'nip46' ? acquireBunkerSigner() : acquireNip07Signer()}
         onLogout={() => { useNostrStore.getState().logout(); setNeedsReconnect(false) }}
       />
     )
