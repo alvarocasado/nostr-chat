@@ -8,7 +8,8 @@ import { addGroupMember, removeGroupMember } from '../../lib/groupManage'
 
 export function GroupMembersModal({ group, onClose }: { group: Group; onClose: () => void }) {
   const { publicKey, profiles } = useNostrStore()
-  const isCreator = publicKey === group.creatorPubkey
+  // NIP-17 rooms have fixed members: changing them would make a new room.
+  const isCreator = publicKey === group.creatorPubkey && !group.nip17
   const [input, setInput] = useState('')
   const [confirming, setConfirming] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

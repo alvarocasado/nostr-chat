@@ -40,12 +40,27 @@ export interface UnwrappedDM {
 }
 
 export async function buildGiftWraps(recipientPubkey: string, content: string): Promise<GiftWrapResult> {
+  const { rumorId, createdAt, wraps, wrapForSelf } = await buildRumorWraps([recipientPubkey], content)
+  return { rumorId, createdAt, wrapForRecipient: wraps[0].event, wrapForSelf }
+}
+
+export interface RumorWraps {
+  rumorId: string
+  createdAt: number
+  /** One wrap per recipient, in the order given. */
+  wraps: { target: string; event: Event }[]
+  wrapForSelf: Event
+}
+
+/** One kind-14 rumor p-tagging every recipient (a NIP-17 room when more than
+ *  one), sealed and wrapped separately to each recipient and to ourselves. */
+export async function buildRumorWraps(recipients: string[], content: string, extraTags: string[][] = []): Promise<RumorWraps> {
   const signer = requireSigner()
   const createdAt = Math.floor(Date.now() / 1000)
   const rumor: UnsignedEvent = {
     kind: RUMOR_KIND,
     created_at: createdAt,
-    tags: [['p', recipientPubkey]],
+    tags: [...recipients.map(pk => ['p', pk]), ...extraTags],
     content,
     pubkey: signer.pubkey,
   }
@@ -70,12 +85,9 @@ export async function buildGiftWraps(recipientPubkey: string, content: string): 
     return wrap
   }
 
-  return {
-    rumorId,
-    createdAt,
-    wrapForRecipient: await wrapFor(recipientPubkey),
-    wrapForSelf: await wrapFor(signer.pubkey),
-  }
+  const wraps: { target: string; event: Event }[] = []
+  for (const target of recipients) wraps.push({ target, event: await wrapFor(target) })
+  return { rumorId, createdAt, wraps, wrapForSelf: await wrapFor(signer.pubkey) }
 }
 
 export async function unwrapGiftWrap(event: Event): Promise<UnwrappedDM | null> {
