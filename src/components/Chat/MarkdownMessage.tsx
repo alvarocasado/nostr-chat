@@ -121,11 +121,12 @@ const COMPONENTS_OTHER = buildComponents(false)
 interface MarkdownMessageProps {
   content: string
   isOwn: boolean
+  showPreview?: boolean
 }
 
-export function MarkdownMessage({ content, isOwn }: MarkdownMessageProps) {
+export function MarkdownMessage({ content, isOwn, showPreview = true }: MarkdownMessageProps) {
   if (!content) return null
-  const firstUrl = extractFirstUrl(content)
+  const firstUrl = showPreview ? extractFirstUrl(content) : null
 
   return (
     <div className="space-y-1">

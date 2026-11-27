@@ -11,6 +11,7 @@ import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData, 
 import { useNostrStore } from '../../store/nostrStore'
 import { useBlossomAttachment } from '../../hooks/useBlossomAttachment'
 import { aggregateReactions, REACTION_EMOJIS } from '../../lib/reactions'
+import { shouldShowLinkPreview } from '../../lib/linkPreview'
 
 interface MessageItemProps {
   message: Message
@@ -266,6 +267,9 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
   const { setViewingProfilePubkey } = useNostrStore()
   const deletion = useNostrStore(s => s.deletedMessages[message.id])
   const edit = useNostrStore(s => s.editedMessages[message.id])
+  const showPreview = useNostrStore(s => shouldShowLinkPreview(
+    s.linkPreviews, isOwn, s.contacts.some(c => c.pubkey === message.pubkey && !c.pending),
+  ))
   const isDeleted = deletion?.by === message.pubkey
   const isEdited = !!edit && edit.by === message.pubkey
   const readUntil = useNostrStore(s =>
@@ -485,7 +489,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
               <>
                 {replyTo && <QuoteBlock replyTo={replyTo} isOwn />}
                 {attachment && <AttachmentView attachment={attachment} isOwn />}
-                <MarkdownMessage content={text} isOwn={true} />
+                <MarkdownMessage content={text} isOwn={true} showPreview={showPreview} />
               </>
             )}
           </div>
@@ -518,7 +522,7 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
             {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
-            <MarkdownMessage content={text} isOwn={false} />
+            <MarkdownMessage content={text} isOwn={false} showPreview={showPreview} />
           </div>
           {replyBtn}
           {reactBtn}

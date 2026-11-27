@@ -14,6 +14,8 @@ vi.mock('../store/nostrStore', async (importOriginal) => {
       deletedMessages: {},
       editedMessages: {},
       reactions: {},
+      contacts: [],
+      linkPreviews: 'contacts',
       publicKey: null,
     }
     return selector ? selector(state) : state
