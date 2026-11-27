@@ -81,3 +81,15 @@ it('subscribes to kind-1059 gift wraps addressed to me when the signer can nip44
   const filters = subscribeEvents.mock.calls.map(c => c[1])
   expect(filters).toContainEqual(expect.objectContaining({ kinds: [1059], '#p': [PK] }))
 })
+
+it('reopens the inbox subscriptions when the network comes back', async () => {
+  installTestSigner()
+  useNostrStore.getState().setSignerCaps({ nip04: true, nip44: true })
+  render(<Probe />)
+  await waitFor(() => expect(subscribeEvents).toHaveBeenCalled())
+  const before = subscribeEvents.mock.calls.length
+
+  act(() => { window.dispatchEvent(new Event('online')) })
+
+  await waitFor(() => expect(subscribeEvents.mock.calls.length).toBe(before * 2))
+})

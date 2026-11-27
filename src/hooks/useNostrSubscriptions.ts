@@ -27,6 +27,7 @@ import {
 } from '../lib/inbox'
 import { GIFT_WRAP_KIND } from '../lib/giftWrap'
 import { useStableArray } from './useStableArray'
+import { useResyncTick } from './useResyncTick'
 import { useReadRelays } from './useRelays'
 import { usePeerRelays } from './usePeerRelays'
 import { combineRelays } from '../lib/peerRelays'
@@ -180,6 +181,10 @@ export function useGlobalInbox() {
   const stableRelays = useReadRelays()
   const stableJoined = useStableArray(joinedChannelIds)
   const groupIds = useStableArray(groups.map(g => g.id))
+  // Reopens every inbox subscription after the network returns or the app
+  // wakes, so relays that dropped or never connected are retried and missed
+  // events are backfilled (dedup keeps unread counts and notifications single).
+  const resyncTick = useResyncTick()
 
   // All DMs addressed to me
   useEffect(() => {
@@ -196,7 +201,7 @@ export function useGlobalInbox() {
     return () => sub.close()
     // signerCaps: restored sessions install the signer after rehydration; the
     // fresh caps object re-runs this effect so the inbox subscribes at all.
-  }, [publicKey, stableRelays, signerCaps])
+  }, [publicKey, stableRelays, signerCaps, resyncTick])
 
   // Gift-wrapped DMs (NIP-17). Wraps cannot be filtered by author (ephemeral
   // signing keys), so this single global subscription serves every chat; the
@@ -213,7 +218,7 @@ export function useGlobalInbox() {
       () => { live = true },
     )
     return () => sub.close()
-  }, [publicKey, stableRelays, signerCaps])
+  }, [publicKey, stableRelays, signerCaps, resyncTick])
 
   // All joined channels in one subscription
   useEffect(() => {
@@ -231,7 +236,7 @@ export function useGlobalInbox() {
       () => { live = true },
     )
     return () => sub.close()
-  }, [publicKey, stableJoined, stableRelays])
+  }, [publicKey, stableJoined, stableRelays, resyncTick])
 
   // All groups in one subscription; key looked up at event time so messages
   // flow as soon as a key arrives via invite or relay backup
@@ -252,7 +257,7 @@ export function useGlobalInbox() {
       () => { live = true },
     )
     return () => sub.close()
-  }, [publicKey, groupIds, stableRelays])
+  }, [publicKey, groupIds, stableRelays, resyncTick])
 }
 
 
