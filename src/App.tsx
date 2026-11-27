@@ -134,8 +134,6 @@ function App() {
       setIsHydrating(false)
     }
     bootstrap()
-  // acquireNip07Signer is stable (no deps) — safe to omit from dep array
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (isHydrating) {
