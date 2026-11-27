@@ -55,4 +55,12 @@ describe('Nip46Signer', () => {
     expect(await s.nip44Encrypt('d'.repeat(64), 'hi')).toBe('n44')
     expect(await s.nip04Decrypt('d'.repeat(64), 'x')).toBe('p04')
   })
+
+  it('fails a request the signer never answers instead of hanging', async () => {
+    const { Nip46Signer } = await import('../lib/signer')
+    const never = () => new Promise<string>(() => {})
+    const bunker = { nip44Decrypt: vi.fn(never), close: vi.fn(async () => {}) }
+    const s = new Nip46Signer(bunker as never, 'c'.repeat(64), 20)
+    await expect(s.nip44Decrypt('d'.repeat(64), 'x')).rejects.toThrow('Signer did not answer')
+  })
 })
