@@ -1,14 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import { X } from 'lucide-react'
 import { useNostrStore } from './store/nostrStore'
 import { LoginScreen } from './components/Auth/LoginScreen'
 import { UnlockScreen } from './components/Auth/UnlockScreen'
 import { Sidebar } from './components/Chat/Sidebar'
 import { MessageThread } from './components/Chat/MessageThread'
-import { SettingsScreen } from './components/Settings/SettingsScreen'
-import { AddChannelModal } from './components/Chat/AddChannelModal'
-import { AddContactModal } from './components/Chat/AddContactModal'
-import { AddGroupModal } from './components/Chat/AddGroupModal'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { CallProvider, useCallContext } from './contexts/CallContext'
 import { GroupCallProvider } from './contexts/GroupCallContext'
@@ -24,6 +20,13 @@ import { hasNip07 } from './lib/nip07'
 import { migratePlaintextKeyIfNeeded } from './lib/migrate'
 import { useGlobalInbox } from './hooks/useNostrSubscriptions'
 import { ReconnectScreen } from './components/Auth/ReconnectScreen'
+
+// Loaded on first use: Settings pulls in the QR generator and the contact
+// modal pulls in the QR scanner, neither needed to show the chat.
+const SettingsScreen = lazy(() => import('./components/Settings/SettingsScreen').then(m => ({ default: m.SettingsScreen })))
+const AddChannelModal = lazy(() => import('./components/Chat/AddChannelModal').then(m => ({ default: m.AddChannelModal })))
+const AddContactModal = lazy(() => import('./components/Chat/AddContactModal').then(m => ({ default: m.AddContactModal })))
+const AddGroupModal = lazy(() => import('./components/Chat/AddGroupModal').then(m => ({ default: m.AddGroupModal })))
 
 function IceFailureBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { iceConnFailed, dismissIceFailure } = useCallContext()
@@ -171,6 +174,7 @@ function App() {
       <GroupCallProvider>
         <div className="flex h-full w-full bg-gray-950 overflow-hidden pb-16 md:pb-0">
           <Sidebar />
+          <Suspense fallback={null}>
           {activeSettingsTab ? <SettingsScreen /> : <MessageThread />}
 
           {showAddChannel && (
@@ -185,6 +189,7 @@ function App() {
           {showAddGroup && (
             <AddGroupModal onClose={() => setShowAddGroup(false)} />
           )}
+          </Suspense>
           <UpdatePrompt />
         </div>
 
