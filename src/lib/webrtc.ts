@@ -48,12 +48,26 @@ export interface CallSignal {
   iceServers?: RTCIceServer[]
 }
 
+// NIP-44 call signals, rolled out in two steps: this release reads both
+// NIP-04 and NIP-44 signals; flip this once every client you call runs it,
+// since an older client can't read a NIP-44 offer and the call would never ring.
+export const SEND_NIP44_CALL_SIGNALS = false
+
+/** NIP-04 ciphertext is `base64?iv=base64`; NIP-44 is a single base64 payload. */
+export function isNip04Ciphertext(content: string): boolean {
+  return content.includes('?iv=')
+}
+
 export async function buildCallSignalEvent(
   recipientPubkey: string,
   signal: CallSignal,
+  useNip44 = SEND_NIP44_CALL_SIGNALS,
 ): Promise<Event> {
   const signer = requireSigner()
-  const encrypted = await signer.nip04Encrypt(recipientPubkey, JSON.stringify(signal))
+  const plain = JSON.stringify(signal)
+  const encrypted = useNip44 && signer.caps.nip44
+    ? await signer.nip44Encrypt(recipientPubkey, plain)
+    : await signer.nip04Encrypt(recipientPubkey, plain)
   return signer.signEvent({
     kind: CALL_SIGNAL_KIND,
     created_at: Math.floor(Date.now() / 1000),
@@ -135,7 +149,10 @@ export async function decryptCallSignal(
   content: string,
 ): Promise<CallSignal | null> {
   try {
-    const plain = await requireSigner().nip04Decrypt(senderPubkey, content)
+    const signer = requireSigner()
+    const plain = isNip04Ciphertext(content)
+      ? await signer.nip04Decrypt(senderPubkey, content)
+      : await signer.nip44Decrypt(senderPubkey, content)
     const obj = JSON.parse(plain) as unknown
     return isValidCallSignal(obj) ? obj : null
   } catch {
