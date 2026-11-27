@@ -292,3 +292,26 @@ describe('isStaleCallSignal', () => {
     expect(isStaleCallSignal(NOW_SEC + 300, NOW_MS)).toBe(false)
   })
 })
+
+// ─── NIP-44 call signals ─────────────────────────────────────────────────────
+
+describe('NIP-44 call signals', () => {
+  afterEach(() => clearSigner())
+
+  it('sends NIP-04 by default so current clients can still read offers', async () => {
+    installTestSigner(makeKeypair().sk)
+    const event = await buildCallSignalEvent(makeKeypair().pk, OFFER_SIGNAL)
+    expect(event.content).toContain('?iv=')
+  })
+
+  it('round-trips a NIP-44 signal', async () => {
+    const sender = makeKeypair()
+    const recipient = makeKeypair()
+    installTestSigner(sender.sk)
+    const event = await buildCallSignalEvent(recipient.pk, OFFER_SIGNAL, true)
+    expect(event.content).not.toContain('?iv=')
+    clearSigner()
+    installTestSigner(recipient.sk)
+    expect(await decryptCallSignal(sender.pk, event.content)).toEqual(OFFER_SIGNAL)
+  })
+})
