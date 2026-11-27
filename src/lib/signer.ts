@@ -1,4 +1,5 @@
 import { finalizeEvent, getPublicKey, nip04, nip44, type Event, type EventTemplate } from 'nostr-tools'
+import type { BunkerSigner } from 'nostr-tools/nip46'
 import { getNip07, type Nip07Provider } from './nip07'
 
 export interface SignerCaps {
@@ -7,7 +8,7 @@ export interface SignerCaps {
 }
 
 export interface Signer {
-  type: 'local' | 'nip07'
+  type: 'local' | 'nip07' | 'nip46'
   pubkey: string
   signEvent(t: EventTemplate): Promise<Event>
   nip04Encrypt(peer: string, plaintext: string): Promise<string>
@@ -98,6 +99,26 @@ export class Nip07Signer implements Signer {
   }
 }
 
+/** NIP-46 remote signer ("bunker"): every sign/encrypt call is a request to
+ *  the user's signer app over relays, so the key never touches this device. */
+export class Nip46Signer implements Signer {
+  readonly type = 'nip46' as const
+  readonly pubkey: string
+  readonly caps: SignerCaps = { nip04: true, nip44: true }
+  readonly bunker: BunkerSigner
+
+  constructor(bunker: BunkerSigner, pubkey: string) {
+    this.bunker = bunker
+    this.pubkey = pubkey
+  }
+
+  signEvent(t: EventTemplate): Promise<Event> { return this.bunker.signEvent(t) }
+  nip04Encrypt(peer: string, plaintext: string): Promise<string> { return this.bunker.nip04Encrypt(peer, plaintext) }
+  nip04Decrypt(peer: string, ciphertext: string): Promise<string> { return this.bunker.nip04Decrypt(peer, ciphertext) }
+  nip44Encrypt(peer: string, plaintext: string): Promise<string> { return this.bunker.nip44Encrypt(peer, plaintext) }
+  nip44Decrypt(peer: string, ciphertext: string): Promise<string> { return this.bunker.nip44Decrypt(peer, ciphertext) }
+}
+
 let _signer: Signer | null = null
 
 export function getSigner(): Signer | null {
@@ -110,6 +131,7 @@ export function setSigner(s: Signer): void {
 
 export function clearSigner(): void {
   if (_signer instanceof LocalSigner) _signer.destroy()
+  if (_signer instanceof Nip46Signer) void _signer.bunker.close().catch(() => {})
   _signer = null
 }
 

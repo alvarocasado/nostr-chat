@@ -68,7 +68,7 @@ export function SettingsScreen() {
   const [showRemoveCurrent, setShowRemoveCurrent] = useState(false)
 
   useEffect(() => {
-    if (activeSettingsTab === 'keys' && authMethod !== 'nip07') {
+    if (activeSettingsTab === 'keys' && authMethod !== 'nip07' && authMethod !== 'nip46') {
       keyProtection().then(setProtection)
     }
   }, [activeSettingsTab, authMethod])
@@ -325,14 +325,18 @@ export function SettingsScreen() {
           {/* Keys */}
           {activeSettingsTab === 'keys' && (
             <div className="space-y-4">
-              {authMethod === 'nip07' ? (
+              {authMethod === 'nip07' || authMethod === 'nip46' ? (
                 <div className="bg-gray-800 border border-gray-700 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-1">
                     <Key size={16} className="text-purple-400" />
-                    <span className="text-sm font-semibold text-white">Signed in with browser extension</span>
+                    <span className="text-sm font-semibold text-white">
+                      {authMethod === 'nip46' ? 'Signed in with a remote signer' : 'Signed in with browser extension'}
+                    </span>
                   </div>
                   <p className="text-gray-400 text-sm">
-                    Your key is managed by your Nostr browser extension. Passphrase controls and private key export are not available.
+                    {authMethod === 'nip46'
+                      ? 'Your key stays in your signer app (NIP-46). Passphrase controls and private key export are not available.'
+                      : 'Your key is managed by your Nostr browser extension. Passphrase controls and private key export are not available.'}
                   </p>
                 </div>
               ) : (
