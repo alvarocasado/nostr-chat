@@ -6,6 +6,7 @@ import { useNostrStore } from '../store/nostrStore'
 beforeEach(() => {
   useNostrStore.setState({
     readReceiptsEnabled: false,
+    linkPreviews: 'contacts',
     blockedPubkeys: [],
     profiles: {},
   })
@@ -20,4 +21,11 @@ it('toggles readReceiptsEnabled in the store', () => {
   render(<PrivacyTab />)
   fireEvent.click(screen.getByRole('switch'))
   expect(useNostrStore.getState().readReceiptsEnabled).toBe(true)
+})
+
+it('switches link previews off', () => {
+  render(<PrivacyTab />)
+  expect(screen.getByRole('radio', { name: 'Contacts only' })).toHaveAttribute('aria-checked', 'true')
+  fireEvent.click(screen.getByRole('radio', { name: 'Off' }))
+  expect(useNostrStore.getState().linkPreviews).toBe('off')
 })

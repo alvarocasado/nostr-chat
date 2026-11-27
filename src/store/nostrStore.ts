@@ -3,6 +3,7 @@ import { persist, createJSONStorage, type StorageValue } from 'zustand/middlewar
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools'
 import { encodeNsec, encodePubkey, type NostrProfile, DEFAULT_RELAYS } from '../lib/nostr'
 import { LocalSigner, Nip07Signer, setSigner, clearSigner, getSigner } from '../lib/signer'
+import type { LinkPreviewMode } from '../lib/linkPreview'
 import {
   openUserDb,
   closeUserDb,
@@ -177,6 +178,7 @@ interface NostrState {
   // ephemeral; this local copy is what survives reload (persisted like seenAt).
   readReceiptsEnabled: boolean
   readUntilByPeer: Record<string, number>
+  linkPreviews: LinkPreviewMode
 
   // Drafts (session-only, not persisted)
   drafts: Record<string, string>
@@ -222,6 +224,7 @@ interface NostrState {
   unblockPubkey: (pubkey: string) => void
 
   setReadReceiptsEnabled: (enabled: boolean) => void
+  setLinkPreviews: (mode: LinkPreviewMode) => void
   setPeerReadUntil: (peerPubkey: string, readUntil: number) => void
 
   setActiveChat: (id: string, type: ChatType) => void
@@ -360,6 +363,7 @@ export function applySyncResult(
         ...(s.blockedPubkeys !== undefined ? { blockedPubkeys: s.blockedPubkeys } : {}),
         ...(s.dismissedRequests !== undefined ? { dismissedRequests: s.dismissedRequests } : {}),
         ...(s.readReceiptsEnabled !== undefined ? { readReceiptsEnabled: s.readReceiptsEnabled } : {}),
+        ...(s.linkPreviews !== undefined ? { linkPreviews: s.linkPreviews } : {}),
         syncedSettingsAt: result.settings.createdAt,
       })
       if (s.callsSettings) {
@@ -447,7 +451,7 @@ export const useNostrStore = create<NostrState>()(
       const scheduleSettingsSync = () => {
         debounce('settings', () => {
           void (async () => {
-            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests, readReceiptsEnabled } = get()
+            const { notificationSettings, mutedChats, blockedPubkeys, dismissedRequests, readReceiptsEnabled, linkPreviews } = get()
             if (!getSigner()) return
             const now = Math.floor(Date.now() / 1000)
             const [turnMode, turnMetered, turnCustom] = await Promise.all([
@@ -466,7 +470,7 @@ export const useNostrStore = create<NostrState>()(
             }
             const wr = get().writeRelays()
             void Promise.all([
-              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests, readReceiptsEnabled }, wr),
+              publishAppSettings({ notificationSettings, mutedChats, callsSettings, blockedPubkeys, dismissedRequests, readReceiptsEnabled, linkPreviews }, wr),
               publishRelayList(wr, get().relays, get().relayModes),
             ]).then(() => set({ syncedSettingsAt: now })).catch(() => {})
           })()
@@ -509,6 +513,7 @@ export const useNostrStore = create<NostrState>()(
         dismissedRequests: {},
         readReceiptsEnabled: false,
         readUntilByPeer: {},
+        linkPreviews: 'contacts',
         drafts: {},
         seenAt: {},
         syncedSettingsAt: null,
@@ -591,6 +596,7 @@ export const useNostrStore = create<NostrState>()(
             signerCaps: { nip04: true, nip44: false },
             readReceiptsEnabled: false,
             readUntilByPeer: {},
+            linkPreviews: 'contacts',
             activeCallType: 'none',
           })
           clearSigner()
@@ -802,6 +808,11 @@ export const useNostrStore = create<NostrState>()(
 
         setReadReceiptsEnabled: (enabled) => {
           set({ readReceiptsEnabled: enabled })
+          scheduleSettingsSync()
+        },
+
+        setLinkPreviews: (mode) => {
+          set({ linkPreviews: mode })
           scheduleSettingsSync()
         },
 
@@ -1053,6 +1064,7 @@ export const useNostrStore = create<NostrState>()(
         dismissedRequests: state.dismissedRequests,
         readReceiptsEnabled: state.readReceiptsEnabled,
         readUntilByPeer: state.readUntilByPeer,
+        linkPreviews: state.linkPreviews,
         deletedMessages: state.deletedMessages,
         editedMessages: state.editedMessages,
       }),

@@ -1,3 +1,4 @@
+import type { LinkPreviewMode } from './linkPreview'
 import type { Event } from 'nostr-tools'
 import { fetchEvent, fetchEvents, publishEvent } from './nostr'
 import type { Contact, NotificationSettings } from '../store/nostrStore'
@@ -84,6 +85,7 @@ export interface SyncedSettings {
   blockedPubkeys?: string[]
   dismissedRequests?: Record<string, number>
   readReceiptsEnabled?: boolean
+  linkPreviews?: LinkPreviewMode
 }
 
 async function buildAppSettingsEvent(settings: SyncedSettings): Promise<Event> {
