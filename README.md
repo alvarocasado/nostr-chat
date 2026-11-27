@@ -8,21 +8,21 @@ A privacy-first chat app built on the Nostr protocol — DMs, encrypted groups, 
 
 ### Messaging
 
-- End-to-end encrypted DMs (NIP-04)
+- End-to-end encrypted DMs: NIP-17 gift wraps (NIP-44) with peers that support them, NIP-04 fallback for older clients
 - Public and private channels
-- Encrypted group chats with AES-256-GCM — group keys distributed via NIP-04 DMs
-- Reply/quote messages, draft persistence, unread message divider
+- Encrypted group chats with AES-256-GCM, member management and key rotation on removal
+- Reply/quote, reactions, edit/delete, mentions (NIP-27), opt-in read receipts, draft persistence, unread divider
 - Message send status (pending / delivered / failed with retry)
 
 ### Calls
 
-- WebRTC audio/video calls directly between users
+- WebRTC audio/video calls directly between users, plus group calls of up to 6
 - TURN server configuration with cross-device sync (NIP-78)
 - TURN credentials shared in the encrypted call offer — no extra setup for the callee
 
 ### Files & Media
 
-- File attachments up to 50 MB (chunked transfer over Nostr events)
+- File attachments via a configurable Blossom media server, encrypted on-device for DMs and groups, hash-verified on download
 - Shared media gallery with full-screen lightbox per conversation
 - Image, video, voice message, and generic file support
 
@@ -53,7 +53,7 @@ React 19 · TypeScript · Vite · Tailwind CSS · Zustand · Dexie.js · nostr-t
 ### Install & run
 
 ```bash
-git clone https://github.com/your-username/nostr-chat.git
+git clone https://github.com/alvarocasado/nostr-chat.git
 cd nostr-chat
 npm install
 npm run dev

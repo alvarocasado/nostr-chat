@@ -117,7 +117,11 @@ let pool: SimplePool | null = null
 
 export function getPool(): SimplePool {
   if (!pool) {
-    pool = new SimplePool()
+    // Without these, a relay socket that drops (network change, phone sleep,
+    // relay restart) closes every subscription on it for good, so live DMs
+    // stop arriving until a reload. Reconnect resubscribes with backoff;
+    // ping detects half-open sockets after a device wakes.
+    pool = new SimplePool({ enableReconnect: true, enablePing: true })
   }
   return pool
 }

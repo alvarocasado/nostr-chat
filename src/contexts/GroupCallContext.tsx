@@ -362,6 +362,9 @@ export function GroupCallProvider({ children }: { children: ReactNode }) {
       const type = mediaTypeRef.current
       const callId = callIdRef.current
       const event = await buildPresenceEvent(gid, key, callId, type)
+      // The user may have left while the event was being signed; don't
+      // announce presence in a call we're no longer in.
+      if (callIdRef.current !== callId) return
       void publishEvent(useNostrStore.getState().writeRelays(), event).catch(() => {})
       // Record our own heartbeat locally so our roster includes us immediately
       if (me) {

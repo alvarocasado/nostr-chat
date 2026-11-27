@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   generateKeys,
   encodeNsec,
@@ -122,5 +122,15 @@ describe('parseProfile', () => {
     const event = makeEvent('')
     const profile = parseProfile(event)
     expect(profile).toEqual({ pubkey: event.pubkey })
+  })
+})
+
+describe('getPool', () => {
+  it('reconnects dropped relays and pings to detect dead sockets', async () => {
+    // setup.ts mocks getPool globally; check the real one.
+    const { getPool } = await vi.importActual<typeof import('../lib/nostr')>('../lib/nostr')
+    const pool = getPool()
+    expect(pool.enableReconnect).toBe(true)
+    expect(pool.enablePing).toBe(true)
   })
 })
