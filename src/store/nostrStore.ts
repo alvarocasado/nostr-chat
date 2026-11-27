@@ -92,6 +92,12 @@ export interface Group {
   unread?: number
   mentions?: number
   removed?: boolean
+  /** NIP-17 room: no group key; members are fixed and every message is gift-wrapped to each. */
+  nip17?: boolean
+  /** created_at of the subject tag that set `name` (newest wins). */
+  subjectAt?: number
+  /** The name was typed here and not yet announced to the room as a subject. */
+  subjectPending?: boolean
 }
 
 export interface Message {

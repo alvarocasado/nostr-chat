@@ -12,13 +12,17 @@ import {
 } from '../../lib/nostr'
 import { sendPrivate } from '../../lib/privateSend'
 import { serializeGroupInvite } from '../../lib/groupMembership'
+import { roomIdFor, MAX_ROOM_SIZE } from '../../lib/nip17Room'
+import { fetchDmCaps } from '../../lib/dmCaps'
+import { getDisplayName } from '../../lib/fileUtils'
 
 interface AddGroupModalProps {
   onClose: () => void
 }
 
 export function AddGroupModal({ onClose }: AddGroupModalProps) {
-  const { publicKey, addGroup, setGroupKey, setActiveChat } = useNostrStore()
+  const { publicKey, addGroup, setGroupKey, setActiveChat, signerCaps } = useNostrStore()
+  const [privateRoom, setPrivateRoom] = useState(false)
   const [name, setName] = useState('')
   const [about, setAbout] = useState('')
   const [memberInput, setMemberInput] = useState('')
@@ -42,12 +46,53 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
     }
     if (pubkey === publicKey) { setError('You are already in the group'); return }
     if (memberPubkeys.includes(pubkey)) { setError('Already added'); return }
+    if (privateRoom && memberPubkeys.length + 1 >= MAX_ROOM_SIZE) {
+      setError(`Private groups are limited to ${MAX_ROOM_SIZE} people including you`)
+      return
+    }
     setMemberPubkeys(prev => [...prev, pubkey])
     setMemberInput('')
     setError('')
   }
 
+  // NIP-17 room: nothing to publish or invite; the first message creates it
+  // for everyone. Only check that each member can read gift wraps.
+  const handleCreateRoom = async () => {
+    if (!getSigner() || !publicKey) return
+    if (memberPubkeys.length < 2) { setError('Add at least two people (for one person, send a direct message)'); return }
+    if (memberPubkeys.length + 1 > MAX_ROOM_SIZE) { setError(`Private groups are limited to ${MAX_ROOM_SIZE} people including you`); return }
+    setCreating(true)
+    setError('')
+    try {
+      const { readRelays, profiles } = useNostrStore.getState()
+      const caps = await Promise.all(memberPubkeys.map(pk => fetchDmCaps(pk, readRelays())))
+      const missing = memberPubkeys.filter((_, i) => !caps[i].nip17)
+      if (missing.length > 0) {
+        setError(`${missing.map(pk => getDisplayName(profiles[pk], pk)).join(', ')} can't receive private group messages yet`)
+        return
+      }
+      const allMembers = [publicKey, ...memberPubkeys]
+      const roomId = await roomIdFor(allMembers)
+      addGroup({
+        id: roomId,
+        name: name.trim() || memberPubkeys.map(pk => getDisplayName(profiles[pk], pk)).join(', '),
+        creatorPubkey: publicKey,
+        memberPubkeys: allMembers,
+        relayUrl: '',
+        nip17: true,
+        ...(name.trim() && { subjectPending: true }),
+      })
+      setActiveChat(roomId, 'group')
+      onClose()
+    } catch {
+      setError('Failed to create group. Check relay connection.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   const handleCreate = async () => {
+    if (privateRoom) return handleCreateRoom()
     if (!name.trim()) { setError('Group name is required'); return }
     if (!getSigner() || !publicKey) return
     setCreating(true)
@@ -93,8 +138,24 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {signerCaps.nip44 && (
+            <label className="flex items-start gap-3 bg-gray-800/60 border border-gray-700 rounded-xl px-3 py-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={privateRoom}
+                onChange={e => { setPrivateRoom(e.target.checked); setError('') }}
+                className="mt-0.5 accent-purple-600"
+              />
+              <span className="text-sm">
+                <span className="block text-white font-medium">Private group (NIP-17)</span>
+                <span className="block text-gray-400 text-xs mt-0.5">
+                  Up to {MAX_ROOM_SIZE} people. Hides who's in it from relays and works with other NIP-17 apps. Members can't be changed later.
+                </span>
+              </span>
+            </label>
+          )}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Group name *</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">{privateRoom ? 'Group name' : 'Group name *'}</label>
             <input
               value={name}
               onChange={e => { setName(e.target.value); setError('') }}
@@ -102,7 +163,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
               className="w-full bg-gray-800 border border-gray-700 focus:border-purple-500/60 rounded-xl px-3 py-2.5 text-white text-sm outline-none transition-colors"
             />
           </div>
-          <div>
+          {!privateRoom && <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">Description</label>
             <input
               value={about}
@@ -110,7 +171,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
               placeholder="Optional"
               className="w-full bg-gray-800 border border-gray-700 focus:border-purple-500/60 rounded-xl px-3 py-2.5 text-white text-sm outline-none transition-colors"
             />
-          </div>
+          </div>}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">Add members</label>
             <div className="flex gap-2">
@@ -147,7 +208,7 @@ export function AddGroupModal({ onClose }: AddGroupModalProps) {
         <div className="px-4 py-4 border-t border-gray-800">
           <button
             onClick={handleCreate}
-            disabled={creating || !name.trim()}
+            disabled={creating || (!privateRoom && !name.trim())}
             className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
           >
             {creating ? <Loader2 size={16} className="animate-spin" /> : <Users size={16} />}

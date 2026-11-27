@@ -21,6 +21,7 @@ import { parseCallStartPayload } from './groupCall'
 import { parseCallLogPayload, callLogLabel } from './callLog'
 import { isMentioned } from './mentions'
 import { getUserDb } from './userDb'
+import { rumorParticipants, rumorSubject, roomIdFor, MAX_INCOMING_ROOM_SIZE } from './nip17Room'
 
 // Plaintext content limit (channels + decrypted DMs): covers inline attachments
 // up to the 150 KB INLINE_BASE64_THRESHOLD plus JSON wrapper overhead.
@@ -505,6 +506,12 @@ export async function processGiftWrap(event: Event, myPubkey: string, relays: st
   if (event.kind !== GIFT_WRAP_KIND) return
   const un = await unwrapGiftWrap(event)
   if (!un) return
+  // More than one other person on the rumor: a NIP-17 room, not a 1:1 DM.
+  const participants = rumorParticipants(un.senderPubkey, un.tags)
+  if (participants.filter(pk => pk !== myPubkey).length > 1) {
+    await routeRoomMessage(un, participants, myPubkey, relays, opts)
+    return
+  }
   // Sent copies come back addressed to me with me as sender; the chat peer is
   // then the rumor's p tag. Received messages: peer = sender.
   const peer = un.senderPubkey === myPubkey
@@ -563,4 +570,75 @@ export async function processGroupEvent(
   }
 
   ensureProfile(event.pubkey, relays)
+}
+
+/**
+ * Route an unwrapped rumor addressed to a NIP-17 room. A room we don't have
+ * yet is created only when we wrote to it (self copy from another device) or
+ * an accepted contact did; anything else is dropped as likely spam, because
+ * gift wraps carry no sender reputation.
+ */
+async function routeRoomMessage(
+  un: { senderPubkey: string; content: string; createdAt: number; rumorId: string; tags: string[][] },
+  participants: string[],
+  myPubkey: string,
+  relays: string[],
+  opts: ProcessOpts,
+): Promise<void> {
+  if (!participants.includes(myPubkey) || participants.length > MAX_INCOMING_ROOM_SIZE) return
+  const roomId = await roomIdFor(participants)
+  const srcEvent: SenderEvent = { id: un.rumorId, pubkey: un.senderPubkey, created_at: un.createdAt }
+
+  if (routeReaction(un.content, srcEvent)) return
+  if (routeMessageOp(un.content, srcEvent)) return
+
+  const state = useNostrStore.getState()
+  if (state.blockedPubkeys.includes(un.senderPubkey)) return
+  const existing = state.groups.find(g => g.id === roomId)
+  if (!existing) {
+    const fromContact = state.contacts.some(c => c.pubkey === un.senderPubkey && !c.pending)
+    if (un.senderPubkey !== myPubkey && !fromContact) return
+    const others = participants.filter(pk => pk !== myPubkey)
+    state.addGroup({
+      id: roomId,
+      name: others.map(pk => getDisplayName(state.profiles[pk], pk)).join(', '),
+      creatorPubkey: un.senderPubkey,
+      memberPubkeys: participants,
+      relayUrl: '',
+      nip17: true,
+    })
+  }
+
+  // Newest subject names the room (any member may change it).
+  const subject = rumorSubject(un.tags)
+  if (subject) {
+    useNostrStore.setState(s => ({
+      groups: s.groups.map(g => g.id === roomId && (g.subjectAt ?? 0) <= un.createdAt
+        ? { ...g, name: subject, subjectAt: un.createdAt, subjectPending: undefined }
+        : g),
+    }))
+  }
+
+  const sideEffects = claimSideEffects(un.rumorId) && !(await alreadyStored(un.rumorId))
+  useNostrStore.getState().addMessage(roomId, {
+    id: un.rumorId,
+    pubkey: un.senderPubkey,
+    content: un.content,
+    createdAt: un.createdAt,
+    tags: un.tags,
+    kind: RUMOR_KIND,
+    decrypted: true,
+  })
+  if (!sideEffects || un.senderPubkey === myPubkey) return
+
+  const { groups, profiles, updateGroupLastMessage } = useNostrStore.getState()
+  const preview = getPreviewText(un.content)
+  updateGroupLastMessage(roomId, preview, un.createdAt, isMentioned(myPubkey, un.content, un.tags), {
+    incrementUnread: shouldCountUnread(roomId, un.createdAt, opts.live),
+  })
+  if (opts.live) {
+    const roomName = groups.find(g => g.id === roomId)?.name || 'Group'
+    fireNotification(roomId, 'channel', roomName, `${getDisplayName(profiles[un.senderPubkey], un.senderPubkey)}: ${preview}`)
+  }
+  ensureProfile(un.senderPubkey, relays)
 }

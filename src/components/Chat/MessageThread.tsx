@@ -16,7 +16,9 @@ import {
 } from '../../hooks/useNostrSubscriptions'
 import { useChatThread } from '../../hooks/useChatThread'
 import { buildChannelMessageEvent, buildGroupMessageEvent } from '../../lib/nostr'
-import { buildPrivateSend } from '../../lib/privateSend'
+import { buildPrivateSend, publishPrivateSend } from '../../lib/privateSend'
+import { buildRoomSend, isRoomId } from '../../lib/nip17Room'
+import { serializeReaction } from '../../lib/reactions'
 import { getPeerRelays, combineRelays } from '../../lib/peerRelays'
 import { encryptWithGroupKey } from '../../lib/groupCrypto'
 import { MessageList } from './MessageList'
@@ -150,10 +152,11 @@ function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGaller
               aria-label="Members"
               className="text-xs text-gray-500 hover:text-gray-300 hover:underline transition-colors"
             >
-              {group ? `${group.memberPubkeys.length} members · encrypted` : 'Encrypted group'}
+              {group ? `${group.memberPubkeys.length} members · ${group.nip17 ? 'private (NIP-17)' : 'encrypted'}` : 'Encrypted group'}
             </button>
           </div>
         </div>
+        {!group?.nip17 && (<>
         <button
           onClick={() => startOrJoin(groupId, liveCall?.mediaType ?? 'audio')}
           disabled={joinState !== 'can-join'}
@@ -170,6 +173,7 @@ function GroupHeader({ groupId, onOpenGallery }: { groupId: string; onOpenGaller
         >
           <Video size={18} />
         </button>
+        </>)}
         <button
           onClick={onOpenGallery}
           className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
@@ -702,6 +706,54 @@ function GroupThread({ groupId }: { groupId: string }) {
   )
 }
 
+// NIP-17 room: every send (messages, reactions, edits, deletes) is a gift
+// wrap to each member, so there is no group key, call or member management.
+function RoomThread({ group }: { group: Group }) {
+  const { publicKey, messages, profiles, targetMessageId, signerCaps } = useNostrStore()
+  const roomId = group.id
+  const members = group.memberPubkeys
+
+  const sendRoom = async (content: string) => publishPrivateSend(await buildRoomSend(members, content))
+  const thread = useChatThread(roomId, {
+    canAct: () => signerCaps.nip44,
+    targetRelays: () => [],
+    sendContent: sendRoom,
+    sendReaction: (t, e, o) => sendRoom(serializeReaction(t, e, o)),
+  })
+
+  const handleSend = async (content: string) => {
+    if (!thread.guarded()) return
+    // Announce a name typed here once; the self copy coming back clears the flag.
+    const ps = await buildRoomSend(members, content, group.subjectPending ? group.name : undefined)
+    await thread.publishPrivate(ps, { content, decrypted: true })
+  }
+
+  return (
+    <>
+      <GroupHeader groupId={roomId} onOpenGallery={() => thread.setShowGallery(true)} />
+      {thread.showGallery ? (
+        <MediaGallery messages={messages[roomId] || []} onClose={() => thread.setShowGallery(false)} />
+      ) : (
+        <>
+          <MessageList chatId={roomId} chatType="group" messages={messages[roomId] || []} myPubkey={publicKey || ''} profiles={profiles} onReply={thread.setReplyTo} onRetry={thread.handleRetry} onReact={thread.handleReact} onEdit={thread.handleEdit} onDelete={thread.handleDelete} dividerTimestamp={thread.dividerTimestamp} targetMessageId={targetMessageId ?? undefined} />
+          {signerCaps.nip44 ? (
+            <MessageInput chatId={roomId} chatType="group" onSend={handleSend} onTyping={() => {}} placeholder="Private message to the group…" replyTo={thread.replyTo} onCancelReply={() => thread.setReplyTo(null)} />
+          ) : (
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800">
+              <p className="flex-1 text-sm text-gray-400">Your signer does not support private group messages</p>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
+function GroupOrRoomThread({ groupId }: { groupId: string }) {
+  const room = useNostrStore(s => isRoomId(groupId) ? s.groups.find(g => g.id === groupId) : undefined)
+  return room ? <RoomThread group={room} /> : <GroupThread groupId={groupId} />
+}
+
 export function MessageThread() {
   const { activeChatId, activeChatType } = useNostrStore()
 
@@ -728,7 +780,7 @@ export function MessageThread() {
       {activeChatType === 'channel' ? (
         <ChannelThread key={activeChatId} channelId={activeChatId} />
       ) : activeChatType === 'group' ? (
-        <GroupThread key={activeChatId} groupId={activeChatId} />
+        <GroupOrRoomThread key={activeChatId} groupId={activeChatId} />
       ) : (
         <DMThread key={activeChatId} theirPubkey={activeChatId} />
       )}

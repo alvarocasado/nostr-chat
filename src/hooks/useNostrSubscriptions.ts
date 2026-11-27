@@ -180,7 +180,8 @@ export function useGlobalInbox() {
   const { publicKey, joinedChannelIds, groups, signerCaps } = useNostrStore()
   const stableRelays = useReadRelays()
   const stableJoined = useStableArray(joinedChannelIds)
-  const groupIds = useStableArray(groups.map(g => g.id))
+  // NIP-17 rooms arrive through the gift-wrap subscription, not by group id.
+  const groupIds = useStableArray(groups.filter(g => !g.nip17).map(g => g.id))
   // Reopens every inbox subscription after the network returns or the app
   // wakes, so relays that dropped or never connected are retried and missed
   // events are backfilled (dedup keeps unread counts and notifications single).

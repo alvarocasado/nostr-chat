@@ -11,6 +11,7 @@ A privacy-first chat app built on the Nostr protocol — DMs, encrypted groups, 
 - End-to-end encrypted DMs: NIP-17 gift wraps (NIP-44) with peers that support them, NIP-04 fallback for older clients
 - Public and private channels
 - Encrypted group chats with AES-256-GCM, member management and key rotation on removal
+- Private NIP-17 group chats for up to 10 people: no group key or admin, membership hidden from relays, readable by other NIP-17 apps
 - Reply/quote, reactions, edit/delete, mentions (NIP-27), opt-in read receipts, draft persistence, unread divider
 - Message send status (pending / delivered / failed with retry)
 
