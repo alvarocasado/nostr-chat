@@ -17,6 +17,23 @@ const sampleAttachment: AttachmentData = {
 }
 
 describe('parseMessageContent', () => {
+  it('drops an inline attachment whose data is not a data: URL', () => {
+    const c = JSON.stringify({ text: '', attachment: { name: 'cat.jpg', type: 'image/jpeg', size: 1, data: 'https://tracker.example/cat.jpg' } })
+    expect(parseMessageContent(c).attachment).toBeNull()
+  })
+
+  it('drops a remote attachment whose url is not https', () => {
+    const c = JSON.stringify({ text: 'hi', attachment: { name: 'a.pdf', type: 'application/pdf', size: 1, url: 'javascript:alert(1)' } })
+    expect(parseMessageContent(c).attachment).toBeNull()
+  })
+
+  it('keeps data: and https: attachments', () => {
+    const inline = JSON.stringify({ text: '', attachment: { name: 'a.png', type: 'image/png', size: 1, data: 'data:image/png;base64,AAAA' } })
+    const remote = JSON.stringify({ text: '', attachment: { name: 'a.png', type: 'image/png', size: 1, url: 'https://files.example/H' } })
+    expect(parseMessageContent(inline).attachment?.data).toBe('data:image/png;base64,AAAA')
+    expect(parseMessageContent(remote).attachment?.url).toBe('https://files.example/H')
+  })
+
   it('returns plain text for a normal message', () => {
     const result = parseMessageContent('hello world')
     expect(result.text).toBe('hello world')

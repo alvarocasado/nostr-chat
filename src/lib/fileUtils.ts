@@ -78,11 +78,19 @@ export function encodeFile(file: File): Promise<string> {
 export function parseMessageContent(content: string): ParsedMessage {
   try {
     const parsed = JSON.parse(content)
-    const hasAttachment = !!(parsed?.attachment?.data || parsed?.attachment?.url)
+    const att = parsed?.attachment
+    // Senders write these fields: inline bytes must be a data: URL and remote
+    // files https:, or an <img> or the download button would load or open any
+    // address they put there.
+    if (att && typeof att === 'object') {
+      if (typeof att.data !== 'string' || !att.data.startsWith('data:')) delete att.data
+      if (typeof att.url !== 'string' || !att.url.startsWith('https://')) delete att.url
+    }
+    const hasAttachment = !!(att?.data || att?.url)
     if (parsed && typeof parsed === 'object' && (hasAttachment || parsed.replyTo)) {
       return {
         text: parsed.text ?? '',
-        attachment: hasAttachment ? parsed.attachment as AttachmentData : null,
+        attachment: hasAttachment ? att as AttachmentData : null,
         replyTo: parsed.replyTo ?? undefined,
       }
     }
