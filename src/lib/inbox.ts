@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools'
 import { decryptDM, fetchEvent, parseProfile, buildGroupKeyBackupEvent, publishEvent } from './nostr'
-import { decryptWithGroupKeys } from './groupCrypto'
+import { decryptWithGroupKey, decryptWithGroupKeys } from './groupCrypto'
 import { unwrapGiftWrap, GIFT_WRAP_KIND, RUMOR_KIND } from './giftWrap'
 import { parseGroupRekeyPayload, parseGroupRemovePayload, parseMembersPayload, isHex64 } from './groupMembership'
 import { useNostrStore, type Message, type Group } from '../store/nostrStore'
@@ -534,12 +534,27 @@ export async function processGroupEvent(
   opts: ProcessOpts,
 ): Promise<void> {
   let plaintext: string
+  let retiredKey = false
   try {
-    plaintext = await decryptWithGroupKeys(event.content, groupKeys)
+    plaintext = await decryptWithGroupKey(event.content, groupKeys[0])
   } catch {
-    return // decryption failed — skip
+    try {
+      plaintext = await decryptWithGroupKeys(event.content, groupKeys.slice(1))
+      retiredKey = true
+    } catch {
+      return // decryption failed — skip
+    }
   }
   if (plaintext.length > MAX_CONTENT_LEN) return
+  // A removed member still holds the keys from before their removal. Old
+  // history under a retired key stays readable, but a non-member posting
+  // under one after the rotation is someone who was removed.
+  if (retiredKey) {
+    const state = useNostrStore.getState()
+    const group = state.groups.find(g => g.id === groupId)
+    const rotatedAt = state.groupKeyRotatedAt[groupId] ?? 0
+    if (group && event.created_at > rotatedAt && !group.memberPubkeys.includes(event.pubkey)) return
+  }
 
   // Route reaction / edit / delete control messages; not shown as messages
   if (routeReaction(plaintext, event)) return

@@ -125,6 +125,18 @@ describe('members control in group transport', () => {
     expect((useNostrStore.getState().messages[GROUP] ?? [])[0]?.content).toBe('old epoch text')
   })
 
+  it('drops a removed member posting under a retired key after the rotation', async () => {
+    useNostrStore.setState({ groupKeyRotatedAt: { [GROUP]: 150 } })
+    const late = await groupEvent('still here', OLD_KEY, MALLORY, 200)
+    await processGroupEvent(late, GROUP, [NEW_KEY, OLD_KEY], RELAYS, { live: true })
+    expect(useNostrStore.getState().messages[GROUP] ?? []).toHaveLength(0)
+
+    // Their history from before the removal stays readable.
+    const before = await groupEvent('from before', OLD_KEY, MALLORY, 100)
+    await processGroupEvent(before, GROUP, [NEW_KEY, OLD_KEY], RELAYS, { live: false })
+    expect((useNostrStore.getState().messages[GROUP] ?? [])[0]?.content).toBe('from before')
+  })
+
   it('keeps the newer member list when a stale members control replays', async () => {
     const fresh = await groupEvent(serializeMembers([CREATOR, ME]), OLD_KEY, CREATOR, 200)
     await processGroupEvent(fresh, GROUP, [OLD_KEY], RELAYS, { live: true })
