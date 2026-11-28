@@ -276,3 +276,21 @@ describe('stale signal gate', () => {
     expect(screen.getByTestId('state').textContent).toBe('idle')
   })
 })
+
+describe('blocked callers', () => {
+  it('a call-offer from a blocked pubkey does not ring', async () => {
+    useNostrStore.setState({ blockedPubkeys: [PEER] })
+    render(<CallProvider><Probe /></CallProvider>)
+    const myPk = getSigner()!.pubkey
+    const content = await nip04.encrypt(peerSk, myPk, JSON.stringify({
+      type: 'call-offer', callId: 'blk1', mediaType: 'audio', sdp: 'offer-sdp',
+    }))
+    const event = finalizeEvent(
+      { kind: CALL_SIGNAL_KIND, created_at: Math.floor(Date.now() / 1000), tags: [['p', myPk]], content },
+      peerSk,
+    )
+    await act(async () => { subCallbacks.forEach(cb => cb(event)) })
+    expect(screen.getByTestId('state').textContent).toBe('idle')
+    useNostrStore.setState({ blockedPubkeys: [] })
+  })
+})

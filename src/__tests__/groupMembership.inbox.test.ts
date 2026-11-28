@@ -161,3 +161,12 @@ describe('group_invite re-invite (I2)', () => {
     expect(useNostrStore.getState().groupKeys[GROUP]).toBe(OLD_KEY)
   })
 })
+
+describe('blocked senders', () => {
+  it('ignores a group invite from a blocked pubkey', async () => {
+    useNostrStore.setState({ blockedPubkeys: [MALLORY] })
+    stagedPlaintext = serializeGroupInvitePayload('spam-group', NEW_KEY, 'Free coins', [MALLORY, ME])
+    await processDMEvent(dmEvent(MALLORY), ME, RELAYS, { live: true })
+    expect(useNostrStore.getState().groups.map(g => g.id)).toEqual([GROUP])
+  })
+})

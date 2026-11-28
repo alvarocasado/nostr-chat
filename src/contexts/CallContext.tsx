@@ -432,6 +432,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (isGroupSignal(signal)) return  // group engine owns these
 
     if (signal.type === 'call-offer') {
+      // A blocked caller neither rings nor learns we're busy.
+      if (useNostrStore.getState().blockedPubkeys.includes(senderPubkey)) return
       if (shouldReplyBusy(callStateRef.current === 'idle', useNostrStore.getState().activeCallType)) {
         await sendSignal(senderPubkey, { type: 'call-end', callId: signal.callId, reason: 'busy' })
         return
