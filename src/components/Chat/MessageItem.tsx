@@ -11,7 +11,7 @@ import { parseMessageContent, formatBytes, getDisplayName, type AttachmentData, 
 import { useNostrStore } from '../../store/nostrStore'
 import { useBlossomAttachment } from '../../hooks/useBlossomAttachment'
 import { aggregateReactions, REACTION_EMOJIS } from '../../lib/reactions'
-import { shouldShowLinkPreview } from '../../lib/linkPreview'
+import { shouldShowLinkPreview, shouldAutoLoadMedia } from '../../lib/linkPreview'
 
 interface MessageItemProps {
   message: Message
@@ -81,6 +81,10 @@ function fileIcon(type: string) {
   if (type.startsWith('audio/')) return <Music size={20} className="text-green-400" />
   if (type === 'application/pdf') return <FileText size={20} className="text-red-400" />
   return <File size={20} className="text-gray-400" />
+}
+
+function hostOf(url: string): string {
+  try { return new URL(url).hostname } catch { return 'an outside server' }
 }
 
 function handleDownload(attachment: AttachmentData) {
@@ -186,8 +190,24 @@ function RemoteAttachmentView({ attachment, isOwn }: { attachment: AttachmentDat
   )
 }
 
-function AttachmentView({ attachment, isOwn }: { attachment: AttachmentData; isOwn: boolean }) {
+function AttachmentView({ attachment, isOwn, autoLoad = true }: { attachment: AttachmentData; isOwn: boolean; autoLoad?: boolean }) {
+  const [load, setLoad] = useState(autoLoad)
   if (!attachment.data && attachment.url) {
+    if (!load) {
+      return (
+        <button
+          onClick={() => setLoad(true)}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-gray-600/40 bg-gray-700/40 w-full text-left"
+        >
+          {fileIcon(attachment.type)}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">{attachment.name}</p>
+            <p className="text-xs text-gray-400 truncate">Tap to load from {hostOf(attachment.url)}</p>
+          </div>
+          <Download size={16} className="text-gray-400 flex-shrink-0" />
+        </button>
+      )
+    }
     return <RemoteAttachmentView attachment={attachment} isOwn={isOwn} />
   }
   if (attachment.type.startsWith('image/')) {
@@ -268,6 +288,9 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
   const deletion = useNostrStore(s => s.deletedMessages[message.id])
   const edit = useNostrStore(s => s.editedMessages[message.id])
   const showPreview = useNostrStore(s => shouldShowLinkPreview(
+    s.linkPreviews, isOwn, s.contacts.some(c => c.pubkey === message.pubkey && !c.pending),
+  ))
+  const loadMedia = useNostrStore(s => shouldAutoLoadMedia(
     s.linkPreviews, isOwn, s.contacts.some(c => c.pubkey === message.pubkey && !c.pending),
   ))
   const isDeleted = deletion?.by === message.pubkey
@@ -521,8 +544,8 @@ export function MessageItem({ message, profile, isOwn, showAvatar, onReply, onRe
             className="bg-[#13131f] border border-[#1e1e30] rounded-[18px] rounded-bl-[4px] px-4 py-2.5 flex flex-col gap-2 min-w-0 overflow-hidden"
           >
             {replyTo && <QuoteBlock replyTo={replyTo} isOwn={false} />}
-            {attachment && <AttachmentView attachment={attachment} isOwn={false} />}
-            <MarkdownMessage content={text} isOwn={false} showPreview={showPreview} />
+            {attachment && <AttachmentView attachment={attachment} isOwn={false} autoLoad={loadMedia} />}
+            <MarkdownMessage content={text} isOwn={false} showPreview={showPreview} loadImages={loadMedia} />
           </div>
           {replyBtn}
           {reactBtn}

@@ -7,3 +7,10 @@ export function shouldShowLinkPreview(mode: LinkPreviewMode, isOwn: boolean, sen
   if (mode === 'off') return false
   return mode === 'all' || isOwn || senderIsContact
 }
+
+// Images in a message and off-relay attachments load straight from whatever
+// host the sender chose, which also reveals the viewer's IP. Own and contacts'
+// messages load them; strangers' only when previews are set to 'all'.
+export function shouldAutoLoadMedia(mode: LinkPreviewMode, isOwn: boolean, senderIsContact: boolean): boolean {
+  return isOwn || senderIsContact || mode === 'all'
+}
