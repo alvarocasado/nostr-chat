@@ -50,7 +50,7 @@ function MentionChip({ token, isOwn }: { token: string; isOwn: boolean }) {
   )
 }
 
-function buildComponents(isOwn: boolean): Components {
+function buildComponents(isOwn: boolean, loadImages: boolean): Components {
   const linkClass = isOwn
     ? 'underline text-purple-200 hover:text-white'
     : 'underline text-purple-400 hover:text-purple-300'
@@ -111,20 +111,26 @@ function buildComponents(isOwn: boolean): Components {
     h2: ({ children }) => <p className="text-base font-semibold">{children}</p>,
     h3: ({ children }) => <p className="text-sm font-semibold">{children}</p>,
     hr: () => <hr className="border-current opacity-20 my-1" />,
+    // Don't fetch a stranger's image on render: show it as a link instead.
+    img: ({ src, alt }) => loadImages
+      ? <img src={src} alt={alt ?? ''} className="max-w-full rounded-lg" />
+      : <a href={src} target="_blank" rel="noopener noreferrer" className={`${linkClass} break-all`}>{alt || 'image'}</a>,
   }
 }
 
-// Built once at module load — isOwn only has two states
-const COMPONENTS_OWN   = buildComponents(true)
-const COMPONENTS_OTHER = buildComponents(false)
+// Built once at module load — isOwn and loadImages only have four states
+const COMPONENTS_OWN          = buildComponents(true, true)
+const COMPONENTS_OTHER        = buildComponents(false, true)
+const COMPONENTS_OTHER_NO_IMG = buildComponents(false, false)
 
 interface MarkdownMessageProps {
   content: string
   isOwn: boolean
   showPreview?: boolean
+  loadImages?: boolean
 }
 
-export function MarkdownMessage({ content, isOwn, showPreview = true }: MarkdownMessageProps) {
+export function MarkdownMessage({ content, isOwn, showPreview = true, loadImages = true }: MarkdownMessageProps) {
   if (!content) return null
   const firstUrl = showPreview ? extractFirstUrl(content) : null
 
@@ -133,7 +139,7 @@ export function MarkdownMessage({ content, isOwn, showPreview = true }: Markdown
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[[rehypeSanitize, SANITIZE_SCHEMA]]}
-        components={isOwn ? COMPONENTS_OWN : COMPONENTS_OTHER}
+        components={isOwn ? COMPONENTS_OWN : loadImages ? COMPONENTS_OTHER : COMPONENTS_OTHER_NO_IMG}
       >
         {linkifyMentions(content)}
       </ReactMarkdown>

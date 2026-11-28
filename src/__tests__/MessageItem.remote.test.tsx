@@ -1,6 +1,7 @@
-import { it, expect, vi } from 'vitest'
+import { it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { Message } from '../store/nostrStore'
+import { useNostrStore } from '../store/nostrStore'
 
 const useBlossomAttachment = vi.fn()
 vi.mock('../hooks/useBlossomAttachment', () => ({
@@ -16,6 +17,9 @@ function msg(): Message {
   return { id: 'm1', pubkey: 'them'.padEnd(64, '1'), content: JSON.stringify(remoteImg), createdAt: 1000, tags: [], kind: 42 }
 }
 const noop = () => {}
+
+// The sender is a contact, so the file loads without a tap.
+beforeEach(() => { useNostrStore.setState({ contacts: [{ pubkey: 'them'.padEnd(64, '1') }] }) })
 
 it('shows a loading state while a remote attachment resolves', () => {
   useBlossomAttachment.mockReturnValue({ status: 'loading', objectUrl: null, retry: noop })
