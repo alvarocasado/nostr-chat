@@ -102,7 +102,9 @@ function finishTransfer(t: IncomingTransfer) {
   const dataUrl = reconstructDataUrl(t.mime, t.chunks, t.totalChunks)
   const content = serializeMessage('', { name: t.name, type: t.mime, size: t.size, data: dataUrl })
   addMessage(t.chatId, {
-    id: `transfer-${t.transferId}`,
+    // Keep the message id the bare transfer id (routeTransfer prefixes the
+    // map key with chat and sender) so already-stored files don't duplicate.
+    id: `transfer-${t.transferId.slice(t.transferId.lastIndexOf(':') + 1)}`,
     pubkey: t.senderPubkey,
     content,
     createdAt: t.createdAt,

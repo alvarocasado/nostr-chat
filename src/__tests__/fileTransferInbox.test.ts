@@ -33,6 +33,7 @@ describe('chunked file transfers', () => {
     const msgs = useNostrStore.getState().messages[CHANNEL]
     expect(msgs).toHaveLength(1)
     expect(msgs[0].pubkey).toBe(ALICE)
+    expect(msgs[0].id).toBe('transfer-t1')
     expect(msgs[0].content).toContain('QUxJQ0U=')
   })
 
