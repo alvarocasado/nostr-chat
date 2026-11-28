@@ -187,10 +187,13 @@ async function routeCallStart(content: string, groupId: string, event: Event, li
 }
 
 function routeTransfer(transfer: FileTransferPayload, chatId: string, event: SenderEvent): void {
+  // Key by chat + sender too: transfer ids are visible in public channels, so
+  // keyed by id alone anyone could slip their own chunks into someone else's file.
+  const key = `${chatId}:${event.pubkey}:${transfer.transferId}`
   if (transfer.type === 'file_start') {
-    handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
+    handleFileStart(key, transfer, chatId, event.pubkey, event.created_at)
   } else {
-    const completed = handleFileChunk(transfer.transferId, transfer.index, transfer.data)
+    const completed = handleFileChunk(key, transfer.index, transfer.data)
     if (completed) finishTransfer(completed)
   }
 }
