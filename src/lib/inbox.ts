@@ -383,6 +383,10 @@ interface PrivatePayload {
  */
 async function routePrivatePayload(p: PrivatePayload, myPubkey: string, relays: string[], opts: ProcessOpts): Promise<void> {
   const srcEvent: SenderEvent = { id: p.id, pubkey: p.senderPubkey, created_at: p.createdAt }
+  const incoming = p.senderPubkey !== myPubkey
+
+  // Blocked senders get nothing through: not files, invites, reactions or edits.
+  if (incoming && useNostrStore.getState().blockedPubkeys.includes(p.senderPubkey)) return
 
   // Route file-transfer control messages
   const transfer = parseTransferPayload(p.plaintext)
@@ -419,10 +423,8 @@ async function routePrivatePayload(p: PrivatePayload, myPubkey: string, relays: 
   const callLog = parseCallLogPayload(p.plaintext)
 
   // Request gate (incoming only)
-  const incoming = p.senderPubkey !== myPubkey
   if (incoming) {
-    const { blockedPubkeys, dismissedRequests } = useNostrStore.getState()
-    if (blockedPubkeys.includes(p.peer)) return
+    const { dismissedRequests } = useNostrStore.getState()
     const dismissedAt = dismissedRequests[p.peer]
     if (dismissedAt !== undefined && p.createdAt <= dismissedAt) return
   }
@@ -588,12 +590,11 @@ async function routeRoomMessage(
   if (!participants.includes(myPubkey) || participants.length > MAX_INCOMING_ROOM_SIZE) return
   const roomId = await roomIdFor(participants)
   const srcEvent: SenderEvent = { id: un.rumorId, pubkey: un.senderPubkey, created_at: un.createdAt }
+  const state = useNostrStore.getState()
+  if (state.blockedPubkeys.includes(un.senderPubkey)) return
 
   if (routeReaction(un.content, srcEvent)) return
   if (routeMessageOp(un.content, srcEvent)) return
-
-  const state = useNostrStore.getState()
-  if (state.blockedPubkeys.includes(un.senderPubkey)) return
   const existing = state.groups.find(g => g.id === roomId)
   if (!existing) {
     const fromContact = state.contacts.some(c => c.pubkey === un.senderPubkey && !c.pending)
