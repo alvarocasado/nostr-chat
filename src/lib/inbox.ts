@@ -102,7 +102,9 @@ function finishTransfer(t: IncomingTransfer) {
   const dataUrl = reconstructDataUrl(t.mime, t.chunks, t.totalChunks)
   const content = serializeMessage('', { name: t.name, type: t.mime, size: t.size, data: dataUrl })
   addMessage(t.chatId, {
-    id: `transfer-${t.transferId}`,
+    // Keep the message id the bare transfer id (routeTransfer prefixes the
+    // map key with chat and sender) so already-stored files don't duplicate.
+    id: `transfer-${t.transferId.slice(t.transferId.lastIndexOf(':') + 1)}`,
     pubkey: t.senderPubkey,
     content,
     createdAt: t.createdAt,
@@ -187,10 +189,13 @@ async function routeCallStart(content: string, groupId: string, event: Event, li
 }
 
 function routeTransfer(transfer: FileTransferPayload, chatId: string, event: SenderEvent): void {
+  // Key by chat + sender too: transfer ids are visible in public channels, so
+  // keyed by id alone anyone could slip their own chunks into someone else's file.
+  const key = `${chatId}:${event.pubkey}:${transfer.transferId}`
   if (transfer.type === 'file_start') {
-    handleFileStart(transfer.transferId, transfer, chatId, event.pubkey, event.created_at)
+    handleFileStart(key, transfer, chatId, event.pubkey, event.created_at)
   } else {
-    const completed = handleFileChunk(transfer.transferId, transfer.index, transfer.data)
+    const completed = handleFileChunk(key, transfer.index, transfer.data)
     if (completed) finishTransfer(completed)
   }
 }
